@@ -23,6 +23,8 @@ def make_installable_fixture(parent: Path) -> Path:
     (root / "hooks").mkdir()
     (root / "scripts").mkdir()
     (root / "integrations").mkdir()
+    (root / "assets").mkdir()
+    (root / ".github" / "workflows").mkdir(parents=True)
     (root / ".codex-plugin" / "plugin.json").write_text(
         json.dumps(
             {
@@ -30,6 +32,12 @@ def make_installable_fixture(parent: Path) -> Path:
                 "version": "1.0.0",
                 "skills": "./skills/",
                 "hooks": "./hooks/hooks.json",
+                "interface": {
+                    "composerIcon": "./assets/composer-icon.svg",
+                    "logo": "./assets/plugin-logo-light.png",
+                    "logoDark": "./assets/plugin-logo-dark.png",
+                    "screenshots": [],
+                },
             }
         ),
         encoding="utf-8",
@@ -47,6 +55,15 @@ def make_installable_fixture(parent: Path) -> Path:
     )
     (root / "scripts" / "validate_all.py").write_text("", encoding="utf-8")
     (root / "scripts" / "release_witness.py").write_text("", encoding="utf-8")
+    (root / ".github" / "workflows" / "validate.yml").write_text(
+        "name: Validate\n", encoding="utf-8"
+    )
+    for name in (
+        "composer-icon.svg",
+        "plugin-logo-light.png",
+        "plugin-logo-dark.png",
+    ):
+        (root / "assets" / name).write_text("asset", encoding="utf-8")
     (root / "integrations" / "catalog.json").write_text(
         json.dumps({"sources": []}), encoding="utf-8"
     )
@@ -110,6 +127,49 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(
             any(
                 check["name"] == "hooks" and not check["passed"]
+                for check in result["checks"]
+            )
+        )
+
+    def test_release_installation_rejects_missing_runtime_assets_and_gates(
+        self,
+    ) -> None:
+        cases = {
+            "hook-script": ("hooks/selective_hooks.py", "hook-script"),
+            "composer-icon": (
+                "assets/composer-icon.svg",
+                "interface-asset:composerIcon",
+            ),
+            "light-logo": (
+                "assets/plugin-logo-light.png",
+                "interface-asset:logo",
+            ),
+            "release-witness": ("scripts/release_witness.py", "release-witness"),
+            "ci-workflow": (".github/workflows/validate.yml", "ci-workflow"),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            for label, (relative, expected_check) in cases.items():
+                with self.subTest(label=label):
+                    root = make_installable_fixture(parent / label)
+                    (root / relative).unlink()
+                    result = doctor.validate_release_installation(root)
+                    self.assertFalse(result["passed"])
+                    self.assertTrue(
+                        any(
+                            check["name"] == expected_check and not check["passed"]
+                            for check in result["checks"]
+                        )
+                    )
+
+    def test_staged_doctor_result_must_confirm_runtime_components(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_installable_fixture(Path(temporary))
+            (root / "hooks" / "selective_hooks.py").unlink()
+            result = doctor.validate_release_installation(root)
+        self.assertTrue(
+            any(
+                check["name"] == "doctor-execution" and not check["passed"]
                 for check in result["checks"]
             )
         )

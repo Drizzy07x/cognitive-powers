@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 from datetime import datetime, timezone
@@ -137,8 +138,7 @@ def _validate_receipt(
     if (
         value.get("schemaVersion") != 1
         or value.get("kind") != "cognitive-powers-validation"
-        or not isinstance(value.get("createdAt"), str)
-        or not value["createdAt"]
+        or not _is_utc_timestamp(value.get("createdAt"))
     ):
         raise WitnessError(f"unsupported validation receipt kind: {label}")
     git = value.get("git")
@@ -190,6 +190,7 @@ def _validate_receipt(
             or command.get("passed") is not (exit_code == 0)
             or not isinstance(command.get("durationSeconds"), (int, float))
             or isinstance(command.get("durationSeconds"), bool)
+            or not math.isfinite(float(command["durationSeconds"]))
             or command["durationSeconds"] < 0
             or not _is_sha256(command.get("stdoutSha256"))
             or not _is_sha256(command.get("stderrSha256"))
@@ -219,6 +220,13 @@ def _validate_receipt(
     ):
         raise WitnessError(
             f"validation receipt offline commands are incomplete: {label}"
+        )
+    executable = offline_results[0]["command"][0]
+    if not _is_python_executable(executable) or any(
+        item["command"][0] != executable for item in offline_results
+    ):
+        raise WitnessError(
+            f"validation receipt offline executable is inconsistent: {label}"
         )
     actual_signature = [
         (item["name"], tuple(item["command"][1:])) for item in offline_results
@@ -276,6 +284,32 @@ def _is_sha256(value: Any) -> bool:
     )
 
 
+def _is_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timezone.utc.utcoffset(
+        parsed
+    )
+
+
+def _is_python_executable(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    name = Path(value).name.lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    if not name.startswith("python"):
+        return False
+    suffix = name[len("python") :]
+    return not suffix or all(
+        character.isdigit() or character == "." for character in suffix
+    )
+
+
 def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
     root = root.resolve()
     manifest_path = root / ".codex-plugin" / "plugin.json"
@@ -308,6 +342,23 @@ def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
 def verify_witness(root: Path, witness: dict[str, Any]) -> list[str]:
     root = root.resolve()
     errors: list[str] = []
+    if not isinstance(witness, dict):
+        return ["witness must be an object"]
+    try:
+        manifest = json.loads(
+            (root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        errors.append(f"cannot read plugin manifest: {error}")
+        manifest = {}
+    if witness.get("schemaVersion") != 1:
+        errors.append("unsupported witness schema")
+    if not _is_utc_timestamp(witness.get("createdAt")):
+        errors.append("witness creation timestamp is invalid")
+    if witness.get("plugin") != manifest.get("name"):
+        errors.append("witness plugin identity is absent or stale")
+    if witness.get("version") != manifest.get("version"):
+        errors.append("witness plugin version is absent or stale")
     try:
         git = repository_identity(root)
     except WitnessError as error:
@@ -317,46 +368,52 @@ def verify_witness(root: Path, witness: dict[str, Any]) -> list[str]:
         if git["dirty"]:
             errors.append("Git worktree is dirty")
         witness_git = witness.get("git")
-        if not isinstance(witness_git, dict) or witness_git.get("sha") != git["sha"]:
+        if (
+            not isinstance(witness_git, dict)
+            or witness_git.get("sha") != git["sha"]
+            or witness_git.get("dirty") is not False
+        ):
             errors.append("witness Git SHA is absent or stale")
+    current_files, source_sha256 = source_records(root)
     files = witness.get("files")
-    if not isinstance(files, list) or not files:
-        return ["witness has no files"]
-    for item in files:
-        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
-            errors.append("malformed file record")
-            continue
-        path = (root / item["path"]).resolve()
-        try:
-            path.relative_to(root)
-        except ValueError:
-            errors.append(f"file escapes plugin root: {item['path']}")
-            continue
-        if not path.is_file():
-            errors.append(f"missing file: {item['path']}")
-        elif sha256_file(path) != item.get("sha256"):
-            errors.append(f"changed file: {item['path']}")
-    _, source_sha256 = source_records(root)
+    if files != current_files:
+        errors.append("witness file inventory is stale or incomplete")
     if witness.get("sourceSha256") != source_sha256:
         errors.append("witness source identity is stale")
-    if witness.get("releaseReady") and not witness.get("validations"):
-        errors.append("releaseReady cannot be true without validations")
     validations = witness.get("validations")
-    if witness.get("releaseReady"):
-        if not isinstance(validations, list):
-            errors.append("releaseReady validations are malformed")
-        else:
-            expected_git_sha = git["sha"] if git is not None else ""
-            for index, validation in enumerate(validations, start=1):
-                try:
-                    _validate_receipt(
-                        validation,
-                        label=f"embedded validation {index}",
-                        git_sha=expected_git_sha,
-                        source_sha256=source_sha256,
-                    )
-                except WitnessError as error:
-                    errors.append(str(error))
+    if not isinstance(validations, list):
+        errors.append("witness validations are malformed")
+        validations = []
+    expected_git_sha = git["sha"] if git is not None else ""
+    valid_receipts: list[dict[str, Any]] = []
+    for index, validation in enumerate(validations, start=1):
+        try:
+            valid_receipts.append(
+                _validate_receipt(
+                    validation,
+                    label=f"embedded validation {index}",
+                    git_sha=expected_git_sha,
+                    source_sha256=source_sha256,
+                )
+            )
+        except WitnessError as error:
+            errors.append(str(error))
+    derived_release_ready = bool(validations) and len(valid_receipts) == len(
+        validations
+    )
+    derived_live_validated = derived_release_ready and all(
+        receipt.get("live", {}).get("validated") is True for receipt in valid_receipts
+    )
+    if (
+        not isinstance(witness.get("releaseReady"), bool)
+        or witness["releaseReady"] is not derived_release_ready
+    ):
+        errors.append("witness releaseReady flag is inconsistent")
+    if (
+        not isinstance(witness.get("liveIntegrationsValidated"), bool)
+        or witness["liveIntegrationsValidated"] is not derived_live_validated
+    ):
+        errors.append("witness liveIntegrationsValidated flag is inconsistent")
     return errors
 
 

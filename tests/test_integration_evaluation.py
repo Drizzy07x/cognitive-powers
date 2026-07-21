@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import math
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -109,6 +110,35 @@ class IntegrationEvaluationTests(unittest.TestCase):
             )
         self.assertEqual(exit_code, 0)
         self.assertFalse(json.loads(output.getvalue())["end_to_end_improvement_proven"])
+
+    def test_legacy_live_receipts_cannot_bypass_the_versioned_protocol(self) -> None:
+        receipts = []
+        for index in range(3):
+            pair = copy.deepcopy(self.receipts)
+            for receipt in pair:
+                receipt["case_id"] = f"legacy-live-{index}"
+                receipt["live_execution"] = True
+            receipts.extend(pair)
+
+        report = evaluation.compare(receipts, minimum_live_pairs=3)
+
+        self.assertEqual(report["live_pairs"], 3)
+        self.assertFalse(report["end_to_end_improvement_proven"])
+        self.assertIn("versioned", report["reason"])
+
+    def test_non_finite_measurements_are_rejected(self) -> None:
+        for field in (
+            "quality_score",
+            "input_tokens",
+            "output_tokens",
+            "elapsed_seconds",
+        ):
+            for value in (math.nan, math.inf, -math.inf, 10**10000):
+                with self.subTest(field=field, value=value):
+                    receipts = copy.deepcopy(self.receipts)
+                    receipts[0][field] = value
+                    with self.assertRaisesRegex(evaluation.EvaluationError, field):
+                        evaluation.compare(receipts)
 
     def test_versioned_task_definitions_cover_both_disjoint_five_category_rounds(
         self,

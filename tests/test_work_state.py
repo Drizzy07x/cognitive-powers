@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -243,6 +244,145 @@ class WorkStateTests(unittest.TestCase):
         self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
         global_completion = self.cli("complete", "--session", "demo", "--json")
         self.assertEqual(global_completion.returncode, 0, global_completion.stdout)
+
+    def test_packet_check_retries_abandoned_in_progress_runner(self) -> None:
+        initialized = self.initialize()
+        planned = self.plan_packets([self.packet_spec("p1", "source.py")])
+        self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+        started = self.cli(
+            "start-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--owner",
+            "worker",
+            "--json",
+        )
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead_pid = process.pid
+        self.assertEqual(process.wait(timeout=5), 0)
+        state_path = Path(str(initialized["state"]))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        check = state["work_packets"][0]["checks"][0]
+        check.update(
+            {
+                "status": "in_progress",
+                "attempts": 1,
+                "executor": "worker",
+                "runner_pid": dead_pid,
+            }
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        retried = self.cli(
+            "run-packet-check",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--check",
+            "k1",
+            "--executor",
+            "worker",
+            "--json",
+        )
+
+        self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        final = json.loads(state_path.read_text(encoding="utf-8"))
+        final_check = final["work_packets"][0]["checks"][0]
+        self.assertEqual(final_check["status"], "passed")
+        self.assertEqual(final_check["attempts"], 2)
+        self.assertIsNone(final_check.get("runner_pid"))
+
+    def test_packet_check_rejects_in_progress_runner_while_pid_is_alive(self) -> None:
+        initialized = self.initialize()
+        planned = self.plan_packets([self.packet_spec("p1", "source.py")])
+        self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+        started = self.cli(
+            "start-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--owner",
+            "worker",
+            "--json",
+        )
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        state_path = Path(str(initialized["state"]))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        check = state["work_packets"][0]["checks"][0]
+        check.update(
+            {
+                "status": "in_progress",
+                "attempts": 1,
+                "executor": "worker",
+                "runner_pid": os.getpid(),
+            }
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        rejected = self.cli(
+            "run-packet-check",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--check",
+            "k1",
+            "--executor",
+            "worker",
+            "--json",
+        )
+
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("runner is still alive", rejected.stdout)
+
+    def test_packet_check_recovers_when_pid_identity_was_reused(self) -> None:
+        initialized = self.initialize()
+        planned = self.plan_packets([self.packet_spec("p1", "source.py")])
+        self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+        started = self.cli(
+            "start-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--owner",
+            "worker",
+            "--json",
+        )
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        state_path = Path(str(initialized["state"]))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        check = state["work_packets"][0]["checks"][0]
+        check.update(
+            {
+                "status": "in_progress",
+                "attempts": 1,
+                "executor": "worker",
+                "runner_pid": os.getpid(),
+                "runner_identity": "reused-pid-from-another-process",
+            }
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        retried = self.cli(
+            "run-packet-check",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--check",
+            "k1",
+            "--executor",
+            "worker",
+            "--json",
+        )
+
+        self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
 
     def test_failed_packet_check_can_retry_but_owned_path_changes_make_it_stale(
         self,
@@ -1782,6 +1922,186 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
             self.assertTrue(lock_path.is_file())
 
         self.assertFalse(lock_path.exists())
+
+    def test_stale_malformed_lock_is_reclaimed(self) -> None:
+        session_dir = self.base / "malformed-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        lock_path.write_bytes(b"\xff\xfe")
+        old = work_state.time.time() - work_state.LOCK_STALE_SECONDS - 1
+        work_state.os.utime(lock_path, (old, old))
+
+        with work_state.session_lock(session_dir):
+            self.assertTrue(lock_path.is_file())
+
+        self.assertFalse(lock_path.exists())
+
+    def test_fresh_lock_from_dead_owner_is_reclaimed_immediately(self) -> None:
+        session_dir = self.base / "dead-owner-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead_pid = process.pid
+        self.assertEqual(process.wait(timeout=5), 0)
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "pid": dead_pid,
+                    "token": "abandoned-token",
+                    "created_at": "2026-07-21T00:00:00Z",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        durability = work_state._DURABILITY_CORE._durability
+        with mock.patch.object(durability, "LOCK_TIMEOUT_SECONDS", 0.15):
+            with work_state.session_lock(session_dir):
+                self.assertTrue(lock_path.is_file())
+                self.assertNotEqual(
+                    json.loads(lock_path.read_text(encoding="utf-8"))["token"],
+                    "abandoned-token",
+                )
+
+        self.assertFalse(lock_path.exists())
+
+    def test_live_lock_is_not_reclaimed_only_because_it_is_old(self) -> None:
+        session_dir = self.base / "live-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        result: list[str] = []
+
+        def contender() -> None:
+            try:
+                with work_state.session_lock(session_dir):
+                    result.append("entered")
+            except work_state.WorkStateError as error:
+                result.append(str(error))
+
+        durability = work_state._DURABILITY_CORE._durability
+        with mock.patch.object(durability, "LOCK_TIMEOUT_SECONDS", 0.15):
+            with work_state.session_lock(session_dir):
+                old = work_state.time.time() - work_state.LOCK_STALE_SECONDS - 1
+                work_state.os.utime(lock_path, (old, old))
+                thread = threading.Thread(target=contender)
+                thread.start()
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(len(result), 1)
+                self.assertIn("timed out waiting for state lock", result[0])
+
+        self.assertFalse(lock_path.exists())
+
+    def test_lock_with_reused_pid_identity_is_reclaimed(self) -> None:
+        session_dir = self.base / "reused-pid-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "pid": os.getpid(),
+                    "token": "former-owner",
+                    "process_identity": "reused-pid-from-another-process",
+                    "created_at": "2000-01-01T00:00:00Z",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with work_state.session_lock(session_dir):
+            current = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertNotEqual(current["token"], "former-owner")
+
+        self.assertFalse(lock_path.exists())
+
+    def test_live_lock_is_preserved_when_process_identity_is_temporarily_unreadable(
+        self,
+    ) -> None:
+        session_dir = self.base / "unreadable-identity-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        original = {
+            "schema_version": 1,
+            "pid": os.getpid(),
+            "token": "live-owner",
+            "process_identity": "known-creation-identity",
+            "created_at": "2000-01-01T00:00:00Z",
+        }
+        lock_path.write_text(json.dumps(original) + "\n", encoding="utf-8")
+
+        durability = work_state._DURABILITY_CORE._durability
+        with (
+            mock.patch.object(durability, "LOCK_TIMEOUT_SECONDS", 0.15),
+            mock.patch.object(durability, "_process_identity", return_value=None),
+        ):
+            with self.assertRaisesRegex(
+                work_state.WorkStateError, "timed out waiting for state lock"
+            ):
+                with work_state.session_lock(session_dir):
+                    self.fail("a live lock with unreadable identity was reclaimed")
+
+        self.assertEqual(json.loads(lock_path.read_text(encoding="utf-8")), original)
+
+    def test_lock_owner_only_removes_its_own_token(self) -> None:
+        session_dir = self.base / "token-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+
+        with work_state.session_lock(session_dir):
+            replacement = {
+                "schema_version": 1,
+                "pid": 999999,
+                "token": "replacement-token",
+                "created_at": "2026-07-21T00:00:00Z",
+            }
+            lock_path.write_text(json.dumps(replacement) + "\n", encoding="utf-8")
+
+        self.assertTrue(lock_path.is_file())
+        self.assertEqual(
+            json.loads(lock_path.read_text(encoding="utf-8"))["token"],
+            "replacement-token",
+        )
+
+    def test_source_fingerprint_fails_when_a_source_file_is_unreadable(self) -> None:
+        durability = work_state._DURABILITY_CORE._durability
+        with mock.patch.object(
+            durability, "_sha256_file", side_effect=OSError("read denied")
+        ):
+            with self.assertRaisesRegex(
+                work_state.WorkStateError, "cannot fingerprint source file.*source.py"
+            ):
+                work_state.source_fingerprint(self.workspace, self.data_root)
+
+    def test_source_fingerprint_fails_when_workspace_walk_is_incomplete(self) -> None:
+        durability = work_state._DURABILITY_CORE._durability
+
+        def denied_walk(root, *, followlinks, onerror):
+            del root, followlinks
+            onerror(PermissionError("walk denied"))
+            return iter(())
+
+        with mock.patch.object(durability.os, "walk", side_effect=denied_walk):
+            with self.assertRaisesRegex(
+                work_state.WorkStateError, "cannot enumerate workspace source"
+            ):
+                work_state.source_fingerprint(self.workspace, self.data_root)
+
+    def test_corrupt_ledger_line_is_rejected_instead_of_skipped(self) -> None:
+        session_dir = self.base / "corrupt-ledger-session"
+        session_dir.mkdir()
+        (session_dir / "ledger.jsonl").write_text(
+            '{"seq": 1, "event": "before"}\n'
+            "{broken json}\n"
+            '{"seq": 2, "event": "after"}\n',
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "line 2 is malformed"):
+            work_state._read_ledger_events(session_dir)
 
     def test_write_ahead_ledger_recovers_newer_state_snapshot(self) -> None:
         initialized = self.initialize()

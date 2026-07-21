@@ -211,6 +211,54 @@ def _declared_path(root: Path, value: str) -> Path:
     return path
 
 
+def _interface_asset_checks(
+    root: Path, manifest: dict[str, Any]
+) -> list[dict[str, Any]]:
+    interface = manifest.get("interface")
+    if interface is None:
+        return []
+    if not isinstance(interface, dict):
+        return [
+            {
+                "name": "interface-assets",
+                "passed": False,
+                "detail": "manifest interface must be an object",
+            }
+        ]
+    declarations: list[tuple[str, Any]] = [
+        (field, interface.get(field))
+        for field in ("composerIcon", "logo", "logoDark")
+        if field in interface
+    ]
+    screenshots = interface.get("screenshots", [])
+    if not isinstance(screenshots, list):
+        return [
+            {
+                "name": "interface-assets",
+                "passed": False,
+                "detail": "interface screenshots must be a list",
+            }
+        ]
+    for index, item in enumerate(screenshots):
+        value = item.get("src") if isinstance(item, dict) else item
+        declarations.append((f"screenshots[{index}]", value))
+
+    checks: list[dict[str, Any]] = []
+    for field, value in declarations:
+        check: dict[str, Any] = {"name": f"interface-asset:{field}"}
+        if not isinstance(value, str) or not value:
+            check.update(passed=False, detail="declared asset path must be a string")
+        else:
+            try:
+                path = _declared_path(root, value)
+            except DoctorError as error:
+                check.update(passed=False, detail=str(error))
+            else:
+                check.update(passed=path.is_file(), detail=value)
+        checks.append(check)
+    return checks
+
+
 def _installation_checks(staged: Path) -> list[dict[str, Any]]:
     manifest_path = staged / ".codex-plugin" / "plugin.json"
     try:
@@ -222,6 +270,8 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
         hooks_path = _declared_path(staged, str(manifest.get("hooks", "")))
     except DoctorError as error:
         return [{"name": "declared-paths", "passed": False, "detail": str(error)}]
+    hooks = hook_inventory(staged, manifest)
+    validation = validation_inventory(staged)
     checks = [
         {
             "name": "manifest",
@@ -231,13 +281,29 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
             "name": "skills",
             "passed": skills_path.is_dir() and any(skills_path.glob("*/SKILL.md")),
         },
-        {"name": "hooks", "passed": hooks_path.is_file()},
+        {
+            "name": "hooks",
+            "passed": hooks_path.is_file() and hooks.get("available") is True,
+        },
+        {
+            "name": "hook-script",
+            "passed": hooks.get("scriptAvailable") is True,
+        },
         {"name": "doctor", "passed": (staged / "scripts" / "doctor.py").is_file()},
         {
             "name": "offline-validation",
-            "passed": (staged / "scripts" / "validate_all.py").is_file(),
+            "passed": validation["components"]["offlineEntrypoint"],
+        },
+        {
+            "name": "release-witness",
+            "passed": validation["components"]["releaseWitness"],
+        },
+        {
+            "name": "ci-workflow",
+            "passed": validation["components"]["ciWorkflow"],
         },
     ]
+    checks.extend(_interface_asset_checks(staged, manifest))
     doctor_path = staged / "scripts" / "doctor.py"
     if doctor_path.is_file():
         try:
@@ -257,11 +323,38 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
             diagnosed_plugin = (
                 diagnosed.get("plugin", {}) if isinstance(diagnosed, dict) else {}
             )
+            diagnosed_skills = (
+                diagnosed.get("skills", {}) if isinstance(diagnosed, dict) else {}
+            )
+            diagnosed_hooks = (
+                diagnosed.get("hooks", {}) if isinstance(diagnosed, dict) else {}
+            )
+            diagnosed_validation = (
+                diagnosed.get("validation", {}) if isinstance(diagnosed, dict) else {}
+            )
+            diagnosed_providers = (
+                diagnosed.get("optionalProviders", {})
+                if isinstance(diagnosed, dict)
+                else {}
+            )
             executed = (
                 isinstance(diagnosed, dict)
                 and isinstance(diagnosed_plugin, dict)
                 and diagnosed_plugin.get("name") == manifest.get("name")
+                and diagnosed_plugin.get("version") == manifest.get("version")
                 and diagnosed.get("readOnly") is True
+                and isinstance(diagnosed_skills, dict)
+                and isinstance(diagnosed_skills.get("count"), int)
+                and diagnosed_skills["count"] > 0
+                and isinstance(diagnosed_hooks, dict)
+                and diagnosed_hooks.get("available") is True
+                and diagnosed_hooks.get("scriptAvailable") is True
+                and isinstance(diagnosed_validation, dict)
+                and diagnosed_validation.get("available") is True
+                and isinstance(diagnosed_providers, dict)
+                and diagnosed_providers.get("networkProbed") is False
+                and diagnosed_providers.get("executablesProbed") is False
+                and diagnosed_providers.get("installationAttempted") is False
             )
             detail = None if executed else (completed.stderr or completed.stdout)[-500:]
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:

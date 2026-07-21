@@ -64,3 +64,5 @@ Do not turn an audit recommendation directly into an active capability. Advance 
 - `retired` requires an executed rollback with evidence.
 
 The lifecycle script emits a hashed transition receipt. It does not install, activate, retire, or roll back a skill itself.
+
+Every transition after the initial `observed` receipt must provide the immediately preceding receipt as `previous_receipt`. The script verifies its hash, capability identity, established state, next state, approved-transition marker, and chain fingerprint, then binds its fingerprint into the new receipt. For migration, an unchained schema-1 receipt may seed only the `observed → candidate` transition; later legacy receipts must be replayed from `observed` so an asserted `current_state` cannot bypass the lifecycle.

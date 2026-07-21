@@ -77,6 +77,14 @@ def _normalize(record, scope):
     rec["confidence"] = CONF.get(str(rec["confidence"]).lower(), "unknown")
     if not isinstance(rec["supersedes"], list):
         raise MemoryContextError("supersedes must be a list")
+    if not isinstance(rec["id"], str) or not rec["id"].strip():
+        raise MemoryContextError("record id must be a non-empty string")
+    rec["id"] = rec["id"].strip()
+    if not isinstance(rec["content"], str):
+        raise MemoryContextError("record content must be a string")
+    if not all(isinstance(item, str) and item.strip() for item in rec["supersedes"]):
+        raise MemoryContextError("supersedes must contain non-empty string ids")
+    rec["supersedes"] = [item.strip() for item in rec["supersedes"]]
     if not isinstance(rec["source_sha256"], str) or not re.fullmatch(
         r"[0-9a-fA-F]{64}", rec["source_sha256"]
     ):
@@ -156,7 +164,15 @@ def write_native(
             else {"schema_version": 1, "records": []}
         )
         records = payload.setdefault("records", [])
-        records[:] = [x for x in records if x.get("id") != rec["id"]]
+        records[:] = [
+            item
+            for item in records
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get("id"), str)
+                and item["id"].strip() == rec["id"]
+            )
+        ]
         records.append(rec)
         _atomic_json(path, payload)
     else:
@@ -164,6 +180,15 @@ def write_native(
         with closing(sqlite3.connect(path)) as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, project_scope TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL, timestamp TEXT NOT NULL, source_sha256 TEXT NOT NULL, confidence TEXT NOT NULL, expires_at TEXT NOT NULL, supersedes TEXT NOT NULL)"
+            )
+            legacy_ids = [
+                row[0]
+                for row in db.execute("SELECT id FROM memories").fetchall()
+                if isinstance(row[0], str) and row[0].strip() == rec["id"]
+            ]
+            db.executemany(
+                "DELETE FROM memories WHERE id = ?",
+                ((record_id,) for record_id in legacy_ids),
             )
             db.execute(
                 "INSERT OR REPLACE INTO memories VALUES (?,?,?,?,?,?,?,?,?)",
@@ -239,7 +264,7 @@ def _tokens(text):
 
 def _filter(records, scope, query, limit):
     now = datetime.now(timezone.utc)
-    valid = []
+    normalized = []
     warnings = []
     metrics = {
         "scanned_records": len(records),
@@ -252,6 +277,10 @@ def _filter(records, scope, query, limit):
     }
     seen_ids = set()
     for raw in records:
+        if not isinstance(raw, dict):
+            warnings.append("memory record must be an object")
+            metrics["malformed_records"] += 1
+            continue
         if raw.get("project_scope") != scope:
             continue
         metrics["scope_matched_records"] += 1
@@ -264,24 +293,32 @@ def _filter(records, scope, query, limit):
             warnings.append(str(exc))
             metrics["malformed_records"] += 1
             continue
-        overlap = len(_tokens(query) & _tokens(rec["content"]))
-        if overlap == 0:
-            continue
-        metrics["query_matched_records"] += 1
-        score = (
-            overlap * 10
-            + {"high": 3, "medium": 2, "low": 1, "unknown": 0}[rec["confidence"]]
-        )
-        rec["score"] = score
         if rec["id"] in seen_ids:
             metrics["duplicate_id_records"] += 1
             warnings.append(f"duplicate memory record id ignored: {rec['id']}")
             continue
         seen_ids.add(rec["id"])
+        normalized.append(rec)
+    superseded = {item_id for rec in normalized for item_id in rec["supersedes"]}
+    metrics["superseded_records"] = sum(rec["id"] in superseded for rec in normalized)
+    valid = []
+    for rec in normalized:
+        if rec["id"] in superseded:
+            continue
+        overlap = len(_tokens(query) & _tokens(rec["content"]))
+        if overlap == 0:
+            continue
+        metrics["query_matched_records"] += 1
+        rec["score"] = (
+            overlap * 10
+            + {
+                "high": 3,
+                "medium": 2,
+                "low": 1,
+                "unknown": 0,
+            }[rec["confidence"]]
+        )
         valid.append(rec)
-    superseded = {x for r in valid for x in r["supersedes"]}
-    metrics["superseded_records"] = sum(r["id"] in superseded for r in valid)
-    valid = [r for r in valid if r["id"] not in superseded]
     valid.sort(key=lambda r: (-r["score"], r["id"]))
     selected = valid[:limit]
     metrics["selected_records"] = len(selected)

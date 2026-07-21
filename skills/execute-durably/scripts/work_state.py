@@ -62,6 +62,9 @@ source_fingerprint = _DURABILITY_CORE.source_fingerprint
 _atomic_write_text = _DURABILITY_CORE._atomic_write_text
 _atomic_write_json = _DURABILITY_CORE._atomic_write_json
 session_lock = _DURABILITY_CORE.session_lock
+_process_is_alive = _DURABILITY_CORE._durability._process_is_alive
+_process_identity = _DURABILITY_CORE._durability._process_identity
+_process_matches_identity = _DURABILITY_CORE._durability._process_matches_identity
 _state_path = _DURABILITY_CORE._state_path
 _read_ledger_events = _DURABILITY_CORE._read_ledger_events
 _latest_ledger_snapshot = _DURABILITY_CORE._latest_ledger_snapshot
@@ -1230,14 +1233,42 @@ def run_packet_check(args: argparse.Namespace) -> tuple[dict[str, object], int]:
                 f"only packet owner {packet.get('owner')} may run checks"
             )
         check = _packet_check(packet, check_id)
-        if check.get("status") not in {"pending", "failed"}:
+        recovered_abandoned = False
+        previous_runner_pid = None
+        if check.get("status") == "in_progress":
+            previous_runner_pid = check.get("runner_pid")
+            previous_runner_identity = check.get("runner_identity")
+            if (
+                isinstance(previous_runner_pid, int)
+                and not isinstance(previous_runner_pid, bool)
+                and _process_matches_identity(
+                    previous_runner_pid,
+                    previous_runner_identity
+                    if isinstance(previous_runner_identity, str)
+                    else None,
+                )
+            ):
+                raise WorkStateError(
+                    f"packet {packet_id} check {check_id} runner is still alive: "
+                    f"pid {previous_runner_pid}"
+                )
+            recovered_abandoned = True
+        elif check.get("status") not in {"pending", "failed"}:
             raise WorkStateError(
                 f"packet {packet_id} check {check_id} cannot run from "
                 f"{check.get('status')}"
             )
         attempt = int(check.get("attempts", 0)) + 1
         check.update(
-            {"status": "in_progress", "attempts": attempt, "executor": executor}
+            {
+                "status": "in_progress",
+                "attempts": attempt,
+                "executor": executor,
+                "runner_pid": os.getpid(),
+                "runner_identity": _process_identity(os.getpid()),
+                "receipt": None,
+                "receipt_sha256": None,
+            }
         )
         command = list(check["argv"])
         save_state_with_event(
@@ -1248,6 +1279,8 @@ def run_packet_check(args: argparse.Namespace) -> tuple[dict[str, object], int]:
             check_id=check_id,
             executor=executor,
             attempt=attempt,
+            recovered_abandoned=recovered_abandoned,
+            previous_runner_pid=previous_runner_pid,
         )
     stdout, stderr, exit_code, command_started = _execute_command(command, root)
     owned_fingerprint = _owned_paths_fingerprint(root, packet["owned_paths"])
@@ -1283,11 +1316,15 @@ def run_packet_check(args: argparse.Namespace) -> tuple[dict[str, object], int]:
             check.get("status") != "in_progress"
             or check.get("attempts") != attempt
             or check.get("executor") != executor
+            or check.get("runner_pid") != os.getpid()
+            or check.get("runner_identity") != _process_identity(os.getpid())
         ):
             raise WorkStateError(
                 "packet check changed while evidence was being captured"
             )
         check["status"] = "passed" if passed else "failed"
+        check["runner_pid"] = None
+        check["runner_identity"] = None
         check["receipt"] = receipt_relative.as_posix()
         check["receipt_sha256"] = receipt_hash
         save_state_with_event(

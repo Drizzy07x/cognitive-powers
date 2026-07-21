@@ -108,11 +108,18 @@ class ContextReceipt:
         unknown = consumed - known
         if unknown:
             raise ValueError(f"cannot consume unknown context items: {sorted(unknown)}")
+        selected = {
+            decision.item_id
+            for decision in self.decisions
+            if decision.status in {"included", "truncated"}
+        }
+        unselected = consumed - selected
+        if unselected:
+            raise ValueError(
+                f"cannot consume unselected context items: {sorted(unselected)}"
+            )
         for decision in self.decisions:
-            if decision.item_id in consumed and decision.status in {
-                "included",
-                "truncated",
-            }:
+            if decision.item_id in consumed:
                 decision.consumed = True
 
     def mark_usefulness(self, item_ids: Iterable[str], usefulness: str) -> None:
@@ -382,10 +389,26 @@ class ContextPipeline:
             raise ValueError(
                 f"context items have invalid valid_until timestamps: {invalid_expiry}"
             )
-        processed = original
+        current_time = _utc_now()
+        expired_ids = {
+            item.item_id
+            for item in original
+            if (valid_until := _parse_timestamp(item.metadata.get("valid_until")))
+            is not None
+            and valid_until <= current_time
+        }
+        processed = tuple(item for item in original if item.item_id not in expired_ids)
         for processor in self.processors:
             processed = tuple(processor.process(processed, query))
             _require_unique_ids(processed, _name(processor))
+            reintroduced_expired = {
+                item.item_id for item in processed if item.item_id in expired_ids
+            }
+            if reintroduced_expired:
+                raise ValueError(
+                    "processors reintroduced expired context item ids: "
+                    f"{sorted(reintroduced_expired)}"
+                )
 
         original_by_id = {item.item_id: item for item in original}
         unknown = {item.item_id for item in processed} - set(original_by_id)
@@ -394,6 +417,8 @@ class ContextPipeline:
                 f"processors introduced unknown item ids: {sorted(unknown)}"
             )
         selection = self.selector.select(processed, query, budget)
+        if not isinstance(selection, ContextSelection):
+            raise ValueError("selector must return ContextSelection")
         selected_ids = [item.item_id for item in selection.items]
         if len(selected_ids) != len(set(selected_ids)):
             raise ValueError("selector returned duplicate item ids")
@@ -402,9 +427,7 @@ class ContextPipeline:
             raise ValueError("selector returned unknown item ids")
 
         decisions = list(selection.decisions)
-        decided = {decision.item_id for decision in decisions}
-        if decided != processed_ids:
-            raise ValueError("selector must decide every processed item exactly once")
+        _validate_selection(processed, selection, budget)
         for item in original:
             if item.item_id not in processed_ids:
                 decisions.append(
@@ -412,7 +435,11 @@ class ContextPipeline:
                         item_id=item.item_id,
                         source=item.source,
                         status="excluded",
-                        reason="processor_filtered",
+                        reason=(
+                            "expired"
+                            if item.item_id in expired_ids
+                            else "processor_filtered"
+                        ),
                         original_chars=len(item.content),
                         selected_chars=0,
                         content_sha256=_content_hash(item.content),
@@ -421,12 +448,11 @@ class ContextPipeline:
         decisions.sort(
             key=lambda decision: list(original_by_id).index(decision.item_id)
         )
-        current_time = _utc_now()
         for decision in decisions:
             valid_until = _parse_timestamp(
                 original_by_id[decision.item_id].metadata.get("valid_until")
             )
-            decision.stale = valid_until is not None and valid_until < current_time
+            decision.stale = valid_until is not None and valid_until <= current_time
         receipt = ContextReceipt(
             schema_version=1,
             query=query,
@@ -447,6 +473,65 @@ def _require_unique_ids(items: Sequence[ContextItem], stage: str) -> None:
     duplicates = sorted({item_id for item_id in ids if ids.count(item_id) > 1})
     if duplicates:
         raise ValueError(f"{stage} returned duplicate item ids: {duplicates}")
+
+
+def _validate_selection(
+    processed: Sequence[ContextItem],
+    selection: ContextSelection,
+    budget: ContextBudget,
+) -> None:
+    """Reject selector output that cannot support a truthful receipt."""
+
+    decision_ids = [decision.item_id for decision in selection.decisions]
+    processed_by_id = {item.item_id: item for item in processed}
+    if len(decision_ids) != len(set(decision_ids)) or set(decision_ids) != set(
+        processed_by_id
+    ):
+        raise ValueError(
+            "selector decisions must cover each processed item exactly once"
+        )
+    if len(selection.items) > budget.max_items:
+        raise ValueError("selector selection exceeds item budget")
+    rendered_chars = (
+        sum(len(item.content) for item in selection.items)
+        + max(0, len(selection.items) - 1) * 2
+    )
+    if rendered_chars > budget.max_chars:
+        raise ValueError("selector selection exceeds character budget")
+
+    selected_by_id = {item.item_id: item for item in selection.items}
+    for decision in selection.decisions:
+        original = processed_by_id[decision.item_id]
+        selected = selected_by_id.get(decision.item_id)
+        common_valid = (
+            decision.source == original.source
+            and decision.original_chars == len(original.content)
+            and decision.content_sha256 == _content_hash(original.content)
+            and 0 <= decision.selected_chars <= decision.original_chars
+            and decision.consumed is False
+            and decision.usefulness == "unknown"
+            and decision.stale is False
+        )
+        if not common_valid:
+            raise ValueError("selector decisions do not match processed context")
+        if selected is None:
+            if decision.status != "excluded" or decision.selected_chars != 0:
+                raise ValueError("selector decisions do not match selection")
+            continue
+        if selected.source != original.source or decision.selected_chars != len(
+            selected.content
+        ):
+            raise ValueError("selector decisions do not match selection")
+        if decision.status == "included":
+            valid_content = selected.content == original.content
+        elif decision.status == "truncated":
+            valid_content = len(selected.content) < len(
+                original.content
+            ) and original.content.startswith(selected.content)
+        else:
+            valid_content = False
+        if not valid_content:
+            raise ValueError("selector decisions do not match selection")
 
 
 def lint_context(
@@ -480,7 +565,7 @@ def lint_context(
                     f"{item.item_id} has an invalid valid_until timestamp",
                 )
             )
-        if valid_until is not None and valid_until < current_time:
+        if valid_until is not None and valid_until <= current_time:
             issues.append(
                 ContextLintIssue(
                     "stale",

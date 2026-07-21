@@ -124,6 +124,7 @@
       "negatives": [
         {"prompt": "Keep this long job alive across multiple compactions", "owner": "execute-durably"},
         {"prompt": "Diagnose the unknown cause without implementing a fix", "owner": "diagnose-systematically"},
+        {"prompt": "The label solve-efficiently-ish is irrelevant; diagnose an intermittent unknown root cause without implementing", "owner": "diagnose-systematically"},
         {"prompt": "Conduct a reproducible comparative research study; do not merely execute project work", "owner": "research-systematically"},
         {"prompt": "Audit whether the claimed implementation is actually complete", "owner": "verify-delivery"}
       ],

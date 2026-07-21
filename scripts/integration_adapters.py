@@ -51,6 +51,22 @@ SPECS = {
     ),
 }
 
+CONTEXT_MODE_TOOL_OPERATIONS = frozenset(
+    {
+        "ctx_batch_execute",
+        "ctx_doctor",
+        "ctx_execute",
+        "ctx_execute_file",
+        "ctx_fetch_and_index",
+        "ctx_index",
+        "ctx_insight",
+        "ctx_purge",
+        "ctx_search",
+        "ctx_stats",
+        "ctx_upgrade",
+    }
+)
+
 
 class AdapterError(ValueError):
     """Raised for an unknown or malformed optional integration."""
@@ -60,6 +76,21 @@ def _redact_config(value: str) -> str:
     if value.startswith(("http://", "https://")):
         return value.split("?", 1)[0]
     return str(Path(value).expanduser())
+
+
+def _is_context_mode_tool(tool: object) -> bool:
+    if not isinstance(tool, str):
+        return False
+    operation = tool
+    for prefix in (
+        "mcp__context_mode__",
+        "mcp__context-mode__",
+        "context_mode.",
+    ):
+        if operation.startswith(prefix):
+            operation = operation[len(prefix) :]
+            break
+    return operation in CONTEXT_MODE_TOOL_OPERATIONS
 
 
 def probe(
@@ -81,13 +112,7 @@ def probe(
     tool_matches = sorted(
         tool
         for tool in available_tools
-        if name == "context-mode"
-        and (
-            tool.startswith("mcp__context_mode__")
-            or tool.startswith("mcp__context-mode__")
-            or tool.startswith("context_mode.")
-            or tool.startswith("ctx_")
-        )
+        if name == "context-mode" and _is_context_mode_tool(tool)
     )
     available = executable is not None or configured or bool(tool_matches)
     result: dict[str, object] = {

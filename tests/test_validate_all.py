@@ -47,9 +47,15 @@ class ValidateAllTests(unittest.TestCase):
     def test_readme_offline_list_matches_orchestrator(self) -> None:
         lines = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
         declared: list[tuple[str, ...]] = []
+        saw_canonical_surface = False
         in_validate_block = False
         for line in lines:
-            if line == "```powershell" and not in_validate_block:
+            if line.startswith(
+                "The canonical offline surface executed by that entrypoint"
+            ):
+                saw_canonical_surface = True
+                continue
+            if saw_canonical_surface and line == "```powershell":
                 in_validate_block = True
                 continue
             if in_validate_block and line == "```":

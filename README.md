@@ -16,7 +16,16 @@ Use the smallest flow that fits the work:
 
 These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
 
-Version 1.3 provides:
+Version 1.4 adds fail-closed evidence and result-quality boundaries:
+
+- Legacy or non-finite evaluation data cannot prove end-to-end improvement; only a complete versioned v2 promotion protocol is claim-eligible.
+- Context selectors must produce a one-to-one, budget-respecting receipt, and excluded context cannot be reported as consumed.
+- Memory supersession is resolved before lexical filtering so an obsolete decision cannot reappear merely because its replacement uses different words.
+- Release witnesses re-derive manifest identity, source inventory, validation commands, and live status instead of trusting mutable summary fields.
+- Disposable installation checks cover declared assets, hook runtime files, and every validation component.
+- Durable locks retain live owners, source fingerprints fail on unreadable files, WAL corruption fails closed, and capability transitions form a receipt chain.
+
+The broader Cognitive Powers surface includes:
 
 - A typed context pipeline with ordered providers and processors, strict character budgets, per-item inclusion receipts, and deterministic lint for duplicates, contradictions, expiry, and unused context.
 - A routing benchmark for every installed skill with positive, negative-owner, adversarial-pressure, rank-1, top-k, and collision cases without claiming end-to-end model improvement.
@@ -73,6 +82,17 @@ Version 1.3 provides:
 The current tests validate plugin structure, context selection, state transitions, real exit-code capture, evidence integrity, and completion gates. They do not yet prove an end-to-end improvement in model quality or token usage.
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
+
+## Update the local Codex installation
+
+After the source version passes validation, refresh the configured local marketplace installation through Codex itself:
+
+```powershell
+codex plugin add cognitive-powers@personal --json
+codex plugin list --json
+```
+
+The installed entry must report the same version as `.codex-plugin/plugin.json`. Restart Codex after an update so new skill instructions and plugin files are loaded into subsequent tasks.
 
 ## Doctor
 

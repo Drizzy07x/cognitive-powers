@@ -62,6 +62,71 @@ class MemoryTests(unittest.TestCase):
             mod.undo_native(store, second)
         self.assertTrue(first["after_sha256"])
 
+    def test_supersession_applies_before_query_filtering(self):
+        store = self.root / "m.json"
+        old = self.rec("old")
+        old["content"] = "pytest is required"
+        replacement = self.rec("replacement", supersedes=["old"])
+        replacement["content"] = "migrated to unittest"
+        mod.write_native(store, old, project_scope="p")
+        mod.write_native(store, replacement, project_scope="p")
+
+        got = mod.retrieve(
+            store, "pytest", project_scope="p", demand=True, include_usage=True
+        )
+
+        self.assertEqual(got["results"], [])
+        self.assertEqual(got["usage_metrics"]["superseded_records"], 1)
+
+    def test_whitespace_ids_cannot_bypass_supersession(self):
+        store = self.root / "m.json"
+        old = self.rec("old ")
+        old["content"] = "pytest is required"
+        replacement = self.rec("replacement", supersedes=[" old "])
+        replacement["content"] = "migrated to unittest"
+        mod.write_native(store, old, project_scope="p")
+        mod.write_native(store, replacement, project_scope="p")
+
+        got = mod.retrieve(store, "pytest", project_scope="p", demand=True)
+
+        self.assertEqual(got["results"], [])
+
+    def test_json_write_replaces_legacy_whitespace_id(self):
+        store = self.root / "m.json"
+        mod.write_native(store, self.rec("old"), project_scope="p")
+        payload = json.loads(store.read_text(encoding="utf-8"))
+        payload["records"][0]["id"] = "old "
+        payload["records"][0]["content"] = "obsolete legacy content"
+        store.write_text(json.dumps(payload), encoding="utf-8")
+        updated = self.rec("old")
+        updated["content"] = "updated canonical content"
+
+        mod.write_native(store, updated, project_scope="p")
+
+        records = json.loads(store.read_text(encoding="utf-8"))["records"]
+        self.assertEqual(
+            [(item["id"], item["content"]) for item in records],
+            [("old", "updated canonical content")],
+        )
+
+    def test_sqlite_write_replaces_legacy_whitespace_id(self):
+        store = self.root / "m.sqlite"
+        mod.write_native(store, self.rec("old"), project_scope="p", provider="sqlite")
+        with mod.closing(mod.sqlite3.connect(store)) as db:
+            db.execute(
+                "UPDATE memories SET id = ?, content = ? WHERE id = ?",
+                ("old ", "obsolete legacy content", "old"),
+            )
+            db.commit()
+        updated = self.rec("old")
+        updated["content"] = "updated canonical content"
+
+        mod.write_native(store, updated, project_scope="p", provider="sqlite")
+
+        with mod.closing(mod.sqlite3.connect(store)) as db:
+            rows = db.execute("SELECT id, content FROM memories").fetchall()
+        self.assertEqual(rows, [("old", "updated canonical content")])
+
     def test_undo_restores_previous_state(self):
         store = self.root / "m.json"
         mod.write_native(store, self.rec(), project_scope="p")
@@ -186,6 +251,34 @@ class MemoryTests(unittest.TestCase):
                 memu_executable="memu",
                 runner=lambda *_args, **_kwargs: CP(),
             )
+
+    def test_malformed_provider_records_are_counted_and_skipped(self):
+        record = self.rec()
+
+        class CP:
+            returncode = 0
+            stderr = ""
+            stdout = json.dumps(
+                {
+                    "segments": ["not-an-object", record],
+                    "files": [{**record, "id": [], "supersedes": [{}]}],
+                }
+            )
+
+        payload = mod.retrieve(
+            None,
+            "alpha",
+            project_scope="p",
+            demand=True,
+            provider="memu",
+            memu_executable="memu",
+            runner=lambda *_args, **_kwargs: CP(),
+            include_usage=True,
+        )
+
+        self.assertEqual([item["id"] for item in payload["results"]], ["one"])
+        self.assertEqual(payload["usage_metrics"]["malformed_records"], 2)
+        self.assertEqual(len(payload["warnings"]), 2)
 
     def test_memu_timeout_is_reported_as_memory_error(self):
         def timeout_runner(command, **_kwargs):

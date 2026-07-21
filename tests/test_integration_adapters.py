@@ -63,6 +63,7 @@ class IntegrationAdapterTests(unittest.TestCase):
         for tool_name in (
             "mcp__context_mode__ctx_execute",
             "mcp__context-mode__ctx_execute",
+            "context_mode.ctx_search",
             "ctx_execute",
         ):
             with self.subTest(tool_name=tool_name):
@@ -73,6 +74,18 @@ class IntegrationAdapterTests(unittest.TestCase):
                 self.assertEqual(result["toolSurface"], [tool_name])
                 self.assertFalse(result["liveValidated"])
                 self.assertFalse(result["installedByProbe"])
+
+    def test_unrelated_ctx_prefix_does_not_claim_context_mode(self) -> None:
+        for tool_name in (
+            "ctx_unrelated_plugin",
+            "mcp__context_mode__unrelated",
+            "context_mode.ctx_execute_extra",
+        ):
+            with self.subTest(tool_name=tool_name):
+                with patch.object(adapters.shutil, "which", return_value=None):
+                    result = adapters.probe("context-mode", available_tools=[tool_name])
+                self.assertFalse(result["available"])
+                self.assertNotIn("toolSurface", result)
 
 
 if __name__ == "__main__":

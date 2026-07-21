@@ -138,9 +138,9 @@ class ContextPipelineTests(unittest.TestCase):
         self.assertEqual(codes.count("duplicate"), 1)
         self.assertEqual(codes.count("contradiction"), 1)
         self.assertEqual(codes.count("stale"), 1)
-        self.assertEqual(codes.count("unconsumed"), 2)
+        self.assertEqual(codes.count("unconsumed"), 1)
 
-        result.receipt.mark_consumed(["old-a", "new-b"])
+        result.receipt.mark_consumed(["new-b"])
         relinted = pipeline.lint_context(items, result.receipt)
         self.assertNotIn("unconsumed", [issue.code for issue in relinted])
 
@@ -156,6 +156,102 @@ class ContextPipelineTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown context items"):
             result.receipt.mark_consumed(["missing"])
+
+    def test_mark_consumed_rejects_context_that_was_not_selected(self) -> None:
+        runner = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider(
+                [
+                    pipeline.ContextItem("selected", "s", "selected"),
+                    pipeline.ContextItem("excluded", "s", "excluded"),
+                ]
+            ),
+            [],
+            pipeline.RankedBudgetSelector(),
+        )
+        result = runner.run("selected", pipeline.ContextBudget(100, 1))
+
+        with self.assertRaisesRegex(ValueError, "unselected context items"):
+            result.receipt.mark_consumed(["excluded"])
+
+    def test_pipeline_rejects_selector_decisions_that_do_not_match_selection(
+        self,
+    ) -> None:
+        class ForgedSelector:
+            def select(self, items, query, budget):
+                del query, budget
+                item = items[0]
+                forged = pipeline.ContextDecision(
+                    item_id=item.item_id,
+                    source="wrong-source",
+                    status="excluded",
+                    reason="forged",
+                    original_chars=len(item.content),
+                    selected_chars=0,
+                    content_sha256="0" * 64,
+                )
+                return pipeline.ContextSelection((item,), (forged, forged))
+
+        runner = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider(
+                [pipeline.ContextItem("selected", "source", "selected")]
+            ),
+            [],
+            ForgedSelector(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "selector decisions"):
+            runner.run("selected", pipeline.ContextBudget(100, 1))
+
+    def test_pipeline_rejects_preclassified_or_consumed_selector_decisions(
+        self,
+    ) -> None:
+        item = pipeline.ContextItem("item", "source", "value")
+
+        class PreclassifiedSelector:
+            def __init__(self, *, selected, status, consumed, usefulness):
+                self.selected = selected
+                self.status = status
+                self.consumed = consumed
+                self.usefulness = usefulness
+
+            def select(self, items, query, budget):
+                del query, budget
+                decision = pipeline.ContextDecision(
+                    item_id=items[0].item_id,
+                    source=items[0].source,
+                    status=self.status,
+                    reason="preclassified",
+                    original_chars=len(items[0].content),
+                    selected_chars=len(items[0].content) if self.selected else 0,
+                    content_sha256=pipeline._content_hash(items[0].content),
+                    consumed=self.consumed,
+                    usefulness=self.usefulness,
+                )
+                return pipeline.ContextSelection(
+                    (items[0],) if self.selected else (), (decision,)
+                )
+
+        cases = (
+            PreclassifiedSelector(
+                selected=False,
+                status="excluded",
+                consumed=True,
+                usefulness="unknown",
+            ),
+            PreclassifiedSelector(
+                selected=True,
+                status="included",
+                consumed=False,
+                usefulness="useful",
+            ),
+        )
+        for selector in cases:
+            with self.subTest(status=selector.status, usefulness=selector.usefulness):
+                runner = pipeline.ContextPipeline(
+                    pipeline.StaticContextProvider([item]), [], selector
+                )
+                with self.assertRaisesRegex(ValueError, "selector decisions"):
+                    runner.run("value", pipeline.ContextBudget(100, 1))
 
     def test_usage_metrics_require_consumption_before_usefulness(self) -> None:
         item = pipeline.ContextItem("known", "s", "value")
@@ -185,8 +281,32 @@ class ContextPipelineTests(unittest.TestCase):
             pipeline.RankedBudgetSelector(),
         ).run("value", pipeline.ContextBudget(100, 1))
 
-        self.assertTrue(result.receipt.decisions[0].stale)
+        decision = result.receipt.decisions[0]
+        self.assertEqual(result.items, ())
+        self.assertEqual(decision.status, "excluded")
+        self.assertEqual(decision.reason, "expired")
+        self.assertTrue(decision.stale)
+        self.assertEqual(result.receipt.selected_items, 0)
         self.assertEqual(result.receipt.usage_metrics()["stale_items"], 1)
+
+    def test_processor_cannot_reintroduce_expired_context(self) -> None:
+        expired = pipeline.ContextItem(
+            "expired", "s", "old value", {"valid_until": "2000-01-01T00:00:00Z"}
+        )
+
+        class ReintroduceExpired:
+            def process(self, items, query):
+                del query
+                return (*items, expired)
+
+        runner = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider([expired]),
+            [ReintroduceExpired()],
+            pipeline.RankedBudgetSelector(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "reintroduced expired"):
+            runner.run("value", pipeline.ContextBudget(100, 1))
 
     def test_pipeline_rejects_malformed_expiry_fail_closed(self) -> None:
         item = pipeline.ContextItem(

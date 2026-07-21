@@ -16,7 +16,7 @@ class PluginContractTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.3.0")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.4.0")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills").is_dir())
@@ -199,6 +199,8 @@ class PluginContractTests(unittest.TestCase):
             self.assertIn(section, text)
         self.assertIn("scripts/validate_all.py --offline", text)
         self.assertIn("scripts/doctor.py --validate-installation", text)
+        self.assertIn("codex plugin add cognitive-powers@personal --json", text)
+        self.assertIn("codex plugin list --json", text)
         self.assertIn("No product screenshots are claimed", text)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
+import errno
 import hashlib
 import json
 import os
 import re
+import secrets
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -177,7 +181,15 @@ def source_fingerprint(root: Path, data_root: Path) -> dict[str, object]:
         )
     aggregate = hashlib.sha256()
     file_count = 0
-    for current, directories, filenames in os.walk(root, followlinks=False):
+
+    def walk_error(error: OSError) -> None:
+        raise WorkStateError(
+            f"cannot enumerate workspace source under {root}: {error}"
+        ) from error
+
+    for current, directories, filenames in os.walk(
+        root, followlinks=False, onerror=walk_error
+    ):
         current_path = Path(current)
         directories[:] = sorted(
             directory
@@ -195,8 +207,10 @@ def source_fingerprint(root: Path, data_root: Path) -> dict[str, object]:
             try:
                 relative = path.relative_to(root).as_posix()
                 file_digest = _sha256_file(path)
-            except (OSError, PermissionError):
-                continue
+            except OSError as error:
+                raise WorkStateError(
+                    f"cannot fingerprint source file {path}: {error}"
+                ) from error
             aggregate.update(relative.encode("utf-8"))
             aggregate.update(b"\0")
             aggregate.update(file_digest.encode("ascii"))
@@ -223,38 +237,240 @@ def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
     _atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
+def _process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        open_process.restype = ctypes.c_void_p
+        get_exit_code = kernel32.GetExitCodeProcess
+        get_exit_code.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        get_exit_code.restype = ctypes.c_int
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [ctypes.c_void_p]
+        close_handle.restype = ctypes.c_int
+        handle = open_process(0x1000, 0, pid)
+        if not handle:
+            return ctypes.get_last_error() == 5
+        try:
+            exit_code = ctypes.c_ulong()
+            if not get_exit_code(handle, ctypes.byref(exit_code)):
+                return True
+            return exit_code.value == 259
+        finally:
+            close_handle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as error:
+        return error.errno != errno.ESRCH
+    return True
+
+
+def _process_identity(pid: int) -> str | None:
+    """Return a PID-reuse-resistant process creation identity when available."""
+
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", ctypes.c_ulong), ("high", ctypes.c_ulong)]
+
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        open_process.restype = ctypes.c_void_p
+        get_process_times = kernel32.GetProcessTimes
+        get_process_times.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+            ctypes.POINTER(FileTime),
+        ]
+        get_process_times.restype = ctypes.c_int
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [ctypes.c_void_p]
+        close_handle.restype = ctypes.c_int
+        handle = open_process(0x1000, 0, pid)
+        if not handle:
+            return None
+        try:
+            creation = FileTime()
+            exit_time = FileTime()
+            kernel_time = FileTime()
+            user_time = FileTime()
+            if not get_process_times(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time),
+                ctypes.byref(user_time),
+            ):
+                return None
+            created = (creation.high << 32) | creation.low
+            return f"windows-filetime:{created}"
+        finally:
+            close_handle(handle)
+
+    proc_stat = Path(f"/proc/{pid}/stat")
+    try:
+        raw = proc_stat.read_text(encoding="utf-8")
+    except OSError:
+        raw = ""
+    if raw:
+        closing = raw.rfind(")")
+        fields = raw[closing + 1 :].split() if closing >= 0 else []
+        if len(fields) > 19:
+            return f"proc-start-ticks:{fields[19]}"
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    started = " ".join(completed.stdout.split())
+    return f"ps-lstart:{started}" if completed.returncode == 0 and started else None
+
+
+def _process_matches_identity(pid: int, expected: str | None) -> bool:
+    if not _process_is_alive(pid):
+        return False
+    if expected is None:
+        return True
+    current = _process_identity(pid)
+    if current is None:
+        # An inaccessible creation time is not evidence that a live PID was reused.
+        # Preserve ownership until the process dies or an actual mismatch is observed.
+        return True
+    return secrets.compare_digest(current, expected)
+
+
+def _read_lock_identity(
+    lock_path: Path,
+) -> tuple[int | None, str | None, str | None, str]:
+    raw_bytes = lock_path.read_bytes()
+    identity = hashlib.sha256(raw_bytes).hexdigest()
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, None, None, identity
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        fields = raw.split()
+        try:
+            pid = int(fields[0])
+        except (IndexError, ValueError):
+            pid = None
+        return pid, None, None, identity
+    if not isinstance(payload, dict):
+        return None, None, None, identity
+    pid = payload.get("pid")
+    token = payload.get("token")
+    process_identity = payload.get("process_identity")
+    return (
+        pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
+        token if isinstance(token, str) and token else None,
+        process_identity
+        if isinstance(process_identity, str) and process_identity
+        else None,
+        identity,
+    )
+
+
+def _unlink_lock_if_identity(lock_path: Path, identity: str) -> bool:
+    try:
+        current = hashlib.sha256(lock_path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return False
+    if current != identity:
+        return False
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 @contextlib.contextmanager
 def session_lock(session_dir: Path) -> Iterator[None]:
     session_dir.mkdir(parents=True, exist_ok=True)
     lock_path = session_dir / ".state.lock"
     deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
     descriptor: int | None = None
+    token = secrets.token_hex(16)
     while descriptor is None:
         try:
             descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             try:
-                os.write(descriptor, f"{os.getpid()} {utc_now()}\n".encode("utf-8"))
-            finally:
+                payload = {
+                    "schema_version": 1,
+                    "pid": os.getpid(),
+                    "token": token,
+                    "process_identity": _process_identity(os.getpid()),
+                    "created_at": utc_now(),
+                }
+                lock_bytes = (json.dumps(payload, sort_keys=True) + "\n").encode(
+                    "utf-8"
+                )
+                written = 0
+                while written < len(lock_bytes):
+                    count = os.write(descriptor, lock_bytes[written:])
+                    if count <= 0:
+                        raise OSError("lock identity write made no progress")
+                    written += count
+                os.fsync(descriptor)
+            except OSError:
                 os.close(descriptor)
+                descriptor = None
+                with contextlib.suppress(FileNotFoundError):
+                    lock_path.unlink()
+                raise
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
         except FileExistsError:
             try:
+                owner_pid, _, owner_identity, identity = _read_lock_identity(lock_path)
                 age = max(0.0, time.time() - lock_path.stat().st_mtime)
-            except FileNotFoundError:
+            except (FileNotFoundError, PermissionError):
                 continue
-            if age >= LOCK_STALE_SECONDS:
-                try:
-                    lock_path.unlink()
+            owner_is_dead = owner_pid is not None and not _process_matches_identity(
+                owner_pid, owner_identity
+            )
+            unidentified_is_stale = owner_pid is None and age >= LOCK_STALE_SECONDS
+            if owner_is_dead or unidentified_is_stale:
+                if _unlink_lock_if_identity(lock_path, identity):
                     continue
-                except (FileNotFoundError, PermissionError):
-                    pass
             if time.monotonic() >= deadline:
                 raise WorkStateError(f"timed out waiting for state lock: {lock_path}")
             time.sleep(0.05)
     try:
         yield
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock_path.unlink()
+        identity: str | None = None
+        current_token: str | None = None
+        try:
+            _, current_token, _, identity = _read_lock_identity(lock_path)
+        except (FileNotFoundError, PermissionError):
+            pass
+        if current_token == token and identity is not None:
+            _unlink_lock_if_identity(lock_path, identity)
 
 
 def _state_path(session_dir: Path) -> Path:
@@ -270,13 +486,18 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
         raise WorkStateError(f"ledger is unreadable: {path}: {error}") from error
-    for line in lines:
+    for line_number, line in enumerate(lines, 1):
         try:
             value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            events.append(value)
+        except json.JSONDecodeError as error:
+            raise WorkStateError(
+                f"ledger line {line_number} is malformed: {path}: {error}"
+            ) from error
+        if not isinstance(value, dict):
+            raise WorkStateError(
+                f"ledger line {line_number} is not an event object: {path}"
+            )
+        events.append(value)
     return events
 
 

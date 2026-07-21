@@ -22,7 +22,9 @@ Each repository receives a SHA-256-derived project key:
 
 The resolved data root must be outside the target repository; every command rejects an in-repository `--data-root`, `COGNITIVE_POWERS_DATA`, or `PLUGIN_DATA` before creating session files.
 
-`state.json` is the current snapshot. `ledger.jsonl` is the append-only write-ahead history and includes a recovery snapshot that is omitted from compact `status` output. Events are flushed before the atomic `state.json` replacement, so `load_state` can recover if the snapshot write is interrupted. A lock file serializes state mutations across processes, and an abandoned lock older than 30 seconds is reclaimed.
+`state.json` is the current snapshot. `ledger.jsonl` is the append-only write-ahead history and includes a recovery snapshot that is omitted from compact `status` output. Events are flushed before the atomic `state.json` replacement, so `load_state` can recover if the snapshot write is interrupted. Every ledger line must be a complete JSON event; malformed lines fail closed instead of being skipped, including a truncated final write.
+
+A PID-, process-creation-identity-, and token-bound lock file serializes state mutations across processes. Age alone never makes an identified live lock abandoned: a lock with a dead recorded owner or a confirmed creation-identity mismatch is reclaimed immediately, while a malformed or unidentified lock must be at least 30 seconds old. If a live process's creation identity is temporarily unreadable, ownership is preserved conservatively. An owner removes the lock only while its token still matches, so it cannot release a successor's lock.
 
 ## Criterion lifecycle
 
@@ -71,4 +73,4 @@ Test-cycle receipts bind the immutable red receipt to the green result. The red 
 
 A command claim is eligible for confirmation only when its recorded exit code is zero. Artifact evidence must remain non-empty and hash-identical. External documentation must also remain unexpired. All evidence becomes stale when the source fingerprint changes.
 
-The source fingerprint intentionally excludes VCS data, dependencies, generated output, caches, media, and durable-state storage. It proves identity only for the source-oriented surface hashed by the tool; state this limitation when broader external state matters.
+The source fingerprint intentionally excludes VCS data, dependencies, generated output, caches, media, and durable-state storage. It proves identity only for the source-oriented surface hashed by the tool; state this limitation when broader external state matters. Enumeration or read failures inside the included source surface fail closed; an unreadable file cannot silently disappear from the identity.

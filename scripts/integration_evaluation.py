@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -40,13 +41,17 @@ class EvaluationError(ValueError):
 
 
 def _number(value: object, field: str, *, minimum: float = 0.0) -> float:
-    if (
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or float(value) < minimum
-    ):
-        raise EvaluationError(f"{field} must be a number >= {minimum}")
-    return float(value)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise EvaluationError(f"{field} must be a finite number >= {minimum}")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as error:
+        raise EvaluationError(
+            f"{field} must be a finite number >= {minimum}"
+        ) from error
+    if not math.isfinite(number) or number < minimum:
+        raise EvaluationError(f"{field} must be a finite number >= {minimum}")
+    return number
 
 
 def _integer(value: object, field: str, *, minimum: int = 0) -> int:
@@ -514,7 +519,8 @@ def compare(
         )
     )
     proven = (
-        len(evidence_scope) >= minimum_live_pairs
+        contract is not None
+        and len(evidence_scope) >= minimum_live_pairs
         and held_out_complete
         and scope_live
         and scope_quality
@@ -524,6 +530,8 @@ def compare(
         reason = None
     elif not pairs:
         reason = "requires paired receipts"
+    elif contract is None:
+        reason = "requires a versioned task contract and schema v2 receipts"
     elif not all_quality:
         reason = "success, critical-failure, independent-test, budget, or quality gate failed"
     elif contract is not None and not held_out_complete:

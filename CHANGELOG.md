@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0 - 2026-07-21
+
+- Closed legacy-schema and non-finite-number paths that could create unsupported evaluation claims.
+- Made context receipts bijective and budget-bound, rejected consumption of excluded items, and resolved memory supersession before query ranking.
+- Tightened optional-provider and skill-routing detection to avoid substring false positives.
+- Re-derived release-witness identity and completeness during verification and expanded disposable installation checks.
+- Hardened durable locks, source fingerprinting, WAL parsing, and capability transition receipt chains.
+- Added supported local Codex update instructions and installed-version verification.
+
+End-to-end quality or token improvement remains unclaimed without eligible paired live executions.
+
 ## 1.3.0 - 2026-07-21
 
 - Added a single fail-closed offline validation entrypoint and shared Windows/Linux CI workflow.

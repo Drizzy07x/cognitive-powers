@@ -82,6 +82,18 @@ class SkillRoutingTests(unittest.TestCase):
 
         self.assertEqual(ranking[0][0], "beta-skill")
 
+    def test_explicit_skill_boost_requires_an_exact_token(self) -> None:
+        descriptions = {
+            "alpha-skill": "Unrelated alpha project work.",
+            "beta-skill": "Handle a skillful request only.",
+        }
+
+        substring = routing.rank_skills("Use alpha-skillful only", descriptions)
+        exact = routing.rank_skills("Use alpha-skill only", descriptions)
+
+        self.assertEqual(substring[0][0], "beta-skill")
+        self.assertEqual(exact[0][0], "alpha-skill")
+
     def test_collision_detector_reports_near_identical_descriptions(self) -> None:
         descriptions = {
             "one": "Verify browser behavior using Playwright tests and evidence.",

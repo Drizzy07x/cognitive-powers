@@ -87,6 +87,11 @@ def _cosine(left: Mapping[str, float], right: Mapping[str, float]) -> float:
     return numerator / (left_norm * right_norm)
 
 
+def _explicit_skill_requested(query: str, name: str) -> bool:
+    pattern = rf"(?<![a-z0-9_-])\$?{re.escape(name.casefold())}(?![a-z0-9_-])"
+    return re.search(pattern, query.casefold()) is not None
+
+
 def rank_skills(query: str, descriptions: Mapping[str, str]) -> list[tuple[str, float]]:
     names = list(descriptions)
     documents = [
@@ -95,11 +100,10 @@ def rank_skills(query: str, descriptions: Mapping[str, str]) -> list[tuple[str, 
     idf = _idf(documents)
     query_tokens = tokenize(query)
     query_vector = _vector(query_tokens, idf)
-    explicit = query.casefold()
     ranked: list[tuple[str, float]] = []
     for name, tokens in zip(names, documents):
         score = _cosine(query_vector, _vector(tokens, idf))
-        if name in explicit or f"${name}" in explicit:
+        if _explicit_skill_requested(query, name):
             score += 2.0
         ranked.append((name, round(score, 8)))
     return sorted(ranked, key=lambda item: (-item[1], item[0]))

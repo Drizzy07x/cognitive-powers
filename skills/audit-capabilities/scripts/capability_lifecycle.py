@@ -14,6 +14,20 @@ from typing import Any
 
 STATES = ("observed", "candidate", "trial", "active", "retired")
 FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
+RECEIPT_CORE_FIELDS = (
+    "schema_version",
+    "kind",
+    "capability_id",
+    "from_state",
+    "to_state",
+    "distinct_events",
+    "fingerprints",
+    "checks",
+    "evidence",
+    "approval",
+    "rollback",
+    "previous_receipt_fingerprint",
+)
 
 
 class LifecycleError(ValueError):
@@ -131,6 +145,55 @@ def _rollback(value: object, implementation: str, *, executed: bool) -> dict[str
     }
 
 
+def _previous_receipt_fingerprint(
+    value: object, capability_id: str, current: str, requested: str
+) -> str:
+    if not isinstance(value, dict):
+        raise LifecycleError(
+            "previous_receipt must be an object for transitions from an existing state"
+        )
+    if value.get("schema_version") != 1 or value.get("kind") != (
+        "capability_lifecycle_transition"
+    ):
+        raise LifecycleError("previous_receipt has an unsupported schema or kind")
+    if value.get("capability_id") != capability_id:
+        raise LifecycleError("previous_receipt capability_id does not match")
+    if value.get("to_state") != current:
+        raise LifecycleError("previous_receipt does not establish current_state")
+    if value.get("transition_approved") is not True:
+        raise LifecycleError("previous_receipt was not approved")
+    if value.get("next_state") != requested:
+        raise LifecycleError("previous_receipt does not permit requested_state")
+
+    legacy = "previous_receipt_fingerprint" not in value
+    if legacy and not (value.get("from_state") is None and current == "observed"):
+        raise LifecycleError(
+            "legacy unchained receipts may only bootstrap the observed state"
+        )
+    if not legacy:
+        linked = value.get("previous_receipt_fingerprint")
+        if value.get("from_state") is None:
+            if linked is not None:
+                raise LifecycleError(
+                    "initial previous_receipt must not link another transition"
+                )
+        else:
+            _fingerprint(linked, "previous_receipt.previous_receipt_fingerprint")
+
+    core = {
+        field: value.get(field)
+        for field in RECEIPT_CORE_FIELDS
+        if not legacy or field != "previous_receipt_fingerprint"
+    }
+    recorded = _fingerprint(
+        value.get("receipt_fingerprint"), "previous_receipt.receipt_fingerprint"
+    )
+    expected = "sha256:" + hashlib.sha256(_canonical(core)).hexdigest()
+    if recorded != expected:
+        raise LifecycleError("previous_receipt fingerprint mismatch")
+    return recorded
+
+
 def transition(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("schema_version") != 1:
         raise LifecycleError("schema_version must be 1")
@@ -149,6 +212,17 @@ def transition(payload: dict[str, Any]) -> dict[str, Any]:
         raise LifecycleError(
             f"transition must advance exactly one state; expected {expected}"
         )
+
+    previous_receipt_fingerprint: str | None = None
+    if current is not None:
+        previous_receipt_fingerprint = _previous_receipt_fingerprint(
+            payload.get("previous_receipt"),
+            capability_id.strip(),
+            current,
+            requested,
+        )
+    elif payload.get("previous_receipt") is not None:
+        raise LifecycleError("initial observed transition cannot have previous_receipt")
 
     events = _events(payload)
     evidence = _strings(payload.get("evidence"), "evidence")
@@ -190,6 +264,7 @@ def transition(payload: dict[str, Any]) -> dict[str, Any]:
         "evidence": evidence,
         "approval": approval,
         "rollback": rollback,
+        "previous_receipt_fingerprint": previous_receipt_fingerprint,
     }
     return {
         **receipt_core,

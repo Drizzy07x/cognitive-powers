@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import subprocess
 import tempfile
@@ -192,6 +193,52 @@ class ReleaseWitnessTests(unittest.TestCase):
             errors = witness.verify_witness(root, payload)
             self.assertTrue(errors)
             self.assertTrue(any("source identity" in error for error in errors))
+
+    def test_verify_rejects_tampered_header_flags_inventory_and_executable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = make_repository(parent)
+            receipt = parent / "validation.json"
+            receipt.write_text(json.dumps(passing_receipt(root)), encoding="utf-8")
+            payload = witness.create_witness(root, [receipt])
+            mutations = {
+                "schema": lambda value: value.__setitem__("schemaVersion", 999),
+                "timestamp": lambda value: value.__setitem__(
+                    "createdAt", "not-a-timestamp"
+                ),
+                "plugin": lambda value: value.__setitem__("plugin", "other-plugin"),
+                "version": lambda value: value.__setitem__("version", "0.0.0"),
+                "git-dirty": lambda value: value["git"].__setitem__("dirty", True),
+                "release-ready": lambda value: value.__setitem__("releaseReady", False),
+                "live-validated": lambda value: value.__setitem__(
+                    "liveIntegrationsValidated", True
+                ),
+                "file-inventory": lambda value: value["files"].pop(),
+                "command-executable": lambda value: value["validations"][0]["commands"][
+                    0
+                ]["command"].__setitem__(0, "not-python"),
+                "non-finite-duration": lambda value: value["validations"][0][
+                    "commands"
+                ][0].__setitem__("durationSeconds", float("nan")),
+            }
+            for label, mutate in mutations.items():
+                with self.subTest(label=label):
+                    changed = copy.deepcopy(payload)
+                    mutate(changed)
+                    self.assertTrue(witness.verify_witness(root, changed))
+
+    def test_create_rejects_incoherent_offline_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = make_repository(parent)
+            value = passing_receipt(root)
+            value["commands"][0]["command"][0] = "not-python"
+            receipt = parent / "validation.json"
+            receipt.write_text(json.dumps(value), encoding="utf-8")
+            with self.assertRaisesRegex(witness.WitnessError, "executable"):
+                witness.create_witness(root, [receipt])
 
     def test_cli_arguments_remain_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
