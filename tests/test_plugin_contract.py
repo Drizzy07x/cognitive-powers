@@ -36,6 +36,22 @@ class PluginContractTests(unittest.TestCase):
             "screenshots require a verified public host surface",
         )
 
+    def test_private_marketplace_points_to_plugin_root(self) -> None:
+        marketplace_path = PLUGIN_ROOT / ".agents" / "plugins" / "marketplace.json"
+        marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+        self.assertEqual(marketplace["name"], "cognitive-powers")
+        self.assertEqual(marketplace["interface"]["displayName"], "Cognitive Powers")
+        self.assertEqual(len(marketplace["plugins"]), 1)
+
+        entry = marketplace["plugins"][0]
+        self.assertEqual(entry["name"], "cognitive-powers")
+        self.assertEqual(entry["source"], {"source": "local", "path": "./"})
+        self.assertEqual(
+            entry["policy"],
+            {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        )
+        self.assertEqual(entry["category"], "Productivity")
+
     def test_skill_resources_are_reachable(self) -> None:
         expected = [
             "skills/solve-efficiently/SKILL.md",
