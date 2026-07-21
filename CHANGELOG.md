@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2 - 2026-07-21
+
+- Reduced passive plugin and exposed-skill context for short and already-bounded tasks.
+- Tightened current-source decisions around requirement coverage, claim-level citations, version/date semantics, and explicit unknowns.
+- Added an explicit rule against inferring retirement or deprecation schedules from unrelated publication or rollout dates.
+
 ## 1.4.1 - 2026-07-21
 
 - Added a focused code-and-test fast path that avoids repeated discovery, unchanged-file reads, redundant green checks, and unrelated cleanup.

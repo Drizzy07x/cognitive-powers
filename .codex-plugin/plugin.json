@@ -1,44 +1,28 @@
 {
   "name": "cognitive-powers",
-  "version": "1.4.1",
-  "description": "Auditable context, semantic navigation, scoped memory, capability evolution, and durable evidence.",
+  "version": "1.4.2",
+  "description": "Focused execution with durable evidence and independent verification.",
   "author": {
     "name": "DrizzyPC"
   },
   "keywords": [
     "workflow",
-    "prompt-engineering",
-    "agent-orchestration",
-    "lifecycle-hooks",
     "context-efficiency",
     "token-efficiency",
     "project-memory",
-    "semantic-navigation",
-    "memory-providers",
-    "capability-lifecycle",
     "reproducible-research",
-    "integration-catalog",
-    "capability-audit",
-    "adaptive-coordination",
     "durable-execution",
     "verification",
     "benchmarking",
-    "code-intelligence",
-    "browser-testing",
     "browser-automation",
-    "desktop-automation",
-    "windows",
-    "computer-use",
-    "interface-design",
-    "visual-verification",
-    "versioned-documentation"
+    "desktop-automation"
   ],
   "skills": "./skills-core/",
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Cognitive Powers",
     "shortDescription": "Focused context, durable state, and verified results.",
-    "longDescription": "Cognitive Powers builds traceable context pipelines, selects fresh semantic providers, retrieves project-scoped memory on demand, evolves capabilities through evidence gates, compiles dependency-aware plans, coordinates narrow agent roles, and blocks completion until current evidence is independently verified.",
+    "longDescription": "Focused workflows reduce unnecessary context while durable evidence and independent gates keep completion claims auditable.",
     "developerName": "DrizzyPC",
     "category": "Productivity",
     "capabilities": [
@@ -47,9 +31,8 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Diagnose and solve this task with focused context and verified results.",
-      "Map this project into compact, reusable AGENTS.md guidance.",
-      "Run this long task with scoped memory, durable evidence, and independent verification."
+      "Solve this task with focused context and current evidence.",
+      "Run long work with durable state and independent verification."
     ],
     "brandColor": "#675CF5",
     "composerIcon": "./assets/composer-icon.svg",

@@ -1,46 +1,73 @@
 ---
 name: solve-efficiently
-description: Use for cross-file repository implementation, an authorized fix with a supplied reproduction, answering a bounded technical decision using supplied current primary sources, or completing a specified workflow through an authorized real host. Prefer this focused, verified workflow when a public contract spans model, persistence, CLI, browser, or tests, Cognitive Powers is requested, boundaries need discovery, or a specialized internal workflow is named. Abstain only from obvious one-file edits with a nearby test.
+description: Use for cross-file implementation, reproduced defects, bounded primary-source decisions, or authorized real-host workflows. Do not use for obvious one-file edits.
 ---
 
 # Solve Efficiently
 
-Use the smallest workflow that produces a correct, current, verified result.
+Choose the shortest path that proves the requested outcome. Read no other
+Cognitive Powers skill unless the first focused inspection leaves the boundary
+genuinely unclear.
 
-## Bounded real-host workflow: act once, observe fresh
+## Current-source decision
 
-When the fixture supplies `WORKFLOW.md`, `HOST_TOOL.md`, and an authorized public-surface driver, do not load another Cognitive Powers file. In one discovery call, read those files and applicable `AGENTS.md`. Create the single declared action-plan file with only public label, role, click, fill, select, and keyboard primitives. In one execution call, run that action plan once and then run the declared fresh-browser observation. Do not call HTTP APIs, edit persisted state, inject DOM/JavaScript, substitute a mock, or report primitive success before the visible objective is complete. Return the exact action-receipt and observer-receipt hashes; do not rerun a successful workflow.
+When the checkout provides a decision brief, source policy, and primary-source
+files:
 
-## Bounded current-source decision: one evidence batch
+1. In one tool call, read the brief, policy, applicable `AGENTS.md`, and every
+   supplied source.
+2. Build an internal requirement matrix: each question or constraint maps to
+   the exact claim needed, its source, version/date, and any unresolved fact.
+3. Answer directly. Cite every decision-critical claim at claim level using the
+   source identifier or primary URL required by the policy.
+4. Cover every explicit requirement, including protocol headers, compatibility,
+   defaults, retired behavior, and operational constraints.
+5. Distinguish publication, rollout, deprecation, and retirement dates. Never
+   convert one into another or invent a schedule the source does not state.
+6. State uncertainty explicitly when the sources do not establish a fact.
 
-When the checkout supplies a decision brief, version constraints, and a primary-source policy, do not load another Cognitive Powers file. Your next and only tool call must read `DECISION_BRIEF.md`, `SOURCE_POLICY.md`, applicable `AGENTS.md`, and every supplied file under `sources/` together; retrieve an external page only if the policy requires it. Capture exact version-matched primary URLs and unresolved caveats. Then answer directly with a recommendation, verified facts, explicit inference, and uncertainty. Do not run generic repository discovery, Context7, separate file reads, multiple search passes, or implementation tests when no implementation was requested.
+Use the brief's numbered order. Answer in the same number of compact numbered
+items, without a preamble or restating the brief, and stay under 350 words unless
+the brief explicitly requires more. Keep each claim and its citation in the same
+paragraph; do not separate them with a table, list, or fenced block. For
+requested protocol values or headers, state every exact name, value,
+requirement, and source marker together in one prose sentence; do not format
+protocol values as separate lines. Prefer the primary source's own terminology
+for status and behavior instead of replacing it with a looser synonym. Express
+obligations and lifecycle states with explicit labels such as `must`,
+`required`, `supported`, `unsupported`, or `retired`, not only indirect
+paraphrases. Before finalizing, silently check that every row in the requirement
+matrix appears once with its source marker.
 
-## Bounded implementation: choose the shortest valid path
+Do not browse when the supplied policy says the frozen primary sources are
+complete. Do not load another skill, run repository discovery, or make multiple
+source-reading passes.
 
-When a local contract or reproduction and a small source-and-test boundary exist, use one of these budgets unless an unexpected failure reveals a new boundary:
+## Bounded implementation
 
-- **Additive feature with a documented gap:** four calls total including this skill read: discovery, patch, verification. Do not spend a separate call proving that an explicitly missing feature is missing. The discovery batch may run the existing focused suite to establish preserved behavior.
-- **Defect in existing behavior:** five calls total including this skill read: discovery, reproduction, patch, verification.
+When a contract or reproduction identifies a small source-and-test boundary:
 
-1. **One discovery batch.** The next tool call must jointly find and read applicable `AGENTS.md` and the named/root contract or reproduction, including conventional `FEATURE*`, `TASK*`, `SPEC*`, `CONTRACT*`, `REPRODUCTION*`, `ISSUE*`, `BUG*`, and `README*` files. For an additive feature, also read its matched implementation and nearest tests; if `src` and `tests` contain at most twelve relevant files, reading them together is acceptable. For a defect with a root reproduction, list source/test paths but do not dump their contents yet. Never open or run an unrelated test framework merely because the repository is small. Check for `.git` before adding any Git probe.
-2. **Reproduce only an existing defect.** Read only implementation/tests referenced by the reproduction or matched by its exact distinctive identifiers, then run the smallest behavior-specific check in the same call. Prefer a direct language-level command or focused test. For CLI reproduction, use a simple stable fixture-local temporary path and remove it in the same call; avoid nested shell interpolation. Do not run the full suite before editing.
-3. **One coherent patch.** Change only the behavior and focused tests.
-4. **One verification batch.** Run the focused behavioral test once, then conditionally run one affected suite only if it covers a distinct regression boundary. Stop after it passes. Do not add compile, parser, search, Git, line-number, diff, or file re-read calls.
+- Additive feature: discovery, patch, verification.
+- Existing defect: discovery, focused reproduction, patch, verification.
 
-The discovery batch has a clear boundary when it finds a local contract plus matched source and tests. Do not load another Cognitive Powers file then. A quoting or command-formatting mistake is not architectural ambiguity; retry only the failed narrow action. Never inspect another evaluation arm.
+The discovery call reads applicable instructions, the named contract or
+reproduction, matched implementation, and nearest tests together. Reproduce
+only an existing defect. Patch one coherent boundary. Verify the public behavior
+with the focused test and at most one distinct affected suite. Stop after it
+passes; do not add Git, compile, parser, diff, or unrelated test calls.
 
-## Escalate only after inspection
+## Real-host workflow
 
-Read `../../skills/solve-efficiently/SKILL.md` only when the first successful discovery batch still leaves module boundaries, sequencing, or verification genuinely unclear. Load at most one matching specialty:
+When `WORKFLOW.md` and `HOST_TOOL.md` are supplied, read them with applicable
+instructions in one call. Create the single declared public-action plan, execute
+it once, then run the fresh observation. Use only documented labels, roles,
+clicks, fills, selects, and keys. Do not call private APIs, edit persisted state,
+inject scripts, substitute a mock, or rerun a successful workflow. Report the
+exact action and observer receipt hashes.
 
-- Unknown defect/performance cause: `../../skills/diagnose-systematically/SKILL.md`
-- Current docs or research: `../../skills/use-current-docs/SKILL.md`, `../../skills/research-systematically/SKILL.md`, or `../../skills/explore-web-adaptively/SKILL.md`
-- Web/browser/desktop behavior: `../../skills/verify-web-behavior/SKILL.md` or `../../skills/operate-desktop-adaptively/SKILL.md`
-- Interface or communication: `../../skills/design-intentionally/SKILL.md` or `../../skills/communicate-efficiently/SKILL.md`
-- Capability, prompt, or project guidance: `../../skills/audit-capabilities/SKILL.md`, `../../skills/engineer-prompts/SKILL.md`, or `../../skills/map-project/SKILL.md`
+## Escalation and handoff
 
-Never escalate merely because a prompt says “diagnose” when the reproduction identifies the behavior. Durable execution and delivery audits use their own exposed skills.
-
-## Handoff
-
-Report exact checks already run and untested surfaces honestly. Do not re-read files to prepare the report.
+Read `../../skills/solve-efficiently/SKILL.md` only if focused inspection still
+leaves module boundaries, cause, or verification genuinely unclear. Otherwise
+report the result, exact checks already run, and any untested surface without
+re-reading files.
