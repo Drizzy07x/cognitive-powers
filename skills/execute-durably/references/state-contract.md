@@ -49,6 +49,7 @@ All commands accept global `--root` and optional `--data-root` before the subcom
 - `start-packet`: assign and activate a packet after its dependencies complete.
 - `run-packet-check`: execute one immutable declared argv check and retain its receipt.
 - `complete-packet`: close a packet only while all check receipts remain valid.
+- `reopen-packet`: reopen a completed packet only after its evidence becomes invalid. It returns completed descendants to `planned` atomically, refuses to proceed while any descendant is `active`, and reactivates a previously completed session.
 - `run`: execute an argv command without a shell and record its actual result.
 - `run-red`: execute a regression command that must fail and bind it to the defective source fingerprint.
 - `run-green`: rerun the exact red command after a source change and require success.

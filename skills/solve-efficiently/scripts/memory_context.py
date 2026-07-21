@@ -241,29 +241,94 @@ def _filter(records, scope, query, limit):
     now = datetime.now(timezone.utc)
     valid = []
     warnings = []
+    metrics = {
+        "scanned_records": len(records),
+        "scope_matched_records": 0,
+        "expired_records": 0,
+        "malformed_records": 0,
+        "query_matched_records": 0,
+        "superseded_records": 0,
+        "duplicate_id_records": 0,
+    }
+    seen_ids = set()
     for raw in records:
         if raw.get("project_scope") != scope:
             continue
+        metrics["scope_matched_records"] += 1
         try:
             rec = _normalize(raw, scope)
             if _dt(rec["expires_at"]) <= now:
+                metrics["expired_records"] += 1
                 continue
         except MemoryContextError as exc:
             warnings.append(str(exc))
+            metrics["malformed_records"] += 1
             continue
         overlap = len(_tokens(query) & _tokens(rec["content"]))
         if overlap == 0:
             continue
+        metrics["query_matched_records"] += 1
         score = (
             overlap * 10
             + {"high": 3, "medium": 2, "low": 1, "unknown": 0}[rec["confidence"]]
         )
         rec["score"] = score
+        if rec["id"] in seen_ids:
+            metrics["duplicate_id_records"] += 1
+            warnings.append(f"duplicate memory record id ignored: {rec['id']}")
+            continue
+        seen_ids.add(rec["id"])
         valid.append(rec)
     superseded = {x for r in valid for x in r["supersedes"]}
+    metrics["superseded_records"] = sum(r["id"] in superseded for r in valid)
     valid = [r for r in valid if r["id"] not in superseded]
     valid.sort(key=lambda r: (-r["score"], r["id"]))
-    return valid[:limit], warnings
+    selected = valid[:limit]
+    metrics["selected_records"] = len(selected)
+    metrics["selected_chars"] = sum(len(r["content"]) for r in selected)
+    metrics["estimated_selected_tokens"] = (metrics["selected_chars"] + 3) // 4
+    return selected, warnings, metrics
+
+
+def mark_retrieval_usage(payload, *, consumed_ids=(), useful_ids=()):
+    """Attach observed downstream use without inferring model quality."""
+
+    selected = {record["id"] for record in payload.get("results", [])}
+    consumed = set(consumed_ids)
+    useful = set(useful_ids)
+    unknown = (consumed | useful) - selected
+    if unknown:
+        raise MemoryContextError(
+            f"cannot classify unselected memory records: {sorted(unknown)}"
+        )
+    if not useful.issubset(consumed):
+        raise MemoryContextError("useful memory records must also be consumed")
+    decisions = [
+        {
+            "id": record["id"],
+            "consumed": record["id"] in consumed,
+            "usefulness": "useful" if record["id"] in useful else "unknown",
+            "content_chars": len(record["content"]),
+        }
+        for record in payload.get("results", [])
+    ]
+    payload["usage_decisions"] = decisions
+    payload["usage_metrics"].update(
+        {
+            "consumed_records": len(consumed),
+            "useful_records": len(useful),
+            "selected_unconsumed_records": len(selected - consumed),
+            "consumed_chars": sum(
+                item["content_chars"] for item in decisions if item["consumed"]
+            ),
+            "useful_chars": sum(
+                item["content_chars"]
+                for item in decisions
+                if item["usefulness"] == "useful"
+            ),
+        }
+    )
+    return payload
 
 
 def retrieve(
@@ -276,6 +341,7 @@ def retrieve(
     limit=10,
     memu_executable=None,
     runner=subprocess.run,
+    include_usage=False,
 ):
     scope = _scope(project_scope)
     if not demand:
@@ -315,8 +381,8 @@ def retrieve(
         if store is None:
             raise MemoryContextError("native store is required")
         records = _read_native(Path(store).expanduser().resolve())
-    results, warnings = _filter(records, scope, query, limit)
-    return {
+    results, warnings, usage_metrics = _filter(records, scope, query, limit)
+    payload = {
         "schema_version": 1,
         "provider": provider,
         "project_scope": scope,
@@ -326,3 +392,30 @@ def retrieve(
         "warnings": warnings,
         "proof_status": "context_only",
     }
+    if not include_usage:
+        return payload
+    usage_metrics.update(
+        {
+            "consumed_records": 0,
+            "useful_records": 0,
+            "selected_unconsumed_records": len(results),
+            "consumed_chars": 0,
+            "useful_chars": 0,
+        }
+    )
+    payload.update(
+        {
+            "schema_version": 2,
+            "usage_decisions": [
+                {
+                    "id": record["id"],
+                    "consumed": False,
+                    "usefulness": "unknown",
+                    "content_chars": len(record["content"]),
+                }
+                for record in results
+            ],
+            "usage_metrics": usage_metrics,
+        }
+    )
+    return payload

@@ -1,5 +1,6 @@
 [
   {
+    "schema_version": 1,
     "case_id": "semantic-file-selection",
     "variant": "baseline",
     "provider": "lexical",
@@ -14,6 +15,7 @@
     "live_execution": false
   },
   {
+    "schema_version": 1,
     "case_id": "semantic-file-selection",
     "variant": "candidate",
     "provider": "graphify",

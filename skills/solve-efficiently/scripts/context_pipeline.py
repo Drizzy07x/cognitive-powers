@@ -79,10 +79,14 @@ class ContextDecision:
     selected_chars: int
     content_sha256: str
     consumed: bool = False
+    usefulness: str = "unknown"
+    stale: bool = False
 
     def __post_init__(self) -> None:
         if self.status not in {"included", "excluded", "truncated"}:
             raise ValueError(f"unsupported context decision status: {self.status}")
+        if self.usefulness not in {"unknown", "useful", "unused"}:
+            raise ValueError(f"unsupported context usefulness: {self.usefulness}")
 
 
 @dataclass
@@ -111,11 +115,84 @@ class ContextReceipt:
             }:
                 decision.consumed = True
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def mark_usefulness(self, item_ids: Iterable[str], usefulness: str) -> None:
+        if usefulness not in {"useful", "unused"}:
+            raise ValueError("usefulness must be useful or unused")
+        selected = {
+            decision.item_id
+            for decision in self.decisions
+            if decision.status in {"included", "truncated"}
+        }
+        requested = set(item_ids)
+        unknown = requested - selected
+        if unknown:
+            raise ValueError(
+                f"cannot classify unselected context items: {sorted(unknown)}"
+            )
+        by_id = {decision.item_id: decision for decision in self.decisions}
+        if usefulness == "useful":
+            unconsumed = sorted(
+                item_id for item_id in requested if not by_id[item_id].consumed
+            )
+            if unconsumed:
+                raise ValueError(f"useful context must be consumed first: {unconsumed}")
+        for item_id in requested:
+            by_id[item_id].usefulness = usefulness
 
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False, sort_keys=True)
+    def usage_metrics(self) -> dict[str, int]:
+        selected = [
+            decision
+            for decision in self.decisions
+            if decision.status in {"included", "truncated"}
+        ]
+        consumed = [decision for decision in selected if decision.consumed]
+        useful = [decision for decision in selected if decision.usefulness == "useful"]
+        explicit_unused = [
+            decision for decision in selected if decision.usefulness == "unused"
+        ]
+        selected_chars = self.selected_chars
+        consumed_chars = (
+            sum(decision.selected_chars for decision in consumed)
+            + max(0, len(consumed) - 1) * 2
+        )
+        useful_chars = (
+            sum(decision.selected_chars for decision in useful)
+            + max(0, len(useful) - 1) * 2
+        )
+        return {
+            "candidate_items": len(self.decisions),
+            "selected_items": len(selected),
+            "consumed_items": len(consumed),
+            "useful_items": len(useful),
+            "explicit_unused_items": len(explicit_unused),
+            "selected_unconsumed_items": sum(
+                1 for decision in selected if not decision.consumed
+            ),
+            "stale_items": sum(1 for decision in self.decisions if decision.stale),
+            "selected_chars": selected_chars,
+            "consumed_chars": consumed_chars,
+            "useful_chars": useful_chars,
+            "estimated_selected_tokens": (selected_chars + 3) // 4,
+        }
+
+    def to_dict(self, *, include_usage: bool = False) -> dict[str, Any]:
+        payload = asdict(self)
+        if include_usage:
+            payload["schema_version"] = 2
+            payload["usage_metrics"] = self.usage_metrics()
+        else:
+            for decision in payload["decisions"]:
+                decision.pop("usefulness", None)
+                decision.pop("stale", None)
+        return payload
+
+    def to_json(self, *, include_usage: bool = False) -> str:
+        return json.dumps(
+            self.to_dict(include_usage=include_usage),
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 
 
 @dataclass(frozen=True)
@@ -295,6 +372,16 @@ class ContextPipeline:
             raise ValueError("query must not be empty")
         original = tuple(self.provider.provide(query))
         _require_unique_ids(original, "provider")
+        invalid_expiry = sorted(
+            item.item_id
+            for item in original
+            if "valid_until" in item.metadata
+            and _parse_timestamp(item.metadata.get("valid_until")) is None
+        )
+        if invalid_expiry:
+            raise ValueError(
+                f"context items have invalid valid_until timestamps: {invalid_expiry}"
+            )
         processed = original
         for processor in self.processors:
             processed = tuple(processor.process(processed, query))
@@ -334,6 +421,12 @@ class ContextPipeline:
         decisions.sort(
             key=lambda decision: list(original_by_id).index(decision.item_id)
         )
+        current_time = _utc_now()
+        for decision in decisions:
+            valid_until = _parse_timestamp(
+                original_by_id[decision.item_id].metadata.get("valid_until")
+            )
+            decision.stale = valid_until is not None and valid_until < current_time
         receipt = ContextReceipt(
             schema_version=1,
             query=query,
@@ -377,7 +470,16 @@ def lint_context(
             facts.setdefault(fact_key, {}).setdefault(str(fact_value), []).append(
                 item.item_id
             )
-        valid_until = _parse_timestamp(item.metadata.get("valid_until"))
+        raw_valid_until = item.metadata.get("valid_until")
+        valid_until = _parse_timestamp(raw_valid_until)
+        if "valid_until" in item.metadata and valid_until is None:
+            issues.append(
+                ContextLintIssue(
+                    "invalid-expiry",
+                    (item.item_id,),
+                    f"{item.item_id} has an invalid valid_until timestamp",
+                )
+            )
         if valid_until is not None and valid_until < current_time:
             issues.append(
                 ContextLintIssue(

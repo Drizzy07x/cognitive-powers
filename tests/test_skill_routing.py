@@ -50,6 +50,28 @@ class SkillRoutingTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["adversarial_owner_rate"], 1.0)
         self.assertFalse(report["end_to_end_improvement_proven"])
 
+    def test_orchestration_collision_cases_keep_their_specialized_owner(self) -> None:
+        report = routing.evaluate(PLUGIN_ROOT, CASES_PATH)
+        collision_skills = {
+            "solve-efficiently",
+            "diagnose-systematically",
+            "research-systematically",
+            "verify-delivery",
+        }
+        cases = [
+            case
+            for case in report["cases"]
+            if case["kind"] == "negative" and case["skill"] in collision_skills
+        ]
+
+        self.assertGreaterEqual(len(cases), 8)
+        self.assertTrue(all(case["passed"] for case in cases))
+        self.assertTrue(
+            collision_skills.issubset(
+                {case["owner"] for case in cases} | {case["skill"] for case in cases}
+            )
+        )
+
     def test_ranker_prefers_explicit_skill_request(self) -> None:
         descriptions = {
             "alpha-skill": "Handle alpha project work.",

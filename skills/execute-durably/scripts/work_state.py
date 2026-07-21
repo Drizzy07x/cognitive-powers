@@ -4,338 +4,70 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator, Sequence
+from typing import Any, Sequence
 
 
-SCHEMA_VERSION = 1
-LOCK_TIMEOUT_SECONDS = 10.0
-LOCK_STALE_SECONDS = 30.0
-OUTPUT_TAIL_CHARS = 8_000
-
-IGNORED_DIRECTORIES = frozenset(
-    {
-        ".cognitive-powers",
-        ".git",
-        ".hg",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".svn",
-        ".tox",
-        ".venv",
-        "__pycache__",
-        "bin",
-        "build",
-        "coverage",
-        "dist",
-        "node_modules",
-        "obj",
-        "blob-report",
-        "playwright-report",
-        "target",
-        "test-results",
-        "vendor",
-        "venv",
-    }
-)
-
-IGNORED_SOURCE_SUFFIXES = frozenset(
-    {
-        ".7z",
-        ".avi",
-        ".bmp",
-        ".class",
-        ".dll",
-        ".dylib",
-        ".exe",
-        ".gif",
-        ".ico",
-        ".jar",
-        ".jpeg",
-        ".jpg",
-        ".mov",
-        ".mp3",
-        ".mp4",
-        ".o",
-        ".obj",
-        ".pdf",
-        ".png",
-        ".pyc",
-        ".so",
-        ".tar",
-        ".ttf",
-        ".wav",
-        ".webp",
-        ".woff",
-        ".woff2",
-        ".zip",
-    }
-)
-
-IGNORED_SOURCE_FILES = frozenset({".coverage", "coverage.xml"})
-VALID_VERDICTS = frozenset({"confirmed", "rejected", "inconclusive"})
-RUNNABLE_STATUSES = frozenset(
-    {"pending", "failed", "blocked", "rejected", "inconclusive", "stale"}
-)
-
-
-class WorkStateError(RuntimeError):
-    """Raised when a durable-state contract would be violated."""
-
-
-class EvidenceStaleError(WorkStateError):
-    """Raised when evidence no longer identifies the reviewed source or receipt."""
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def sanitize_identifier(value: str, label: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")[:80]
-    if not sanitized:
-        raise WorkStateError(
-            f"{label} must contain letters, digits, dots, underscores, or hyphens"
-        )
-    return sanitized
-
-
-def resolve_root(value: str | Path) -> Path:
-    root = Path(value).expanduser().resolve()
-    if not root.is_dir():
-        raise WorkStateError(f"workspace root is not a directory: {root}")
-    return root
-
-
-def resolve_data_root(explicit: str | None) -> Path:
-    if explicit:
-        return Path(explicit).expanduser().resolve()
-    configured = os.environ.get("COGNITIVE_POWERS_DATA") or os.environ.get(
-        "PLUGIN_DATA"
+def _load_durability_core():
+    core_directory = Path(__file__).resolve().with_name("work_state_core")
+    identity = f"{__name__}:{core_directory}"
+    package_name = (
+        "_cognitive_work_state_core_"
+        + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     )
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / ".codex" / "cognitive-powers").resolve()
-
-
-def project_key(root: Path) -> str:
-    canonical = str(root)
-    if os.name == "nt":
-        canonical = canonical.casefold()
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:20]
-
-
-def _is_within(path: Path, directory: Path) -> bool:
-    try:
-        path.relative_to(directory)
-        return True
-    except ValueError:
-        return False
-
-
-def session_directory(root: Path, data_root: Path, session_id: str) -> Path:
-    if _is_within(data_root, root):
-        raise WorkStateError(
-            f"durable data root must be outside the workspace: {data_root}"
-        )
-    return (
-        data_root
-        / "projects"
-        / project_key(root)
-        / "sessions"
-        / sanitize_identifier(session_id, "session")
+    existing = sys.modules.get(package_name)
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location(
+        package_name,
+        core_directory / "__init__.py",
+        submodule_search_locations=[str(core_directory)],
     )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load durability core from {core_directory}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[package_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _ignored_source_directory(name: str) -> bool:
-    normalized = name.lower()
-    return (
-        normalized in IGNORED_DIRECTORIES
-        or normalized == ".codegraph"
-        or normalized.startswith(".codegraph-")
-    )
-
-
-def source_fingerprint(root: Path, data_root: Path) -> dict[str, object]:
-    """Hash the source-oriented workspace surface in stable path order."""
-    if _is_within(data_root, root):
-        raise WorkStateError(
-            f"durable data root must be outside the workspace: {data_root}"
-        )
-    aggregate = hashlib.sha256()
-    file_count = 0
-    for current, directories, filenames in os.walk(root, followlinks=False):
-        current_path = Path(current)
-        directories[:] = sorted(
-            directory
-            for directory in directories
-            if not _ignored_source_directory(directory)
-        )
-        for filename in sorted(filenames):
-            path = current_path / filename
-            if (
-                filename in IGNORED_SOURCE_FILES
-                or path.suffix.lower() in IGNORED_SOURCE_SUFFIXES
-                or path.is_symlink()
-            ):
-                continue
-            try:
-                relative = path.relative_to(root).as_posix()
-                file_digest = _sha256_file(path)
-            except (OSError, PermissionError):
-                continue
-            aggregate.update(relative.encode("utf-8"))
-            aggregate.update(b"\0")
-            aggregate.update(file_digest.encode("ascii"))
-            aggregate.update(b"\n")
-            file_count += 1
-    return {"sha256": aggregate.hexdigest(), "files": file_count}
-
-
-def _atomic_write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    try:
-        with temporary.open("x", encoding="utf-8", newline="\n") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            temporary.unlink()
-
-
-def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
-    _atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-
-
-@contextlib.contextmanager
-def session_lock(session_dir: Path) -> Iterator[None]:
-    session_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = session_dir / ".state.lock"
-    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(descriptor, f"{os.getpid()} {utc_now()}\n".encode("utf-8"))
-            finally:
-                os.close(descriptor)
-        except FileExistsError:
-            try:
-                age = max(0.0, time.time() - lock_path.stat().st_mtime)
-            except FileNotFoundError:
-                continue
-            if age >= LOCK_STALE_SECONDS:
-                try:
-                    lock_path.unlink()
-                    continue
-                except (FileNotFoundError, PermissionError):
-                    pass
-            if time.monotonic() >= deadline:
-                raise WorkStateError(f"timed out waiting for state lock: {lock_path}")
-            time.sleep(0.05)
-    try:
-        yield
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock_path.unlink()
-
-
-def _state_path(session_dir: Path) -> Path:
-    return session_dir / "state.json"
-
-
-def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
-    path = session_dir / "ledger.jsonl"
-    if not path.is_file():
-        return []
-    events: list[dict[str, Any]] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as error:
-        raise WorkStateError(f"ledger is unreadable: {path}: {error}") from error
-    for line in lines:
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            events.append(value)
-    return events
-
-
-def _latest_ledger_snapshot(session_dir: Path) -> dict[str, Any] | None:
-    latest: dict[str, Any] | None = None
-    for event in _read_ledger_events(session_dir):
-        candidate = event.get("_state_snapshot")
-        if not isinstance(candidate, dict):
-            continue
-        if latest is None or int(candidate.get("last_seq", -1)) > int(
-            latest.get("last_seq", -1)
-        ):
-            latest = candidate
-    return latest
-
-
-def load_state(session_dir: Path) -> dict[str, Any]:
-    path = _state_path(session_dir)
-    payload: dict[str, Any] | None = None
-    state_error: OSError | json.JSONDecodeError | None = None
-    if path.is_file():
-        try:
-            candidate = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(candidate, dict):
-                payload = candidate
-        except (OSError, json.JSONDecodeError) as error:
-            state_error = error
-    ledger_snapshot = _latest_ledger_snapshot(session_dir)
-    if ledger_snapshot is not None and (
-        payload is None
-        or int(ledger_snapshot.get("last_seq", -1)) > int(payload.get("last_seq", -1))
-    ):
-        payload = ledger_snapshot
-    if payload is None:
-        if state_error is not None:
-            raise WorkStateError(f"state is unreadable: {path}: {state_error}")
-        raise WorkStateError(f"session does not exist: {session_dir}")
-    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
-        raise WorkStateError(f"unsupported or malformed state: {path}")
-    if not isinstance(payload.get("criteria"), list):
-        raise WorkStateError(f"state has no criteria list: {path}")
-    if "work_packets" in payload and not isinstance(payload["work_packets"], list):
-        raise WorkStateError(f"state has malformed work_packets: {path}")
-    return payload
-
-
-def _append_ledger(session_dir: Path, event: dict[str, object]) -> None:
-    ledger_path = session_dir / "ledger.jsonl"
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.open("a", encoding="utf-8", newline="\n") as stream:
-        stream.write(json.dumps(event, ensure_ascii=False) + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
+_DURABILITY_CORE = _load_durability_core()
+SCHEMA_VERSION = _DURABILITY_CORE.SCHEMA_VERSION
+LOCK_TIMEOUT_SECONDS = _DURABILITY_CORE.LOCK_TIMEOUT_SECONDS
+LOCK_STALE_SECONDS = _DURABILITY_CORE.LOCK_STALE_SECONDS
+OUTPUT_TAIL_CHARS = _DURABILITY_CORE.OUTPUT_TAIL_CHARS
+VALID_VERDICTS = _DURABILITY_CORE.VALID_VERDICTS
+RUNNABLE_STATUSES = _DURABILITY_CORE.RUNNABLE_STATUSES
+WorkStateError = _DURABILITY_CORE.WorkStateError
+EvidenceStaleError = _DURABILITY_CORE.EvidenceStaleError
+utc_now = _DURABILITY_CORE.utc_now
+sanitize_identifier = _DURABILITY_CORE.sanitize_identifier
+resolve_root = _DURABILITY_CORE.resolve_root
+resolve_data_root = _DURABILITY_CORE.resolve_data_root
+project_key = _DURABILITY_CORE.project_key
+_is_within = _DURABILITY_CORE._is_within
+session_directory = _DURABILITY_CORE.session_directory
+_sha256_file = _DURABILITY_CORE._sha256_file
+_ignored_source_directory = _DURABILITY_CORE._ignored_source_directory
+source_fingerprint = _DURABILITY_CORE.source_fingerprint
+_atomic_write_text = _DURABILITY_CORE._atomic_write_text
+_atomic_write_json = _DURABILITY_CORE._atomic_write_json
+session_lock = _DURABILITY_CORE.session_lock
+_state_path = _DURABILITY_CORE._state_path
+_read_ledger_events = _DURABILITY_CORE._read_ledger_events
+_latest_ledger_snapshot = _DURABILITY_CORE._latest_ledger_snapshot
+load_state = _DURABILITY_CORE.load_state
+_append_ledger = _DURABILITY_CORE._append_ledger
+time = _DURABILITY_CORE._durability.time
 
 
 def save_state_with_event(
@@ -1615,6 +1347,112 @@ def complete_packet(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     }, 0
 
 
+def reopen_packet(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Reopen a completed packet only after its bound evidence becomes invalid."""
+
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    packet_id = sanitize_identifier(args.packet, "packet")
+    actor = sanitize_identifier(args.actor, "actor")
+    reason = str(args.reason).strip()
+    if not reason:
+        raise WorkStateError("packet reopen reason must not be empty")
+    with session_lock(session_dir):
+        state = load_state(session_dir)
+        packet = _packet(state, packet_id)
+        if packet.get("status") != "completed":
+            raise WorkStateError(
+                f"packet {packet_id} cannot reopen from {packet.get('status')}"
+            )
+        if packet.get("owner") != actor:
+            raise WorkStateError(
+                f"only packet owner {packet.get('owner')} may reopen it"
+            )
+        descendants: set[str] = set()
+        frontier = {packet_id}
+        while frontier:
+            discovered = {
+                str(candidate.get("id"))
+                for candidate in _work_packets(state)
+                if str(candidate.get("id")) not in descendants
+                and any(
+                    dependency in frontier
+                    for dependency in candidate.get("dependencies", [])
+                )
+            }
+            descendants.update(discovered)
+            frontier = discovered
+        active_dependents = sorted(
+            descendant
+            for descendant in descendants
+            if _packet(state, descendant).get("status") == "active"
+        )
+        if active_dependents:
+            raise WorkStateError(
+                "cannot reopen packet while dependent work is active: "
+                + ", ".join(active_dependents)
+            )
+        evidence_error: str | None = None
+        for check in packet["checks"]:
+            try:
+                _validate_packet_check(session_dir, root, packet, check)
+            except WorkStateError as error:
+                evidence_error = str(error)
+                break
+        if evidence_error is None:
+            raise WorkStateError(
+                f"packet {packet_id} evidence is still valid; reopening is not allowed"
+            )
+        invalidated_dependents = sorted(
+            descendant
+            for descendant in descendants
+            if _packet(state, descendant).get("status") == "completed"
+        )
+        for target in [
+            packet,
+            *[_packet(state, item) for item in invalidated_dependents],
+        ]:
+            for check in target["checks"]:
+                check.update(
+                    {
+                        "status": "pending",
+                        "executor": None,
+                        "receipt": None,
+                        "receipt_sha256": None,
+                    }
+                )
+            if target is not packet:
+                target["status"] = "planned"
+                target["owner"] = None
+                target["started_at"] = None
+            target["completed_at"] = None
+        packet["status"] = "active"
+        packet["started_at"] = utc_now()
+        if state.get("status") == "complete":
+            state["status"] = "active"
+            state["completed_at"] = None
+        save_state_with_event(
+            session_dir,
+            state,
+            "packet_reopened",
+            packet_id=packet_id,
+            actor=actor,
+            reason=reason,
+            invalid_evidence=evidence_error,
+            invalidated_dependents=invalidated_dependents,
+        )
+    return {
+        "message": f"packet {packet_id}: reopened",
+        "packet_id": packet_id,
+        "status": "active",
+        "reason": reason,
+        "invalid_evidence": evidence_error,
+        "invalidated_dependents": invalidated_dependents,
+        "session_status": state["status"],
+    }, 0
+
+
 def run_red_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
@@ -2882,6 +2720,16 @@ def build_parser() -> argparse.ArgumentParser:
     packet_complete_parser.add_argument("--actor", required=True)
     _add_json_flag(packet_complete_parser)
 
+    packet_reopen_parser = subparsers.add_parser(
+        "reopen-packet",
+        help="reopen a completed packet after its evidence becomes invalid",
+    )
+    packet_reopen_parser.add_argument("--session", required=True)
+    packet_reopen_parser.add_argument("--packet", required=True)
+    packet_reopen_parser.add_argument("--actor", required=True)
+    packet_reopen_parser.add_argument("--reason", required=True)
+    _add_json_flag(packet_reopen_parser)
+
     run_parser = subparsers.add_parser("run", help="run a command and record evidence")
     run_parser.add_argument("--session", required=True)
     run_parser.add_argument("--criterion", required=True)
@@ -3028,6 +2876,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "start-packet": start_packet,
         "run-packet-check": run_packet_check,
         "complete-packet": complete_packet,
+        "reopen-packet": reopen_packet,
         "run": run_command,
         "run-red": run_red_command,
         "run-green": run_green_command,

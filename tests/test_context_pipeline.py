@@ -55,8 +55,15 @@ class ContextPipelineTests(unittest.TestCase):
         self.assertEqual(result.receipt.selected_chars, 20)
         self.assertEqual(len(result.content), 20)
         self.assertFalse(result.receipt.end_to_end_improvement_proven)
-        serialized = json.loads(result.receipt.to_json())
+        legacy = json.loads(result.receipt.to_json())
+        self.assertEqual(legacy["schema_version"], 1)
+        self.assertNotIn("usage_metrics", legacy)
+        self.assertNotIn("usefulness", legacy["decisions"][0])
+        serialized = json.loads(result.receipt.to_json(include_usage=True))
+        self.assertEqual(serialized["schema_version"], 2)
         self.assertEqual(serialized["budget"], {"max_chars": 20, "max_items": 2})
+        self.assertEqual(serialized["usage_metrics"]["selected_items"], 2)
+        self.assertGreater(serialized["usage_metrics"]["estimated_selected_tokens"], 0)
 
     def test_processor_filtered_item_remains_in_receipt(self) -> None:
         items = [
@@ -149,6 +156,66 @@ class ContextPipelineTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown context items"):
             result.receipt.mark_consumed(["missing"])
+
+    def test_usage_metrics_require_consumption_before_usefulness(self) -> None:
+        item = pipeline.ContextItem("known", "s", "value")
+        result = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider([item]),
+            [],
+            pipeline.RankedBudgetSelector(),
+        ).run("value", pipeline.ContextBudget(100, 1))
+
+        with self.assertRaisesRegex(ValueError, "consumed first"):
+            result.receipt.mark_usefulness(["known"], "useful")
+        result.receipt.mark_consumed(["known"])
+        result.receipt.mark_usefulness(["known"], "useful")
+
+        metrics = result.receipt.usage_metrics()
+        self.assertEqual(metrics["consumed_items"], 1)
+        self.assertEqual(metrics["useful_items"], 1)
+        self.assertEqual(metrics["selected_unconsumed_items"], 0)
+
+    def test_receipt_marks_expired_candidates_stale(self) -> None:
+        item = pipeline.ContextItem(
+            "old", "s", "value", {"valid_until": "2000-01-01T00:00:00Z"}
+        )
+        result = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider([item]),
+            [],
+            pipeline.RankedBudgetSelector(),
+        ).run("value", pipeline.ContextBudget(100, 1))
+
+        self.assertTrue(result.receipt.decisions[0].stale)
+        self.assertEqual(result.receipt.usage_metrics()["stale_items"], 1)
+
+    def test_pipeline_rejects_malformed_expiry_fail_closed(self) -> None:
+        item = pipeline.ContextItem(
+            "bad", "s", "value", {"valid_until": "not-a-timestamp"}
+        )
+        runner = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider([item]),
+            [],
+            pipeline.RankedBudgetSelector(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid valid_until"):
+            runner.run("value", pipeline.ContextBudget(100, 1))
+        issues = pipeline.lint_context([item])
+        self.assertIn("invalid-expiry", [issue.code for issue in issues])
+
+    def test_usage_character_counts_match_rendered_content(self) -> None:
+        items = [
+            pipeline.ContextItem("a", "s", "alpha"),
+            pipeline.ContextItem("b", "s", "beta"),
+        ]
+        result = pipeline.ContextPipeline(
+            pipeline.StaticContextProvider(items), [], pipeline.RankedBudgetSelector()
+        ).run("value", pipeline.ContextBudget(100, 2))
+
+        self.assertEqual(result.receipt.selected_chars, len(result.content))
+        self.assertEqual(
+            result.receipt.usage_metrics()["selected_chars"], len(result.content)
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,12 @@ from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_state.py"
+SCRIPT_PATH = Path(
+    os.environ.get(
+        "COGNITIVE_WORK_STATE_SCRIPT",
+        PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_state.py",
+    )
+)
 
 
 def load_work_state():
@@ -384,6 +390,280 @@ class WorkStateTests(unittest.TestCase):
             "receipt hash changed", status["work_packets"][0]["evidence_error"]
         )
 
+    def test_stale_completed_packet_can_reopen_and_revalidate(self) -> None:
+        self.initialize()
+        self.assertEqual(
+            self.plan_packets([self.packet_spec("p1", "source.py")]).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.cli(
+                "start-packet",
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                "--owner",
+                "worker",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.cli(
+                "run-packet-check",
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                "--check",
+                "k1",
+                "--executor",
+                "worker",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.cli(
+                "complete-packet",
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                "--actor",
+                "worker",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.workspace.joinpath("source.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+        reopened = self.cli(
+            "reopen-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--actor",
+            "worker",
+            "--reason",
+            "owned source changed after formatting",
+            "--json",
+        )
+
+        self.assertEqual(reopened.returncode, 0, reopened.stdout + reopened.stderr)
+        self.assertEqual(json.loads(reopened.stdout)["status"], "active")
+        status = json.loads(self.cli("status", "--session", "demo", "--json").stdout)
+        check = status["work_packets"][0]["checks"][0]
+        self.assertEqual(check["status"], "pending")
+        self.assertIsNone(check["receipt"])
+        self.assertEqual(
+            self.cli(
+                "run-packet-check",
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                "--check",
+                "k1",
+                "--executor",
+                "worker",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.cli(
+                "complete-packet",
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                "--actor",
+                "worker",
+                "--json",
+            ).returncode,
+            0,
+        )
+
+    def test_valid_completed_packet_cannot_reopen(self) -> None:
+        self.initialize()
+        self.assertEqual(
+            self.plan_packets([self.packet_spec("p1", "source.py")]).returncode,
+            0,
+        )
+        for command, extra in (
+            ("start-packet", ["--owner", "worker"]),
+            ("run-packet-check", ["--check", "k1", "--executor", "worker"]),
+            ("complete-packet", ["--actor", "worker"]),
+        ):
+            result = self.cli(
+                command,
+                "--session",
+                "demo",
+                "--packet",
+                "p1",
+                *extra,
+                "--json",
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        reopened = self.cli(
+            "reopen-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--actor",
+            "worker",
+            "--reason",
+            "retry",
+            "--json",
+        )
+
+        self.assertEqual(reopened.returncode, 2)
+        self.assertIn("evidence is still valid", reopened.stdout)
+
+    def test_reopen_packet_reactivates_session_and_invalidates_descendants(
+        self,
+    ) -> None:
+        self.initialize()
+        (self.workspace / "other.py").write_text("OTHER = 1\n", encoding="utf-8")
+        (self.workspace / "third.py").write_text("THIRD = 1\n", encoding="utf-8")
+        packets = [
+            self.packet_spec("p1", "source.py"),
+            self.packet_spec("p2", "other.py", dependencies=["p1"]),
+            self.packet_spec("p3", "third.py", dependencies=["p2"]),
+        ]
+        self.assertEqual(self.plan_packets(packets).returncode, 0)
+        for packet_id in ("p1", "p2", "p3"):
+            for command, extra in (
+                ("start-packet", ["--owner", packet_id]),
+                ("run-packet-check", ["--check", "k1", "--executor", packet_id]),
+                ("complete-packet", ["--actor", packet_id]),
+            ):
+                result = self.cli(
+                    command,
+                    "--session",
+                    "demo",
+                    "--packet",
+                    packet_id,
+                    *extra,
+                    "--json",
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.claim_with_passing_command().returncode, 0)
+        self.assertEqual(
+            self.cli(
+                "verify",
+                "--session",
+                "demo",
+                "--criterion",
+                "c1",
+                "--verifier",
+                "reviewer",
+                "--verdict",
+                "confirmed",
+                "--note",
+                "Integrated command passed",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.cli("complete", "--session", "demo", "--json").returncode, 0
+        )
+        self.workspace.joinpath("source.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+        reopened = self.cli(
+            "reopen-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--actor",
+            "p1",
+            "--reason",
+            "upstream source changed",
+            "--json",
+        )
+
+        self.assertEqual(reopened.returncode, 0, reopened.stdout + reopened.stderr)
+        payload = json.loads(reopened.stdout)
+        self.assertEqual(payload["session_status"], "active")
+        self.assertEqual(payload["invalidated_dependents"], ["p2", "p3"])
+        status = json.loads(self.cli("status", "--session", "demo", "--json").stdout)
+        by_id = {packet["id"]: packet for packet in status["work_packets"]}
+        self.assertEqual(by_id["p1"]["status"], "active")
+        self.assertEqual(by_id["p2"]["status"], "planned")
+        self.assertEqual(by_id["p3"]["status"], "planned")
+        self.assertEqual(by_id["p2"]["checks"][0]["status"], "pending")
+
+    def test_reopen_packet_refuses_active_dependent_without_mutation(self) -> None:
+        self.initialize()
+        (self.workspace / "other.py").write_text("OTHER = 1\n", encoding="utf-8")
+        self.assertEqual(
+            self.plan_packets(
+                [
+                    self.packet_spec("p1", "source.py"),
+                    self.packet_spec("p2", "other.py", dependencies=["p1"]),
+                ]
+            ).returncode,
+            0,
+        )
+        for command, extra in (
+            ("start-packet", ["--owner", "worker-one"]),
+            ("run-packet-check", ["--check", "k1", "--executor", "worker-one"]),
+            ("complete-packet", ["--actor", "worker-one"]),
+        ):
+            self.assertEqual(
+                self.cli(
+                    command,
+                    "--session",
+                    "demo",
+                    "--packet",
+                    "p1",
+                    *extra,
+                    "--json",
+                ).returncode,
+                0,
+            )
+        self.assertEqual(
+            self.cli(
+                "start-packet",
+                "--session",
+                "demo",
+                "--packet",
+                "p2",
+                "--owner",
+                "worker-two",
+                "--json",
+            ).returncode,
+            0,
+        )
+        self.workspace.joinpath("source.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+        reopened = self.cli(
+            "reopen-packet",
+            "--session",
+            "demo",
+            "--packet",
+            "p1",
+            "--actor",
+            "worker-one",
+            "--reason",
+            "upstream changed",
+            "--json",
+        )
+
+        self.assertEqual(reopened.returncode, 2)
+        self.assertIn("dependent work is active", reopened.stdout)
+        status = json.loads(self.cli("status", "--session", "demo", "--json").stdout)
+        by_id = {packet["id"]: packet for packet in status["work_packets"]}
+        self.assertEqual(by_id["p1"]["status"], "completed")
+        self.assertEqual(by_id["p2"]["status"], "active")
+
     def test_legacy_v1_state_without_packets_still_loads(self) -> None:
         session_dir = self.base / "legacy"
         session_dir.mkdir()
@@ -402,6 +682,65 @@ class WorkStateTests(unittest.TestCase):
         state = work_state.load_state(session_dir)
 
         self.assertEqual(work_state._work_packets(state), [])
+
+    def test_facade_loads_twice_from_isolated_python(self) -> None:
+        code = f"""
+import importlib.util
+import sys
+from pathlib import Path
+path = Path({str(SCRIPT_PATH)!r})
+loaded = []
+for name in ('isolated_work_state_one', 'isolated_work_state_two'):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    loaded.append(module)
+assert loaded[0].project_key(path.parent) == loaded[1].project_key(path.parent)
+assert callable(loaded[0].session_lock)
+assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
+"""
+
+        completed = subprocess.run(
+            [sys.executable, "-I", "-c", code],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=self.base,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+    def test_selective_gate_mutations_are_killed(self) -> None:
+        runner = (
+            PLUGIN_ROOT
+            / "skills"
+            / "execute-durably"
+            / "scripts"
+            / "work_state_core"
+            / "mutation_probe.py"
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(runner),
+                "--root",
+                str(PLUGIN_ROOT),
+                "--work-state",
+                str(SCRIPT_PATH),
+                "--python",
+                sys.executable,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["all_mutations_killed"])
+        self.assertEqual(len(payload["mutations"]), 2)
 
     def test_real_command_requires_independent_verification_before_completion(
         self,

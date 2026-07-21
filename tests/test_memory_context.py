@@ -52,8 +52,12 @@ class MemoryTests(unittest.TestCase):
             store, self.rec("two", supersedes=["one"]), project_scope="p"
         )
         mod.write_native(store, self.rec("old", expires=-1), project_scope="p")
-        got = mod.retrieve(store, "alpha", project_scope="p", demand=True)
+        got = mod.retrieve(
+            store, "alpha", project_scope="p", demand=True, include_usage=True
+        )
         self.assertEqual(["two"], [x["id"] for x in got["results"]])
+        self.assertEqual(got["usage_metrics"]["expired_records"], 1)
+        self.assertEqual(got["usage_metrics"]["superseded_records"], 1)
         with self.assertRaises(mod.MemoryContextError):
             mod.undo_native(store, second)
         self.assertTrue(first["after_sha256"])
@@ -197,6 +201,51 @@ class MemoryTests(unittest.TestCase):
                 memu_executable="memu",
                 runner=timeout_runner,
             )
+
+    def test_retrieval_usage_requires_selected_and_consumed_records(self):
+        store = self.root / "m.json"
+        mod.write_native(store, self.rec(), project_scope="p")
+        legacy = mod.retrieve(store, "alpha", project_scope="p", demand=True)
+        self.assertEqual(legacy["schema_version"], 1)
+        self.assertNotIn("usage_metrics", legacy)
+        payload = mod.retrieve(
+            store, "alpha", project_scope="p", demand=True, include_usage=True
+        )
+        self.assertEqual(payload["schema_version"], 2)
+
+        with self.assertRaisesRegex(mod.MemoryContextError, "must also be consumed"):
+            mod.mark_retrieval_usage(payload, useful_ids=["one"])
+        mod.mark_retrieval_usage(payload, consumed_ids=["one"], useful_ids=["one"])
+        self.assertEqual(payload["usage_metrics"]["consumed_records"], 1)
+        self.assertEqual(payload["usage_metrics"]["useful_records"], 1)
+        self.assertEqual(payload["usage_metrics"]["selected_unconsumed_records"], 0)
+
+    def test_duplicate_provider_ids_are_deduplicated_before_usage(self):
+        record = self.rec(id="duplicate")
+
+        class CP:
+            returncode = 0
+            stderr = ""
+            stdout = json.dumps({"segments": [record], "files": [record]})
+
+        payload = mod.retrieve(
+            None,
+            "alpha",
+            project_scope="p",
+            demand=True,
+            provider="memu",
+            memu_executable="memu",
+            runner=lambda *_args, **_kwargs: CP(),
+            include_usage=True,
+        )
+        mod.mark_retrieval_usage(
+            payload, consumed_ids=["duplicate"], useful_ids=["duplicate"]
+        )
+
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["usage_metrics"]["duplicate_id_records"], 1)
+        self.assertEqual(payload["usage_metrics"]["consumed_records"], 1)
+        self.assertTrue(any("duplicate" in item for item in payload["warnings"]))
 
 
 if __name__ == "__main__":

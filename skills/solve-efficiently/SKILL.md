@@ -45,10 +45,14 @@ Use `scripts/run_skill_routing_benchmarks.py` after changing a skill name or des
 
 ## 3. Match effort to complexity
 
-- Focused task: inspect the target and its nearest tests, then execute.
-- Cross-cutting task: map affected boundaries, plan, and verify each boundary.
+- Select `focused`, `standard`, or `durable` with `scripts/orchestration_policy.py` when intensity is not obvious. Preserve its reasons and abstentions; do not infer permission to retrieve memory or delegate from intensity alone.
+- Focused task: inspect the target and its nearest tests, then execute without durable state, receipts, memory retrieval, or coordination overhead.
+- Standard task: use progressive context and nearby verification without durable state unless a durable signal appears.
+- Durable task: use external state and evidence receipts when work spans turns, risks compaction, must be resumable, or explicitly requires durable evidence.
 - Independent investigations: delegate or batch them only when the expected information gain exceeds the coordination cost.
 - Coupled edits: keep one owner to avoid conflicting patches and duplicated context.
+
+Request mode and intensity are independent. A diagnosis remains investigation-only at every intensity; implement a fix only when the user authorized a change.
 
 When a specialized installed skill directly matches the task, use it instead of reproducing its domain instructions here.
 

@@ -1,0 +1,35 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: Offline (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run the canonical offline validation entrypoint
+        run: >-
+          python scripts/validate_all.py --offline
+          --json-output "${{ runner.temp }}/cognitive-powers-validation.json"
+      - name: Preserve validation receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ runner.temp }}/cognitive-powers-validation.json
+          if-no-files-found: error

@@ -67,6 +67,7 @@ def probe(
     *,
     execute: bool = False,
     environment: Mapping[str, str] | None = None,
+    available_tools: Sequence[str] = (),
     timeout: float = 5.0,
 ) -> dict[str, object]:
     if name not in SPECS:
@@ -77,7 +78,18 @@ def probe(
         (shutil.which(item) for item in spec.executables if shutil.which(item)), None
     )
     configured = bool(spec.config_env and env.get(spec.config_env))
-    available = executable is not None or configured
+    tool_matches = sorted(
+        tool
+        for tool in available_tools
+        if name == "context-mode"
+        and (
+            tool.startswith("mcp__context_mode__")
+            or tool.startswith("mcp__context-mode__")
+            or tool.startswith("context_mode.")
+            or tool.startswith("ctx_")
+        )
+    )
+    available = executable is not None or configured or bool(tool_matches)
     result: dict[str, object] = {
         "name": name,
         "capability": spec.capability,
@@ -87,7 +99,18 @@ def probe(
         "liveValidated": False,
         "installedByProbe": False,
         "fallback": "cognitive-powers-native",
+        "availabilitySources": [
+            source
+            for source, present in (
+                ("executable", executable is not None),
+                ("configuration", configured),
+                ("tool-surface", bool(tool_matches)),
+            )
+            if present
+        ],
     }
+    if tool_matches:
+        result["toolSurface"] = tool_matches
     if configured and spec.config_env:
         result["configuration"] = _redact_config(str(env[spec.config_env]))
     if not execute or executable is None:
@@ -105,8 +128,13 @@ def probe(
     return result
 
 
-def probe_all(*, execute: bool = False) -> dict[str, object]:
-    adapters = [probe(name, execute=execute) for name in sorted(SPECS)]
+def probe_all(
+    *, execute: bool = False, available_tools: Sequence[str] = ()
+) -> dict[str, object]:
+    adapters = [
+        probe(name, execute=execute, available_tools=available_tools)
+        for name in sorted(SPECS)
+    ]
     return {
         "adapters": adapters,
         "available": [item["name"] for item in adapters if item["available"]],
@@ -123,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run only an already-resolved executable's bounded version probe",
     )
+    parser.add_argument(
+        "--tool-name",
+        action="append",
+        default=[],
+        help="declare an already-available MCP/app tool without executing it",
+    )
     return parser
 
 
@@ -130,9 +164,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         payload = (
-            probe_all(execute=args.execute)
+            probe_all(execute=args.execute, available_tools=args.tool_name)
             if args.name == "all"
-            else probe(args.name, execute=args.execute)
+            else probe(
+                args.name,
+                execute=args.execute,
+                available_tools=args.tool_name,
+            )
         )
     except (AdapterError, OSError, subprocess.SubprocessError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))

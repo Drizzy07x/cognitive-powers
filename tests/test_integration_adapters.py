@@ -59,6 +59,21 @@ class IntegrationAdapterTests(unittest.TestCase):
         self.assertEqual(adapters.SPECS["obsidian"].version_args, ("version",))
         self.assertIn("lh", adapters.SPECS["lobehub"].executables)
 
+    def test_context_mode_tool_surface_is_first_class_and_passive(self) -> None:
+        for tool_name in (
+            "mcp__context_mode__ctx_execute",
+            "mcp__context-mode__ctx_execute",
+            "ctx_execute",
+        ):
+            with self.subTest(tool_name=tool_name):
+                with patch.object(adapters.shutil, "which", return_value=None):
+                    result = adapters.probe("context-mode", available_tools=[tool_name])
+                self.assertTrue(result["available"])
+                self.assertEqual(result["availabilitySources"], ["tool-surface"])
+                self.assertEqual(result["toolSurface"], [tool_name])
+                self.assertFalse(result["liveValidated"])
+                self.assertFalse(result["installedByProbe"])
+
 
 if __name__ == "__main__":
     unittest.main()

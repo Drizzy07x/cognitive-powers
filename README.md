@@ -6,7 +6,17 @@
 
 Cognitive Powers is a Codex plugin for executing non-trivial work with focused context and evidence-based verification.
 
-Version 1.2 provides:
+## Quickstart: three flows
+
+Use the smallest flow that fits the work:
+
+1. **Focused solve** — ask Codex to use `$solve-efficiently` for a bounded implementation, diagnosis, or research task. It selects only the context and checks justified by the request.
+2. **Durable execution** — ask Codex to use `$execute-durably` when work spans several steps, agents, or compactions. Criteria, command exits, source fingerprints, and independent verification remain external to the target repository.
+3. **Delivery verification** — ask Codex to use `$verify-delivery` with the original claim and relevant checkout. It reports Contract and Quality separately and does not turn missing or stale evidence into success.
+
+These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
+
+Version 1.3 provides:
 
 - A typed context pipeline with ordered providers and processors, strict character budgets, per-item inclusion receipts, and deterministic lint for duplicates, contradictions, expiry, and unused context.
 - A routing benchmark for every installed skill with positive, negative-owner, adversarial-pressure, rank-1, top-k, and collision cases without claiming end-to-end model improvement.
@@ -64,9 +74,67 @@ The current tests validate plugin structure, context selection, state transition
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
 
+## Doctor
+
+Doctor is read-only. It reports the plugin name, version and root; Python runtime; skills; hook configuration; Git and source identity; declared optional providers; and whether the validation entrypoints are present. It does not search for provider executables, access the network, read provider credentials, install anything, or claim live validation.
+
+```text
+& $python scripts/doctor.py --json
+```
+
+To validate the release layout without publishing, package and inspect a disposable temporary copy:
+
+```text
+& $python scripts/doctor.py --validate-installation --json
+```
+
+The temporary package is deleted after inspection. This validates installation structure only; it is not an installed-host or marketplace test.
+
+## Capability matrix
+
+| Surface | Default offline | Optional dependency | May consume credits | Requires a real app or host for a live claim |
+|---|---:|---:|---:|---:|
+| Native routing, context, memory, durable state, and validation contracts | Yes | No | No | No |
+| Context Mode, Graphify/CodeGraph, and memU adapters | Fallback only | Yes | Provider-dependent | No |
+| Context7 current-document retrieval | No | Yes | Provider-dependent | No |
+| Playwright browser verification | Fixture contracts only | Yes | No by itself | Yes |
+| QCU desktop verification | Transcript contracts only | Yes | No by itself | Yes |
+| Skyvern browser discovery | Normalization contracts only | Yes | Yes, depending on provider | Yes |
+| Ruflo, Nacos, LobeHub, and Obsidian adapters | Declaration/detection only | Yes | Provider-dependent | Provider-dependent |
+
+“Offline” means deterministic local contract or fixture validation. It does not mean the associated external provider or user-visible workflow was exercised.
+
+## Evaluation protocol
+
+Claims that Cognitive Powers improves Codex require paired baseline-versus-candidate runs, not manifest checks or synthetic benchmark scores. The versioned protocol freezes model, reasoning effort, prompt, tools, permissions, fixture, source identity, task version, and balanced arm order. It uses five categories: bug fixing, multi-file implementation, current-source research, delivery verification, and real-host interaction.
+
+- Pilot: 20 paired runs across the five categories.
+- Promotion: 50 held-out paired runs across disjoint task fixtures.
+- Score correctness and independent tests before efficiency; report every failure and reject critical failures.
+- Compare token efficiency only among paired successful runs. Keep input, cached input, fresh input, output, and total tokens separate.
+- A combined “better quality and fewer tokens” claim requires zero critical failures, success no lower than baseline, mean quality at least five points higher, median total tokens at least 15% lower, median fresh input at least 20% lower, and at most 5% overhead on tasks where the plugin should abstain.
+
+`benchmarks/evaluation_tasks.json` contains frozen task definitions and schedules, not run results. The offline integration fixture keeps end-to-end improvement false.
+
+## Live evidence limitations
+
+The default suite is offline and does not validate current providers, credits, browsers, desktop applications, or public host behavior. A live claim requires an explicitly authorized command, current objective-level evidence, artifact hashes, and independent review. Doctor never upgrades availability into validation.
+
+No product screenshots are claimed because Cognitive Powers currently has no verified public host surface suitable for a real capture. The manifest intentionally keeps `screenshots` empty; screenshots will be added only after the public surface and capture are verified.
+
 ## Validate
 
 Set `$python` to a working Python 3 executable. In Codex desktop, use the Python path returned by the workspace dependency loader rather than the Microsoft Store alias.
+
+Run the complete declared offline surface with one command. The JSON receipt must be outside the plugin root so it does not dirty or alter the source identity being validated:
+
+```text
+& $python scripts/validate_all.py --offline --json-output <outside-repo-validation.json>
+```
+
+The command fails closed when Git has no real HEAD, the worktree is dirty, source identity changes during execution, a declared command is missing, or any real exit code is nonzero. It records offline and live status separately and never runs live checks by default.
+
+The canonical offline surface executed by that entrypoint is listed below and checked against the orchestrator by tests:
 
 ```powershell
 & $python --version
@@ -86,6 +154,8 @@ Set `$python` to a working Python 3 executable. In Codex desktop, use the Python
 & $python scripts/external_catalog.py validate
 & $python scripts/integration_adapters.py all
 & $python scripts/integration_evaluation.py --receipts benchmarks/integration_evaluation_cases.json
+& $python skills/execute-durably/scripts/work_state_core/mutation_probe.py --root .
+& $python scripts/doctor.py --validate-installation --json
 ```
 
 The integration-evaluation fixture is offline and keeps `end_to_end_improvement_proven` false. Replace it with current provider-backed paired receipts before making an improvement claim.

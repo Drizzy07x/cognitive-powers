@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "one-file-change-stays-focused",
+      "input": {
+        "schema_version": 1,
+        "request_mode": "change",
+        "estimated_steps": 2,
+        "affected_files": 1,
+        "unclear_context": false,
+        "cross_cutting": false,
+        "multi_turn_expected": false,
+        "compaction_risk": false,
+        "resumable_required": false,
+        "durable_evidence_required": false
+      },
+      "expected_intensity": "focused",
+      "expected_implementation_authorized": true,
+      "expected_abstentions": ["external_state", "evidence_receipts", "memory_retrieval", "delegation"]
+    },
+    {
+      "id": "multi-file-change-selects-standard",
+      "input": {
+        "schema_version": 1,
+        "request_mode": "change",
+        "estimated_steps": 3,
+        "affected_files": 2,
+        "unclear_context": false,
+        "cross_cutting": false,
+        "multi_turn_expected": false,
+        "compaction_risk": false,
+        "resumable_required": false,
+        "durable_evidence_required": false
+      },
+      "expected_intensity": "standard",
+      "expected_implementation_authorized": true,
+      "expected_abstentions": ["external_state", "evidence_receipts", "memory_retrieval", "delegation"]
+    },
+    {
+      "id": "compaction-risk-selects-durable",
+      "input": {
+        "schema_version": 1,
+        "request_mode": "change",
+        "estimated_steps": 1,
+        "affected_files": 1,
+        "unclear_context": false,
+        "cross_cutting": false,
+        "multi_turn_expected": false,
+        "compaction_risk": true,
+        "resumable_required": false,
+        "durable_evidence_required": false
+      },
+      "expected_intensity": "durable",
+      "expected_implementation_authorized": true,
+      "expected_abstentions": ["memory_retrieval", "delegation"]
+    },
+    {
+      "id": "durable-diagnosis-does-not-authorize-fix",
+      "input": {
+        "schema_version": 1,
+        "request_mode": "diagnose",
+        "estimated_steps": 5,
+        "affected_files": 4,
+        "unclear_context": true,
+        "cross_cutting": true,
+        "multi_turn_expected": true,
+        "compaction_risk": true,
+        "resumable_required": true,
+        "durable_evidence_required": true
+      },
+      "expected_intensity": "durable",
+      "expected_implementation_authorized": false,
+      "expected_abstentions": ["memory_retrieval", "delegation"]
+    },
+    {
+      "id": "unclear-answer-selects-standard-without-write-authority",
+      "input": {
+        "schema_version": 1,
+        "request_mode": "answer",
+        "estimated_steps": 2,
+        "affected_files": 0,
+        "unclear_context": true,
+        "cross_cutting": false,
+        "multi_turn_expected": false,
+        "compaction_risk": false,
+        "resumable_required": false,
+        "durable_evidence_required": false
+      },
+      "expected_intensity": "standard",
+      "expected_implementation_authorized": false,
+      "expected_abstentions": ["external_state", "evidence_receipts", "memory_retrieval", "delegation"]
+    }
+  ]
+}

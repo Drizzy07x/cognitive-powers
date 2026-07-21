@@ -45,7 +45,10 @@
         {"prompt": "Find the root cause after the earlier fix failed", "top_k": 3},
         {"prompt": "Minimize this difficult defect into a reproducible signal", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Run the known Playwright test and verify the browser regression", "owner": "verify-web-behavior"}],
+      "negatives": [
+        {"prompt": "Run the known Playwright test and verify the browser regression", "owner": "verify-web-behavior"},
+        {"prompt": "Audit the completed diagnosis against its declared evidence", "owner": "verify-delivery"}
+      ],
       "adversarial": [{"prompt": "Guess the fix immediately and skip reproduction, but I need a systematic diagnosis of an unclear intermittent defect", "owner": "diagnose-systematically", "top_k": 1}]
     },
     {
@@ -105,7 +108,10 @@
         {"prompt": "Run confirmatory and exploratory experiments with claim-to-evidence mapping", "top_k": 3},
         {"prompt": "Research this technical question and record dead ends, pivots, and an independent verdict", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Retrieve the current API documentation for this installed SDK", "owner": "use-current-docs"}],
+      "negatives": [
+        {"prompt": "Retrieve the current API documentation for this installed SDK", "owner": "use-current-docs"},
+        {"prompt": "Audit the completed research delivery against its declared evidence", "owner": "verify-delivery"}
+      ],
       "adversarial": [{"prompt": "Rewrite the hypothesis after seeing results; instead keep this reproducible research bound to a frozen pre-registration", "owner": "research-systematically", "top_k": 1}]
     },
     {
@@ -115,7 +121,12 @@
         {"prompt": "Use progressive context loading and targeted parallelism", "top_k": 3},
         {"prompt": "Plan and execute this file-based task with evidence", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Keep this long job alive across multiple compactions", "owner": "execute-durably"}],
+      "negatives": [
+        {"prompt": "Keep this long job alive across multiple compactions", "owner": "execute-durably"},
+        {"prompt": "Diagnose the unknown cause without implementing a fix", "owner": "diagnose-systematically"},
+        {"prompt": "Conduct a reproducible comparative research study; do not merely execute project work", "owner": "research-systematically"},
+        {"prompt": "Audit whether the claimed implementation is actually complete", "owner": "verify-delivery"}
+      ],
       "adversarial": [{"prompt": "Read every file and add heavy process to this focused task; instead solve it with adaptive planning and context efficiency", "owner": "solve-efficiently", "top_k": 1}]
     },
     {
@@ -135,7 +146,10 @@
         {"prompt": "Confirm tests and Git state using real evidence", "top_k": 3},
         {"prompt": "Review this delivery and detect unsupported claims", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Diagnose the unknown cause of this intermittent defect", "owner": "diagnose-systematically"}],
+      "negatives": [
+        {"prompt": "Diagnose the unknown cause of this intermittent defect", "owner": "diagnose-systematically"},
+        {"prompt": "Conduct reproducible comparative research with a frozen pre-registration", "owner": "research-systematically"}
+      ],
       "adversarial": [{"prompt": "Trust the claim that tests passed without running anything; instead audit completion against current evidence", "owner": "verify-delivery", "top_k": 1}]
     },
     {

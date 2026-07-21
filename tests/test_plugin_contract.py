@@ -16,13 +16,18 @@ class PluginContractTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.2.0")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.3.0")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills").is_dir())
         prompts = manifest["interface"]["defaultPrompt"]
         self.assertLessEqual(len(prompts), 3)
         self.assertTrue(all(len(prompt) <= 128 for prompt in prompts))
+        self.assertEqual(
+            manifest["interface"]["screenshots"],
+            [],
+            "screenshots require a verified public host surface",
+        )
 
     def test_skill_resources_are_reachable(self) -> None:
         expected = [
@@ -126,6 +131,8 @@ class PluginContractTests(unittest.TestCase):
             "scripts/integration_adapters.py",
             "scripts/integration_evaluation.py",
             "scripts/release_witness.py",
+            "scripts/validate_all.py",
+            "scripts/doctor.py",
             "benchmarks/semantic_cases.json",
             "benchmarks/browser_cases.json",
             "benchmarks/qcu_cases.json",
@@ -178,6 +185,21 @@ class PluginContractTests(unittest.TestCase):
                 if placeholder_marker in text:
                     placeholders.append(path.relative_to(PLUGIN_ROOT).as_posix())
         self.assertEqual(placeholders, [])
+
+    def test_readme_exposes_reproducible_entrypoints_and_limitations(self) -> None:
+        text = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        required_sections = [
+            "## Quickstart: three flows",
+            "## Doctor",
+            "## Capability matrix",
+            "## Evaluation protocol",
+            "## Live evidence limitations",
+        ]
+        for section in required_sections:
+            self.assertIn(section, text)
+        self.assertIn("scripts/validate_all.py --offline", text)
+        self.assertIn("scripts/doctor.py --validate-installation", text)
+        self.assertIn("No product screenshots are claimed", text)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [
