@@ -219,6 +219,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("scripts/validate_all.py --offline", text)
         self.assertIn("scripts/doctor.py --validate-installation", text)
         self.assertIn("repos/Drizzy07x/cognitive-powers/contents/install.ps1", text)
+        self.assertIn("| Out-String", text)
         self.assertIn("cognitive-powers@cognitive-powers", text)
         self.assertIn("codex plugin add cognitive-powers@personal --json", text)
         self.assertIn("codex plugin list --json", text)

@@ -90,7 +90,7 @@ Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers
 The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json")))
+& ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
 The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.4.2` is enabled. Restart Codex before starting a new task.
