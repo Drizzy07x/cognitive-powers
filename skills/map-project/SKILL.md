@@ -1,6 +1,6 @@
 ---
 name: map-project
-description: Build or refresh a compact hierarchical AGENTS.md knowledge base for a large or unfamiliar repository. Use when the user asks to map, initialize, document, or refresh project memory; when repository guidance is missing or stale; or when repeated exploration is wasting context across tasks.
+description: Build or refresh compact hierarchical AGENTS.md guidance. Use for mapping a large or unfamiliar repository or replacing stale project memory.
 ---
 
 # Map Project

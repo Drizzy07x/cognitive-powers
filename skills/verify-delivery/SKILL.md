@@ -1,11 +1,13 @@
 ---
 name: verify-delivery
-description: Audit a claimed completion, code change, diagnosis, release, or benchmark against the original request and real evidence. Use when asked to review, validate, benchmark, check readiness, confirm tests or Git state, detect unsupported claims, or determine whether work is actually complete.
+description: Audit an already-completed implementation, diagnosis, research delivery, release, or benchmark against real evidence. Use when asked to review an existing completion claim, tests, Git state, readiness, or unsupported claims; never while implementing a change.
 ---
 
 # Verify Delivery
 
 Treat completion as a set of falsifiable claims, not a confident summary.
+
+For a bounded checkout with one explicit claim document and a small declared evidence surface, use a focused audit instead of the remaining broad workflow: one batch for the claim, status, exact local/tracking/remote identity, relevant diff/artifact evidence, and named tests; then run the single focused suite once. Do not load references, inspect unclaimed signing/identity/history, try alternate test frameworks, or run `knowledge_closeout.py` for that bounded case.
 
 ## 1. Freeze the contract
 

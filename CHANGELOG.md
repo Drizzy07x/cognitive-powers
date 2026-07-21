@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.1 - 2026-07-21
+
+- Added a focused code-and-test fast path that avoids repeated discovery, unchanged-file reads, redundant green checks, and unrelated cleanup.
+- Stopped loading `communicate-efficiently` for routine progress and completion handoffs.
+- Preserved full behavioral quality in a three-pair live coding pilot while reducing Cognitive Powers median total tokens by 52.6%, tool calls by 56.3%, and elapsed time by 39.9% relative to 1.4.0 on the same fixture.
+- Reduced the host-visible catalog from fourteen specialized entries to three core workflows while retaining all specialized instructions as demand-loaded internal workflows.
+- Added a fail-closed paired live A/B runner with isolated homes and fixture copies, seeded arm order, provider usage receipts, hidden checks, allowed-path enforcement, and guarded-source mutation detection.
+- On a three-pair bounded-task abstention test, the core catalog preserved 6/6 successes and reduced median total tokens by 13.8%, fresh input by 59.3%, tool calls by 20.0%, and elapsed time by 7.1% versus Codex base. The worst individual pair added 4.5% total tokens.
+
+These measurements cover one bounded coding fixture. Broad end-to-end superiority remains unclaimed until the multi-category pilot and held-out promotion gates pass.
+
 ## 1.4.0 - 2026-07-21
 
 - Closed legacy-schema and non-finite-number paths that could create unsupported evaluation claims.

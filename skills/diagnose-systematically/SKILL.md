@@ -1,6 +1,6 @@
 ---
 name: diagnose-systematically
-description: Diagnose difficult defects and performance regressions through a reproducible feedback loop, minimization, falsifiable hypotheses, targeted instrumentation, and regression evidence. Use when a failure is intermittent, its cause is unclear, an earlier fix did not hold, or the user explicitly asks to diagnose or debug a non-trivial problem.
+description: Diagnose unclear, intermittent, or recurring defects with reproduction, falsifiable hypotheses, instrumentation, and regression evidence. Use when the cause is unknown.
 ---
 
 # Diagnose Systematically

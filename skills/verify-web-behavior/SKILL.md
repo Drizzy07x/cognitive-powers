@@ -1,6 +1,6 @@
 ---
 name: verify-web-behavior
-description: Reproduce, diagnose, and verify browser-visible behavior with an existing Playwright Test setup and durable machine-readable evidence. Use for web UI defects, end-to-end flows, browser regressions, accessibility behavior, visual changes, flaky browser tests, or delivery claims that require real browser execution.
+description: Verify known browser behavior or regressions with existing Playwright tests and machine-readable evidence. Use for web UI defects, end-to-end flows, accessibility, flakiness, or visual changes.
 ---
 
 # Verify Web Behavior

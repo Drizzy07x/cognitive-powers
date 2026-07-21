@@ -122,9 +122,29 @@ def git_identity(root: Path) -> dict[str, Any]:
     }
 
 
-def skill_inventory(root: Path) -> dict[str, Any]:
-    names = sorted(path.parent.name for path in (root / "skills").glob("*/SKILL.md"))
-    return {"count": len(names), "names": names}
+def skill_inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    declared = manifest.get("skills")
+    try:
+        exposed_root = (
+            _declared_path(root, declared) if isinstance(declared, str) else None
+        )
+    except DoctorError as error:
+        return {"count": 0, "names": [], "declared": declared, "error": str(error)}
+    names = (
+        sorted(path.parent.name for path in exposed_root.glob("*/SKILL.md"))
+        if exposed_root is not None and exposed_root.is_dir()
+        else []
+    )
+    internal_names = sorted(
+        path.parent.name for path in (root / "skills").glob("*/SKILL.md")
+    )
+    return {
+        "count": len(names),
+        "names": names,
+        "declared": declared,
+        "internalCount": len(internal_names),
+        "internalNames": internal_names,
+    }
 
 
 def hook_inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -408,7 +428,7 @@ def build_report(root: Path, *, validate_installation: bool = False) -> dict[str
             "version": platform.python_version(),
             "implementation": platform.python_implementation(),
         },
-        "skills": skill_inventory(root),
+        "skills": skill_inventory(root, manifest),
         "hooks": hook_inventory(root, manifest),
         "git": git_identity(root),
         "source": source_identity(root),

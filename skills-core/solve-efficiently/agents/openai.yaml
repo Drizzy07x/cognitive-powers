@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solve Efficiently"
+  short_description: "Focused context and verified repository outcomes"
+  default_prompt: "Use $solve-efficiently to solve this complex task with focused context and current evidence."

@@ -46,11 +46,27 @@ def _local_link_target(skill_file: Path, raw_target: str) -> Path | None:
     return (skill_file.parent / path_text).resolve()
 
 
+def _skill_roots(root: Path) -> list[Path]:
+    roots = [root / "skills"]
+    manifest_path = root / ".codex-plugin" / "plugin.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declared = manifest.get("skills")
+        if isinstance(declared, str):
+            exposed = (root / declared).resolve()
+            if exposed != roots[0].resolve() and root in exposed.parents:
+                roots.append(exposed)
+    return roots
+
+
 def validate(plugin_root: Path) -> list[str]:
     root = plugin_root.resolve()
-    skills_root = root / "skills"
     errors: list[str] = []
-    skill_files = sorted(skills_root.glob("*/SKILL.md"))
+    skill_files = sorted(
+        skill_file
+        for skills_root in _skill_roots(root)
+        for skill_file in skills_root.glob("*/SKILL.md")
+    )
     if not skill_files:
         return ["skills: no SKILL.md files found"]
 
@@ -118,7 +134,11 @@ def quality_warnings(plugin_root: Path) -> list[str]:
     """Return semantic-maintenance warnings without pretending to grade behavior."""
     root = plugin_root.resolve()
     warnings: list[str] = []
-    for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
+    for skill_file in sorted(
+        skill_file
+        for skills_root in _skill_roots(root)
+        for skill_file in skills_root.glob("*/SKILL.md")
+    ):
         relative = skill_file.relative_to(root).as_posix()
         text = skill_file.read_text(encoding="utf-8")
         metadata, _ = _frontmatter(text, skill_file.relative_to(root))

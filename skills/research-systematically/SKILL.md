@@ -1,6 +1,6 @@
 ---
 name: research-systematically
-description: Conduct evidence-bound technical or product research with a frozen pre-registration, explicit confirmatory and exploratory experiments, claim-to-evidence mapping, recorded dead ends and pivots, and an independent verifier verdict. Use when a question requires experiments, comparative investigation, reproducible research, or conclusions that must remain traceable to current evidence.
+description: Conduct reproducible research with frozen pre-registration, experiments, claim-to-evidence mapping, and independent verdict. Use for comparative or experimental investigations.
 ---
 
 # Research Systematically

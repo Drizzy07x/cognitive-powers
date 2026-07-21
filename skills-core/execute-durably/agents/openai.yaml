@@ -1,0 +1,4 @@
+interface:
+  display_name: "Execute Durably"
+  short_description: "Resumable execution with external evidence receipts"
+  default_prompt: "Use $execute-durably to run this long task with durable state and independently verified criteria."

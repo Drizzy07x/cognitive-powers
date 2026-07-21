@@ -1,6 +1,6 @@
 ---
 name: design-intentionally
-description: Define, implement, redesign, and audit web interface direction from audience, brand, references, layout, motion, and density instead of generic AI defaults. Use for landing pages, product surfaces, dashboards, portfolios, commerce, editorial pages, public-service interfaces, visual redesigns, screenshot-driven work, design-system selection, responsive visual QA, or claims about interface quality and fidelity.
+description: Define, implement, redesign, or audit deliberate web interface direction. Use for branded UI, screenshot-driven work, responsive visual QA, and fidelity claims.
 ---
 
 # Design Intentionally

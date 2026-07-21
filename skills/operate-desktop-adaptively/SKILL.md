@@ -1,6 +1,6 @@
 ---
 name: operate-desktop-adaptively
-description: Operate and verify native Windows applications through an existing Quick Computer Use (QCU) installation. Use for desktop UI tasks, WPF or Win32 reproduction, installer flows, cross-application work, or delivery criteria that require guarded local input and durable desktop evidence.
+description: Operate and verify native Windows apps through existing QCU. Use for WPF, Win32, installers, or cross-app workflows requiring guarded desktop evidence.
 ---
 
 # Operate Desktop Adaptively
@@ -60,4 +60,3 @@ For a durable criterion, record the successful normalized receipt:
 ```
 
 Require a different verifier through `$execute-durably`; QCU evidence is eligible to support behavioral verification but does not self-confirm a criterion. Report the expected window, action count, observation IDs, capture reliability, finish reason, and anything not exercised.
-

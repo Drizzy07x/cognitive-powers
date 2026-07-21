@@ -1,6 +1,6 @@
 {
   "name": "cognitive-powers",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Auditable context, semantic navigation, scoped memory, capability evolution, and durable evidence.",
   "author": {
     "name": "DrizzyPC"
@@ -33,7 +33,7 @@
     "visual-verification",
     "versioned-documentation"
   ],
-  "skills": "./skills/",
+  "skills": "./skills-core/",
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Cognitive Powers",

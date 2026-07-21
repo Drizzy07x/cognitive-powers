@@ -16,6 +16,8 @@ Use the smallest flow that fits the work:
 
 These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
 
+Codex initially sees only these three core entries. The other eleven specialized workflows remain installed and are loaded from the core router only when the task directly matches them. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
+
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
 - Legacy or non-finite evaluation data cannot prove end-to-end improvement; only a complete versioned v2 promotion protocol is claim-eligible.
@@ -79,7 +81,7 @@ The broader Cognitive Powers surface includes:
 - Deterministic validation, context-selection, and capability-audit benchmarks.
 - A deterministic communication-contract benchmark that detects lossy compression without claiming end-to-end model improvement.
 
-The current tests validate plugin structure, context selection, state transitions, real exit-code capture, evidence integrity, and completion gates. They do not yet prove an end-to-end improvement in model quality or token usage.
+The current tests validate plugin structure, context selection, state transitions, real exit-code capture, evidence integrity, and completion gates. A three-pair live bounded-coding A/B also preserved all hidden-test outcomes while reducing median total tokens by 13.8% versus Codex base; that result is fixture-specific and does not prove a broad model-quality or token advantage.
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
 

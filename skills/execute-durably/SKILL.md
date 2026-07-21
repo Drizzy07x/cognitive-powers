@@ -1,6 +1,6 @@
 ---
 name: execute-durably
-description: Execute long, multi-step, or compaction-prone work with external persistent state, append-only history, evidence receipts, source fingerprints, and independent verification. Use when work must survive multiple turns, has several observable success criteria, requires reliable resumption, or the user explicitly requests durable execution or completion backed by evidence.
+description: Execute long or compaction-prone work with external state, evidence receipts, and independent verification. Use for resumable multi-turn work with several observable criteria.
 ---
 
 # Execute Durably

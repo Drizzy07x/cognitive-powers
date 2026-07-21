@@ -1,6 +1,6 @@
 ---
 name: use-current-docs
-description: Retrieve current, version-matched documentation for external libraries, frameworks, SDKs, CLIs, and cloud APIs while keeping context bounded and evidence reproducible. Use for library-specific implementation, configuration, migration, API signatures, or debugging when installed versions and authoritative external documentation matter.
+description: Retrieve current version-matched authoritative docs for external libraries, SDKs, CLIs, or cloud APIs. Use when implementation depends on a specific installed version.
 ---
 
 # Use Current Docs

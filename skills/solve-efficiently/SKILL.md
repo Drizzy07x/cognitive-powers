@@ -1,11 +1,13 @@
 ---
 name: solve-efficiently
-description: Execute non-trivial coding, debugging, research, and file-based work with adaptive planning, progressive context loading, targeted parallelism, and evidence-based completion. Use when a request spans multiple steps or files, the relevant context is unclear, quality and token efficiency both matter, or the user explicitly invokes Cognitive Powers or asks to work efficiently.
+description: Execute cross-file or complex multi-module work; fix a defect described by a supplied reproduction while preserving unrelated behavior; answer a bounded technical decision using supplied current primary sources; or complete a specified workflow through an authorized real host, with progressive context and verified completion. Use when a public contract spans implementation, persistence, CLI, browser, or tests, boundaries need discovery, repository context payload must be reduced, or Cognitive Powers is requested. Abstain only from obvious one-file changes with a nearby test.
 ---
 
 # Solve Efficiently
 
 Optimize for a correct, verified outcome per unit of context. Do not reduce tokens by skipping evidence, and do not add process that a simple task does not need.
+
+For a bounded technical decision with a supplied brief, version constraints, and primary-source policy, use one evidence batch: read the brief/policy, inspect only the named version-matched primary sources, preserve exact URLs and caveats, then separate verified facts, inference, recommendation, and uncertainty. Do not load another workflow, use Context7, run generic discovery, or test an implementation that was not requested.
 
 ## 1. Frame the work
 
@@ -54,6 +56,21 @@ Use `scripts/run_skill_routing_benchmarks.py` after changing a skill name or des
 
 Request mode and intensity are independent. A diagnosis remains investigation-only at every intensity; implement a fix only when the user authorized a change.
 
+### Focused code-and-test fast path
+
+When the request names a bounded behavior, the relevant module is easy to locate, and the nearest tests are available, keep the execution to one coherent pass:
+
+1. In one discovery batch, inspect applicable instructions, repository state, the target source, and its nearest tests.
+2. Apply one coherent patch after the behavior and verification target are clear.
+3. Run the focused behavioral test once. Run one broader affected suite only when it covers a distinct regression boundary.
+4. Hand off from the evidence already collected.
+
+Do not invoke another skill merely to format a routine progress update or completion message. Do not repeat an unchanged search, re-read unchanged files, rerun an already-green command for reassurance, or clean generated caches unless the request or a failing check makes that cleanup material. If no repository instruction file is found in the bounded search, continue instead of searching for it again.
+
+A local feature contract (including conventional `FEATURE*`, `TASK*`, `SPEC*`, `CONTRACT*`, or `README*` files) plus a small matched source-and-test set is already a clear boundary. Do not load more workflow guidance after finding it, and do not treat a shell quoting or command-formatting mistake as architectural ambiguity. Retry the narrow command directly. Prefer a direct language-level reproduction over dynamically quoted shell scripts, and after the conditional focused-plus-affected verification passes, do not add separate parser, compile, search, or file re-read calls.
+
+For an additive feature whose local contract explicitly documents the gap, do not spend a separate pre-patch call proving the feature is absent. Use discovery, one patch, and one focused-plus-affected verification. For defects, prioritize conventional root `REPRODUCTION*`, `ISSUE*`, or `BUG*` files: read the reproduction and list source/test paths first, then read only exact referenced or identifier-matched files while reproducing. Never open or run an unrelated test framework merely because the repository is small.
+
 When a specialized installed skill directly matches the task, use it instead of reproducing its domain instructions here.
 
 For a web interface, visual redesign, screenshot-driven implementation, or claim about design quality, invoke `$design-intentionally` before implementation. Return to `$verify-web-behavior` for executable interaction evidence.
@@ -74,4 +91,4 @@ Never say a command passed unless it ran successfully in the current work. Repor
 
 ## 6. Hand off compactly
 
-Invoke `$communicate-efficiently` for progress, technical handoffs, or completion reports whose detail should adapt to consequence and complexity. Lead with the outcome. State material changes, the exact checks run and their results, and any remaining limitation. Omit a diary of routine tool calls.
+For a routine progress update or completion report, render a compact handoff directly: lead with the outcome, state material changes, give the exact checks and results, and name any remaining limitation. Invoke `$communicate-efficiently` only when the user explicitly requests adaptive brevity, the communication is consequential enough that profile selection is genuinely ambiguous, or a provider-backed communication receipt is required. Omit a diary of routine tool calls.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Delivery"
+  short_description: "Independent audit of existing completion claims"
+  default_prompt: "Use $verify-delivery to audit this completed work against current executable evidence."

@@ -120,6 +120,13 @@ def validate_task_contract(value: object) -> dict[str, Any]:
         raise EvaluationError("protocol must require quality_before_efficiency")
     if protocol.get("reject_critical_failures") is not True:
         raise EvaluationError("protocol must reject critical failures")
+    minimum_quality_delta = _number(
+        protocol.get("minimum_average_quality_delta"),
+        "protocol.minimum_average_quality_delta",
+        minimum=0.0,
+    )
+    if minimum_quality_delta > 1:
+        raise EvaluationError("minimum_average_quality_delta must not exceed 1")
 
     rounds = value.get("rounds")
     if not isinstance(rounds, dict) or set(rounds) != {"pilot", "promotion"}:
@@ -236,7 +243,11 @@ def validate_task_contract(value: object) -> dict[str, Any]:
         "schema_version": 2,
         "task_set_id": task_set_id,
         "contains_run_results": False,
-        "protocol": {**protocol, "locked_between_arms": locked},
+        "protocol": {
+            **protocol,
+            "locked_between_arms": locked,
+            "minimum_average_quality_delta": minimum_quality_delta,
+        },
         "rounds": normalized_rounds,
         "tasks": tasks,
     }
@@ -447,6 +458,9 @@ def compare(
             "live": baseline["live_execution"] and candidate["live_execution"],
             "critical_failure": critical_failure,
             "quality_preserved": quality_preserved,
+            "baseline_quality_score": baseline["quality_score"],
+            "candidate_quality_score": candidate["quality_score"],
+            "quality_delta": candidate["quality_score"] - baseline["quality_score"],
             "independent_tests_passed": independent_tests_passed,
             "budget_passed": budget_passed,
             "efficiency_eligible": quality_gate_passed,
@@ -507,6 +521,25 @@ def compare(
     scope_quality = bool(evidence_scope) and all(
         pair["passed"] for pair in evidence_scope
     )
+    baseline_quality_average = (
+        sum(pair["baseline_quality_score"] for pair in evidence_scope)
+        / len(evidence_scope)
+        if evidence_scope
+        else 0.0
+    )
+    candidate_quality_average = (
+        sum(pair["candidate_quality_score"] for pair in evidence_scope)
+        / len(evidence_scope)
+        if evidence_scope
+        else 0.0
+    )
+    quality_delta = candidate_quality_average - baseline_quality_average
+    minimum_quality_delta = (
+        contract["protocol"]["minimum_average_quality_delta"]
+        if contract is not None
+        else 0.0
+    )
+    quality_improved = quality_delta >= minimum_quality_delta
     scope_efficiency = (
         bool(evidence_scope)
         and all(
@@ -524,6 +557,7 @@ def compare(
         and held_out_complete
         and scope_live
         and scope_quality
+        and quality_improved
         and scope_efficiency
     )
     if proven:
@@ -538,6 +572,10 @@ def compare(
         reason = "requires the complete repeated, balanced, held-out promotion round"
     elif not scope_live or len(evidence_scope) < minimum_live_pairs:
         reason = "requires enough paired live executions"
+    elif not quality_improved:
+        reason = (
+            "average candidate quality did not meet the frozen improvement threshold"
+        )
     else:
         reason = (
             "quality passed but measured efficiency did not improve without regression"
@@ -549,6 +587,13 @@ def compare(
         "minimum_live_pairs": minimum_live_pairs,
         "live_pairs": live_pairs,
         "all_quality_gates_passed": all_quality,
+        "quality": {
+            "baseline_average": baseline_quality_average,
+            "candidate_average": candidate_quality_average,
+            "delta": quality_delta,
+            "minimum_delta": minimum_quality_delta,
+            "improved": quality_improved,
+        },
         "protocol": protocol_status,
         "efficiency_evaluated": all_quality and bool(eligible_efficiency),
         "aggregate_efficiency_improved": aggregate_efficiency_improved,

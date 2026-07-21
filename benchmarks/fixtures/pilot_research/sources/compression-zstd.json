@@ -1,0 +1,12 @@
+{
+  "authority": "Python 3.14.6 documentation",
+  "retrieved_on": "2026-07-21",
+  "url": "https://docs.python.org/3.14/library/compression.zstd.html",
+  "facts": [
+    "compression.zstd was added in Python 3.14.",
+    "The module is optional and may be missing from a distributor-provided CPython build.",
+    "open and ZstdFile read and write Zstandard files.",
+    "compress and decompress provide one-shot in-memory operations.",
+    "ZstdCompressor and ZstdDecompressor provide incremental operations."
+  ]
+}

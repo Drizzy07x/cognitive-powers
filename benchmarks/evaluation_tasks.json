@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "task_set_id": "cognitive-powers-paired-evaluation-2026-07-v1",
+  "task_set_id": "cognitive-powers-paired-evaluation-2026-07-v2",
   "contains_run_results": false,
   "protocol": {
     "comparison": "paired-baseline-vs-candidate",
@@ -17,6 +17,7 @@
       "source_sha256"
     ],
     "quality_before_efficiency": true,
+    "minimum_average_quality_delta": 0.05,
     "reject_critical_failures": true,
     "live_evidence_required_for_improvement_claim": true,
     "notes": "These are frozen task definitions and schedules, not execution results."
@@ -56,7 +57,7 @@
   "tasks": [
     {
       "task_id": "pilot-bug-fix",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "bug-fix",
       "fixture_id": "fixture-bug-fix-pilot-v1",
@@ -73,13 +74,13 @@
         "Files outside the authorized fixture are changed."
       ],
       "budgets": {
-        "max_total_tokens": 30000,
+        "max_total_tokens": 300000,
         "max_elapsed_seconds": 1800
       }
     },
     {
       "task_id": "pilot-multi-file",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "multi-file-implementation",
       "fixture_id": "fixture-multi-file-pilot-v1",
@@ -96,13 +97,13 @@
         "The requested end-to-end behavior is incomplete."
       ],
       "budgets": {
-        "max_total_tokens": 40000,
+        "max_total_tokens": 400000,
         "max_elapsed_seconds": 2400
       }
     },
     {
       "task_id": "pilot-research",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "current-source-research",
       "fixture_id": "fixture-research-pilot-v1",
@@ -119,13 +120,13 @@
         "Inference is presented as directly verified fact."
       ],
       "budgets": {
-        "max_total_tokens": 24000,
+        "max_total_tokens": 240000,
         "max_elapsed_seconds": 1500
       }
     },
     {
       "task_id": "pilot-delivery",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "delivery-verification",
       "fixture_id": "fixture-delivery-pilot-v1",
@@ -142,13 +143,13 @@
         "A local or remote revision is reported incorrectly."
       ],
       "budgets": {
-        "max_total_tokens": 18000,
+        "max_total_tokens": 180000,
         "max_elapsed_seconds": 900
       }
     },
     {
       "task_id": "pilot-real-host",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "real-host-interaction",
       "fixture_id": "fixture-real-host-pilot-v1",
@@ -165,13 +166,13 @@
         "Primitive success is reported without objective completion."
       ],
       "budgets": {
-        "max_total_tokens": 30000,
+        "max_total_tokens": 300000,
         "max_elapsed_seconds": 1800
       }
     },
     {
       "task_id": "promotion-bug-fix",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "fixture-bug-fix-promotion-v1",
@@ -188,13 +189,13 @@
         "An unrelated public behavior regresses."
       ],
       "budgets": {
-        "max_total_tokens": 32000,
+        "max_total_tokens": 320000,
         "max_elapsed_seconds": 1800
       }
     },
     {
       "task_id": "promotion-multi-file",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "fixture-multi-file-promotion-v1",
@@ -211,13 +212,13 @@
         "Invalid input corrupts state or reports success."
       ],
       "budgets": {
-        "max_total_tokens": 42000,
+        "max_total_tokens": 420000,
         "max_elapsed_seconds": 2400
       }
     },
     {
       "task_id": "promotion-research",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "fixture-research-promotion-v1",
@@ -234,13 +235,13 @@
         "Material uncertainty is omitted."
       ],
       "budgets": {
-        "max_total_tokens": 26000,
+        "max_total_tokens": 260000,
         "max_elapsed_seconds": 1500
       }
     },
     {
       "task_id": "promotion-delivery",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "fixture-delivery-promotion-v1",
@@ -257,13 +258,13 @@
         "A required artifact is absent or hash-mismatched."
       ],
       "budgets": {
-        "max_total_tokens": 20000,
+        "max_total_tokens": 200000,
         "max_elapsed_seconds": 900
       }
     },
     {
       "task_id": "promotion-real-host",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "fixture-real-host-promotion-v1",
@@ -280,7 +281,7 @@
         "The declared final state is not independently observable."
       ],
       "budgets": {
-        "max_total_tokens": 32000,
+        "max_total_tokens": 320000,
         "max_elapsed_seconds": 1800
       }
     }

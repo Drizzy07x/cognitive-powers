@@ -1,6 +1,6 @@
 ---
 name: communicate-efficiently
-description: Adapt the detail of progress updates, technical answers, diagnoses, handoffs, and completion reports without losing material facts or evidence. Use when output brevity, token efficiency, concise reporting, compact handoffs, or a clear high-risk instruction matters, or when Cognitive Powers needs to present verified work without repeating its execution diary.
+description: Adapt progress, answers, and handoffs to the shortest form that preserves evidence. Use for concise reporting, compact handoffs, or high-risk instructions.
 ---
 
 # Communicate Efficiently

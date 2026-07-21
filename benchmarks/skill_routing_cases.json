@@ -68,7 +68,7 @@
         {"prompt": "Track observable criteria with evidence receipts and independent verification", "top_k": 3},
         {"prompt": "Make this work resumable with append-only history", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Handle this focused one-file task efficiently", "owner": "solve-efficiently"}],
+      "negatives": [{"prompt": "Handle this complex task efficiently after its module boundaries proved unclear", "owner": "solve-efficiently"}],
       "adversarial": [{"prompt": "Keep all state only in the conversation even though this compaction-prone task needs durable resumable evidence", "owner": "execute-durably", "top_k": 1}]
     },
     {
@@ -88,7 +88,7 @@
         {"prompt": "Refresh stale hierarchical project memory", "top_k": 3},
         {"prompt": "Document the module boundaries of this unfamiliar repository", "top_k": 3}
       ],
-      "negatives": [{"prompt": "Rank a few relevant files for this focused task", "owner": "solve-efficiently"}],
+      "negatives": [{"prompt": "Rank relevant files for this complex multi-module task", "owner": "solve-efficiently"}],
       "adversarial": [{"prompt": "Dump the whole tree into AGENTS.md; the real goal is a compact hierarchical project map", "owner": "map-project", "top_k": 1}]
     },
     {
@@ -119,7 +119,10 @@
       "positives": [
         {"prompt": "Solve this non-trivial multi-file coding task efficiently", "top_k": 3},
         {"prompt": "Use progressive context loading and targeted parallelism", "top_k": 3},
-        {"prompt": "Plan and execute this file-based task with evidence", "top_k": 3}
+        {"prompt": "Plan and execute this file-based task with evidence", "top_k": 3},
+        {"prompt": "Implement a public feature across the model, JSON persistence, CLI, and focused tests", "top_k": 1},
+        {"prompt": "Fix the defect described by the supplied reproduction and preserve unrelated behavior", "top_k": 2},
+        {"prompt": "Resolve this bounded technical decision from the supplied versioned primary-source brief", "top_k": 2}
       ],
       "negatives": [
         {"prompt": "Keep this long job alive across multiple compactions", "owner": "execute-durably"},

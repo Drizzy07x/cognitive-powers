@@ -1,6 +1,6 @@
 ---
 name: explore-web-adaptively
-description: Discover and document unfamiliar, changing, or weakly structured browser workflows through an existing Skyvern Cloud or self-hosted API. Use for exploratory navigation, cross-site workflows, structured extraction, layout drift, or producing a Playwright test candidate when deterministic browser steps are not yet known.
+description: Discover unfamiliar or changing browser workflows through existing Skyvern. Use for exploratory or cross-site navigation when deterministic steps are unknown.
 ---
 
 # Explore Web Adaptively

@@ -77,6 +77,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
             "provider": "codex-base",
             "input_tokens": 80,
             "output_tokens": 20,
+            "quality_score": 0.9,
         }
         candidate = {
             **shared,

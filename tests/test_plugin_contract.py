@@ -16,10 +16,17 @@ class PluginContractTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.4.0")
-        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.4.1")
+        self.assertEqual(manifest["skills"], "./skills-core/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
-        self.assertTrue((PLUGIN_ROOT / "skills").is_dir())
+        self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
+        self.assertEqual(
+            {
+                path.parent.name
+                for path in (PLUGIN_ROOT / "skills-core").glob("*/SKILL.md")
+            },
+            {"solve-efficiently", "execute-durably", "verify-delivery"},
+        )
         prompts = manifest["interface"]["defaultPrompt"]
         self.assertLessEqual(len(prompts), 3)
         self.assertTrue(all(len(prompt) <= 128 for prompt in prompts))
@@ -156,6 +163,18 @@ class PluginContractTests(unittest.TestCase):
         ]
         missing = [path for path in expected if not (PLUGIN_ROOT / path).is_file()]
         self.assertEqual(missing, [])
+
+    def test_core_router_targets_installed_internal_workflows(self) -> None:
+        targets: list[str] = []
+        pattern = r"`(\.\./\.\./skills/[^`]+/SKILL\.md)`"
+        for skill_file in (PLUGIN_ROOT / "skills-core").glob("*/SKILL.md"):
+            text = skill_file.read_text(encoding="utf-8")
+            for target in re.findall(pattern, text):
+                targets.append(target)
+                self.assertTrue(
+                    (skill_file.parent / target).resolve().is_file(), target
+                )
+        self.assertGreaterEqual(len(set(targets)), 14)
 
     def test_brand_assets_are_valid_transparent_pngs(self) -> None:
         expected_dimensions = {

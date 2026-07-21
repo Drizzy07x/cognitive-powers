@@ -1,6 +1,6 @@
 ---
 name: audit-capabilities
-description: Audit a project's recurring Codex workflows, existing skills, current repository state, and targeted session or memory evidence to recommend evidence-backed skill updates or additions. Use when the user asks what skills a project needs, whether existing skills are stale or duplicated, how to improve a skill collection from prior work, or which repeated project procedure should become a reusable capability.
+description: Audit recurring Codex workflows and existing skills to recommend evidence-backed updates or additions. Use for skill gaps, staleness, duplication, or capability reuse.
 ---
 
 # Audit Capabilities
