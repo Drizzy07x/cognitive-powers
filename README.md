@@ -85,7 +85,17 @@ The current tests validate plugin structure, context selection, state transition
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
 
-## Update the local Codex installation
+## Install from the private GitHub repository
+
+The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
+
+```powershell
+& ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json")))
+```
+
+The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.4.2` is enabled. Restart Codex before starting a new task.
+
+## Update the local development installation
 
 After the source version passes validation, refresh the configured local marketplace installation through Codex itself:
 
@@ -94,7 +104,7 @@ codex plugin add cognitive-powers@personal --json
 codex plugin list --json
 ```
 
-The installed entry must report the same version as `.codex-plugin/plugin.json`. Restart Codex after an update so new skill instructions and plugin files are loaded into subsequent tasks.
+The installed entry must report the same version as `.codex-plugin/plugin.json`. This local-development route is separate from the private GitHub installer above.
 
 ## Doctor
 

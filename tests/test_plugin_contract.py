@@ -218,9 +218,30 @@ class PluginContractTests(unittest.TestCase):
             self.assertIn(section, text)
         self.assertIn("scripts/validate_all.py --offline", text)
         self.assertIn("scripts/doctor.py --validate-installation", text)
+        self.assertIn("repos/Drizzy07x/cognitive-powers/contents/install.ps1", text)
+        self.assertIn("cognitive-powers@cognitive-powers", text)
         self.assertIn("codex plugin add cognitive-powers@personal --json", text)
         self.assertIn("codex plugin list --json", text)
         self.assertIn("No product screenshots are claimed", text)
+
+    def test_private_github_installer_is_fail_closed_and_version_pinned(self) -> None:
+        installer = (PLUGIN_ROOT / "install.ps1").read_text(encoding="utf-8")
+        required_fragments = [
+            'Set-StrictMode -Version Latest',
+            '$ErrorActionPreference = "Stop"',
+            '$repository = "Drizzy07x/cognitive-powers"',
+            '$pluginId = "cognitive-powers@cognitive-powers"',
+            '$expectedVersion = "1.4.2"',
+            '"auth", "setup-git"',
+            '"plugin", "marketplace", "add"',
+            '"plugin", "marketplace", "upgrade"',
+            '"plugin", "add", $pluginId',
+        ]
+        for fragment in required_fragments:
+            self.assertIn(fragment, installer)
+
+        self.assertNotIn("gho_", installer)
+        self.assertNotIn("github_pat_", installer)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [
