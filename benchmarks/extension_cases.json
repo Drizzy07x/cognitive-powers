@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "plan_cases": [
+    {
+      "id": "markdown-plan-compiles",
+      "expected_valid": true,
+      "markdown": "## Packet: parser\n### Objective\nUpdate the parser.\n### Owned paths\n- src/parser.py\n### Dependencies\n- none\n### Invariants\n- Preserve the public API\n### Checks\n- `[\"py\", \"-3\"]`\n### Integration notes\n- Run the integrated suite\n"
+    },
+    {
+      "id": "shell-check-rejected",
+      "expected_valid": false,
+      "markdown": "## Packet: parser\n### Objective\nUpdate the parser.\n### Owned paths\n- src/parser.py\n### Dependencies\n- none\n### Invariants\n- Preserve the public API\n### Checks\n- py -3\n### Integration notes\n- Run the integrated suite\n"
+    }
+  ],
+  "prompt_cases": [
+    {
+      "id": "portable-prompt-contract",
+      "expected_valid": true,
+      "contract": {
+        "outcome": "A verified artifact exists",
+        "success_criteria": ["The focused check exits with code 0"],
+        "boundaries": ["Only assigned files change"],
+        "permissions": ["Read and edit assigned files"],
+        "tools": ["Local test runner"],
+        "evidence": ["Exact command and observed result"],
+        "stop_conditions": ["Stop when criteria pass or authority is required"]
+      }
+    },
+    {
+      "id": "missing-evidence-rejected",
+      "expected_valid": false,
+      "contract": {
+        "outcome": "A verified artifact exists",
+        "success_criteria": ["The focused check exits with code 0"],
+        "boundaries": ["Only assigned files change"],
+        "permissions": ["Read and edit assigned files"],
+        "tools": ["Local test runner"],
+        "stop_conditions": ["Stop when criteria pass or authority is required"]
+      }
+    }
+  ],
+  "frontend_cases": [
+    {
+      "id": "next-candidates-remain-unproven",
+      "dependencies": {
+        "next": "16.2.0",
+        "react": "19.2.0",
+        "three": "0.180.0"
+      },
+      "files": {
+        "app/layout.tsx": "'use client';\nimport * as THREE from 'three';\nexport default function Layout(){ return <img src='/hero.png'/>; }\n"
+      },
+      "expected_rules": [
+        "heavy-client-import",
+        "next-raw-img",
+        "next-root-client-boundary"
+      ]
+    }
+  ],
+  "hook_contract": {
+    "expected_post_tool_matcher": "apply_patch|Edit|Write",
+    "expected_windows_prefix": "py -3"
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diagnose Systematically"
+  short_description: "Reproduce and isolate difficult defects"
+  default_prompt: "Use $diagnose-systematically to reproduce, isolate, and verify this defect."

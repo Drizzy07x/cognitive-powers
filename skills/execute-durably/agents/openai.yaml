@@ -1,0 +1,4 @@
+interface:
+  display_name: "Execute Durably"
+  short_description: "Persist long work with verifiable evidence"
+  default_prompt: "Use $execute-durably to complete this long task with resumable state and independent verification."

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Cognitive Powers">
+  <defs>
+    <linearGradient id="g" x1="5" y1="4" x2="27" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B5CFF"/><stop offset="1" stop-color="#24DDF5"/>
+    </linearGradient>
+  </defs>
+  <path d="M23.1 6.9A11.5 11.5 0 1 0 23.1 25.1" fill="none" stroke="url(#g)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M16 11.6l4.4 4.4-4.4 4.4-4.4-4.4 4.4-4.4z" fill="url(#g)"/>
+  <circle cx="25.2" cy="7" r="1.8" fill="#8B5CFF"/>
+  <circle cx="25.2" cy="25" r="1.8" fill="#24DDF5"/>
+</svg>

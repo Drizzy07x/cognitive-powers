@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/selective_hooks.py\" post-tool-use",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\selective_hooks.py\" post-tool-use"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/selective_hooks.py\" stop",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\selective_hooks.py\" stop"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{"schema_version":1,"cases":[{"id":"scope-and-supersession","project_scope":"demo","query":"alpha","records":[{"id":"old","content":"alpha old","confidence":"medium","expires_in_days":7,"supersedes":[]},{"id":"current","content":"alpha current","confidence":"high","expires_in_days":7,"supersedes":["old"]}],"expected_ids":["current"],"excluded_ids":["old"]}]}

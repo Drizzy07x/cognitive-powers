@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "diagnostic_routes": [
+    {
+      "id": "focused-before-reproduction",
+      "input": {
+        "schema_version": 1,
+        "symptom_reproduced": false,
+        "affected_components": 4,
+        "plausible_failure_seams": 3,
+        "intermittent": true,
+        "recent_change_uncertain": true,
+        "cheap_discriminator_available": false
+      },
+      "expected_mode": "focused"
+    },
+    {
+      "id": "parallel-after-reproduction",
+      "input": {
+        "schema_version": 1,
+        "symptom_reproduced": true,
+        "affected_components": 3,
+        "plausible_failure_seams": 2,
+        "intermittent": false,
+        "recent_change_uncertain": true,
+        "cheap_discriminator_available": false
+      },
+      "expected_mode": "parallel-read-only"
+    }
+  ],
+  "review_routes": [
+    {
+      "id": "focused-without-security",
+      "input": {
+        "schema_version": 1,
+        "cross_cutting": false,
+        "release_critical": false,
+        "delegated": false,
+        "security_requested": false,
+        "boundaries": [],
+        "changed_modules": 1
+      },
+      "expected_security": false
+    },
+    {
+      "id": "authorization-selects-security",
+      "input": {
+        "schema_version": 1,
+        "cross_cutting": true,
+        "release_critical": false,
+        "delegated": false,
+        "security_requested": false,
+        "boundaries": ["authorization"],
+        "changed_modules": 2
+      },
+      "expected_security": true
+    }
+  ],
+  "packet_plans": [
+    {
+      "id": "independent-ownership",
+      "plan": {
+        "schema_version": 1,
+        "packets": [
+          {
+            "id": "p1",
+            "objective": "Update parser",
+            "owned_paths": ["src/parser.py"],
+            "dependencies": [],
+            "invariants": ["Preserve API"],
+            "checks": [["python", "-m", "test_parser"]],
+            "integration_notes": ["Run integration"]
+          },
+          {
+            "id": "p2",
+            "objective": "Update renderer",
+            "owned_paths": ["src/renderer.py"],
+            "dependencies": ["p1"],
+            "invariants": ["Preserve output"],
+            "checks": [["python", "-m", "test_renderer"]],
+            "integration_notes": ["Run integration"]
+          }
+        ]
+      },
+      "expected_valid": true
+    },
+    {
+      "id": "overlapping-ownership-rejected",
+      "plan": {
+        "schema_version": 1,
+        "packets": [
+          {
+            "id": "p1",
+            "objective": "Own source tree",
+            "owned_paths": ["src"],
+            "dependencies": [],
+            "invariants": ["Preserve API"],
+            "checks": [["python", "-m", "test_source"]],
+            "integration_notes": ["Run integration"]
+          },
+          {
+            "id": "p2",
+            "objective": "Own parser",
+            "owned_paths": ["src/parser.py"],
+            "dependencies": [],
+            "invariants": ["Preserve parser"],
+            "checks": [["python", "-m", "test_parser"]],
+            "integration_notes": ["Run integration"]
+          }
+        ]
+      },
+      "expected_valid": false
+    }
+  ]
+}

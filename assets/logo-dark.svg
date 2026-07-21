@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 480" role="img" aria-labelledby="title">
+  <title id="title">Cognitive Powers</title>
+  <defs>
+    <linearGradient id="g" x1="56" y1="48" x2="420" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A47BFF"/><stop offset=".5" stop-color="#7185FF"/><stop offset="1" stop-color="#37E4F5"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(34 24) scale(.84)">
+    <path d="M369 100A188 188 0 1 0 369 412" fill="none" stroke="url(#g)" stroke-width="52" stroke-linecap="round"/>
+    <path d="M330 169A112 112 0 1 0 330 343" fill="none" stroke="#F5F7FF" stroke-width="32" stroke-linecap="round"/>
+    <path d="M256 198l58 58-58 58-58-58 58-58z" fill="url(#g)"/>
+    <circle cx="256" cy="256" r="11" fill="#FFFFFF"/>
+    <circle cx="402" cy="131" r="15" fill="#A47BFF"/>
+    <circle cx="402" cy="381" r="15" fill="#37E4F5"/>
+  </g>
+  <text x="500" y="224" fill="#F7F8FF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="104" font-weight="760" letter-spacing="-4">Cognitive</text>
+  <text x="500" y="337" fill="#AEB8D1" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="104" font-weight="580" letter-spacing="-4">Powers</text>
+  <rect x="503" y="374" width="126" height="8" rx="4" fill="url(#g)"/>
+</svg>

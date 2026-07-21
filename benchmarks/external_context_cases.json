@@ -1,0 +1,56 @@
+[
+  {
+    "id": "pydantic-v2-validation",
+    "library": "Pydantic",
+    "version": "2.7.4",
+    "query": "Validate a dictionary into a model",
+    "candidates": [
+      {
+        "id": "/pydantic/pydantic",
+        "title": "Pydantic",
+        "sourceReputation": "High",
+        "benchmarkScore": 92,
+        "versions": ["v1.10.15", "v2.7.4"]
+      }
+    ],
+    "generic_snippet": "User.parse_obj(payload)",
+    "versioned_snippet": "User.model_validate(payload)",
+    "expected_marker": "model_validate"
+  },
+  {
+    "id": "nextjs-v14-request",
+    "library": "Next.js",
+    "version": "14.2.3",
+    "query": "Read request cookies in a route handler",
+    "candidates": [
+      {
+        "id": "/vercel/next.js",
+        "title": "Next.js",
+        "sourceReputation": "High",
+        "benchmarkScore": 95,
+        "versions": ["v14.2.3", "v15.1.8"]
+      }
+    ],
+    "generic_snippet": "const store = await cookies()",
+    "versioned_snippet": "const store = cookies()",
+    "expected_marker": "const store = cookies()"
+  },
+  {
+    "id": "react-router-v6-navigation",
+    "library": "React Router",
+    "version": "6.28.0",
+    "query": "Navigate after a successful form submission",
+    "candidates": [
+      {
+        "id": "/remix-run/react-router",
+        "title": "React Router",
+        "sourceReputation": "High",
+        "benchmarkScore": 88,
+        "versions": ["v6.28.0", "v7.1.0"]
+      }
+    ],
+    "generic_snippet": "import { redirect } from react-router",
+    "versioned_snippet": "const navigate = useNavigate(); navigate('/done')",
+    "expected_marker": "useNavigate"
+  }
+]

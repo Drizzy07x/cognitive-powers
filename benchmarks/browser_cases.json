@@ -1,0 +1,13 @@
+[
+  {
+    "id": "retry-control-browser-evidence",
+    "root": "fixtures/web-demo",
+    "test": "tests/retry.spec.js",
+    "project": "chromium",
+    "expected_tests": 1,
+    "required_artifact_suffixes": [
+      "playwright-report.json",
+      "trace.zip"
+    ]
+  }
+]

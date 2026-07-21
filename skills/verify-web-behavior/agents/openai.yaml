@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Web Behavior"
+  short_description: "Verify web flows with durable browser evidence"
+  default_prompt: "Use $verify-web-behavior to reproduce and verify this web behavior with Playwright evidence."

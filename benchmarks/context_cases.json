@@ -1,0 +1,41 @@
+[
+  {
+    "id": "payment-retry",
+    "root": "fixtures/demo-repo",
+    "query": "payment retry exponential backoff maximum attempts",
+    "max_files": 3,
+    "max_chars": 1800,
+    "expected_paths": [
+      "src/payments/retry_policy.py",
+      "tests/test_retry_policy.py"
+    ],
+    "min_recall": 1.0,
+    "min_char_reduction_pct": 55.0
+  },
+  {
+    "id": "configuration-precedence",
+    "root": "fixtures/demo-repo",
+    "query": "configuration environment overrides file timeout",
+    "max_files": 3,
+    "max_chars": 1800,
+    "expected_paths": [
+      "src/config/loader.py",
+      "tests/test_config_loader.py"
+    ],
+    "min_recall": 1.0,
+    "min_char_reduction_pct": 55.0
+  },
+  {
+    "id": "powershell-literal-path",
+    "root": "fixtures/demo-repo",
+    "query": "PowerShell copy wildcard paths spaces LiteralPath",
+    "max_files": 3,
+    "max_chars": 1800,
+    "expected_paths": [
+      "scripts/copy_cursor_pack.ps1",
+      "tests/copy_cursor_pack.Tests.ps1"
+    ],
+    "min_recall": 1.0,
+    "min_char_reduction_pct": 55.0
+  }
+]

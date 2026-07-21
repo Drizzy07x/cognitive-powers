@@ -1,0 +1,30 @@
+[
+  {
+    "case_id": "semantic-file-selection",
+    "variant": "baseline",
+    "provider": "lexical",
+    "task": "select relevant files for a bounded fixture",
+    "success": true,
+    "critical_errors": [],
+    "quality_score": 1.0,
+    "input_tokens": 100,
+    "output_tokens": 40,
+    "elapsed_seconds": 0.1,
+    "evidence": ["offline contract fixture"],
+    "live_execution": false
+  },
+  {
+    "case_id": "semantic-file-selection",
+    "variant": "candidate",
+    "provider": "graphify",
+    "task": "select relevant files for a bounded fixture",
+    "success": true,
+    "critical_errors": [],
+    "quality_score": 1.0,
+    "input_tokens": 80,
+    "output_tokens": 30,
+    "elapsed_seconds": 0.1,
+    "evidence": ["offline normalized graph fixture"],
+    "live_execution": false
+  }
+]

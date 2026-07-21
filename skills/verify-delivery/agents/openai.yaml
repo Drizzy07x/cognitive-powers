@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Delivery"
+  short_description: "Audit completion claims against real evidence"
+  default_prompt: "Use $verify-delivery to audit this result against the request and real evidence."

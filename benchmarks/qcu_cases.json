@@ -1,0 +1,20 @@
+[
+  {
+    "id": "valid-desktop-evidence",
+    "fixture": "fixtures/qcu-run/valid.json",
+    "expected": "pass"
+  },
+  {
+    "id": "stale-frame-fails-closed",
+    "fixture": "fixtures/qcu-run/stale.json",
+    "expected": "fail",
+    "error_contains": "stale"
+  },
+  {
+    "id": "primitive-success-is-not-objective-success",
+    "fixture": "fixtures/qcu-run/incomplete.json",
+    "expected": "fail",
+    "error_contains": "objective and focus"
+  }
+]
+

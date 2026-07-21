@@ -1,0 +1,6 @@
+{
+  "prompt": "OBSERVATION ONLY: find the retry control and describe its visible result without submitting or changing remote data.",
+  "url": "https://example.test/retry",
+  "max_steps": 6,
+  "include_action_history_in_verification": true
+}

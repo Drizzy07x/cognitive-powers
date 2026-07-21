@@ -1,0 +1,9 @@
+[
+  {
+    "id": "retry-control-navigation-contract",
+    "fixture": "fixtures/skyvern-run",
+    "expected_run_id": "tsk_cognitive_fixture",
+    "expected_step_count": 3,
+    "expected_artifact_count": 4
+  }
+]

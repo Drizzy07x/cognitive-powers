@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "root": "fixtures/capability-audit",
+  "as_of": "2026-07-20",
+  "patterns": [
+    {
+      "id": "diagnosis-update",
+      "summary": "Investigate ambiguous defects through reproduction and ranked hypotheses",
+      "candidate_name": "bug-hunt",
+      "closest_skill": "diagnose-systematically",
+      "occurrences": [
+        {
+          "event_id": "bug-alpha",
+          "source": "rollout_summaries/bug-alpha.jsonl",
+          "observed_at": "2026-05-10"
+        },
+        {
+          "event_id": "bug-beta",
+          "source": "rollout_summaries/bug-beta.jsonl",
+          "observed_at": "2026-06-11"
+        }
+      ],
+      "repository_paths": ["skills/diagnose-systematically/SKILL.md"],
+      "triggers": ["investigate this ambiguous regression"],
+      "workflow_steps": ["reproduce", "rank hypotheses", "prove the cause"],
+      "validation_commands": ["py -3 -m unittest tests.test_regression"]
+    },
+    {
+      "id": "duplicate-representation",
+      "summary": "Copy a cursor pack during one support task",
+      "candidate_name": "copy-cursors",
+      "closest_skill": null,
+      "occurrences": [
+        {
+          "event_id": "cursor-task",
+          "source": "MEMORY.md",
+          "observed_at": "2026-07-01"
+        },
+        {
+          "event_id": "cursor-task",
+          "source": "rollout_summaries/cursor-task.jsonl",
+          "observed_at": "2026-07-01"
+        }
+      ],
+      "repository_paths": [],
+      "triggers": ["copy this cursor pack"],
+      "workflow_steps": ["copy files"],
+      "validation_commands": ["Test-Path cursor.cur"]
+    },
+    {
+      "id": "stale-build-flow",
+      "summary": "Build a removed legacy package",
+      "candidate_name": "build-legacy-package",
+      "closest_skill": null,
+      "occurrences": [
+        {
+          "event_id": "legacy-one",
+          "source": "sessions/legacy-one.jsonl",
+          "observed_at": "2023-01-01"
+        },
+        {
+          "event_id": "legacy-two",
+          "source": "sessions/legacy-two.jsonl",
+          "observed_at": "2023-03-01"
+        }
+      ],
+      "repository_paths": ["removed/build_legacy.py"],
+      "triggers": ["build the legacy package"],
+      "workflow_steps": ["run legacy builder"],
+      "validation_commands": ["py -3 removed/build_legacy.py"]
+    },
+    {
+      "id": "release-capability",
+      "summary": "Check release artifacts through the same publication sequence",
+      "candidate_name": "verify-release-artifacts",
+      "closest_skill": null,
+      "occurrences": [
+        {
+          "event_id": "release-one",
+          "source": "rollout_summaries/release-one.jsonl",
+          "observed_at": "2026-05-15"
+        },
+        {
+          "event_id": "release-two",
+          "source": "rollout_summaries/release-two.jsonl",
+          "observed_at": "2026-06-15"
+        }
+      ],
+      "repository_paths": ["scripts/release_check.py"],
+      "triggers": ["verify these release artifacts"],
+      "workflow_steps": ["inspect artifacts", "run publication checks"],
+      "validation_commands": ["py -3 scripts/release_check.py"]
+    }
+  ],
+  "expected_actions": {
+    "diagnosis-update": "update",
+    "duplicate-representation": "reject",
+    "stale-build-flow": "reject",
+    "release-capability": "new"
+  }
+}

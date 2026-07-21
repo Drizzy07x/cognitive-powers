@@ -1,0 +1,17 @@
+[
+  {
+    "id": "payment-retry-impact",
+    "root": "fixtures/demo-repo",
+    "symbol": "should_retry",
+    "depth": 3,
+    "changed_files": [
+      "src/payments/retry_policy.py"
+    ],
+    "expected_impact_paths": [
+      "src/payments/client.py"
+    ],
+    "expected_test_paths": [
+      "tests/test_retry_policy.py"
+    ]
+  }
+]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solve Efficiently"
+  short_description: "High-quality work with less context waste"
+  default_prompt: "Use $solve-efficiently to complete this task efficiently and verify the result."

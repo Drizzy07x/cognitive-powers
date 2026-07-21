@@ -1,0 +1,18 @@
+{
+  "run_id": "tsk_cognitive_fixture",
+  "status": "completed",
+  "output": {
+    "control": "Retry payment",
+    "visible_result": "Attempts: 1"
+  },
+  "step_count": 3,
+  "run_type": "task_v1",
+  "failure_reason": null,
+  "errors": [],
+  "screenshot_urls": [
+    "https://example.test/artifacts/final.png"
+  ],
+  "recording_url": "https://example.test/artifacts/run.mp4",
+  "created_at": "2026-07-20T20:00:00Z",
+  "modified_at": "2026-07-20T20:00:05Z"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineer Prompts"
+  short_description: "Build and audit testable prompt contracts"
+  default_prompt: "Use $engineer-prompts to build or audit a prompt contract."

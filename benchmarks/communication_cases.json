@@ -1,0 +1,50 @@
+[
+  {
+    "id": "routine-progress",
+    "signals": {
+      "kind": "progress",
+      "complexity": "low",
+      "consequence": "reversible",
+      "unresolved": false,
+      "evidence_count": 1
+    },
+    "expected_profile": "compact",
+    "max_words": 24,
+    "required_facts": ["57 tests passed", "live provider not validated"],
+    "exact_literals": ["liveProviderValidated=false"],
+    "forbidden_filler": ["I'd be happy to", "as you can see"],
+    "candidate": "57 tests passed. Skyvern contract passed; live provider not validated (`liveProviderValidated=false`)."
+  },
+  {
+    "id": "causal-diagnosis",
+    "signals": {
+      "kind": "diagnosis",
+      "complexity": "high",
+      "consequence": "material",
+      "unresolved": true,
+      "evidence_count": 2
+    },
+    "expected_profile": "normal",
+    "max_words": 54,
+    "required_facts": ["The failure occurs before tests start", "billing remains the leading explanation", "not code failure"],
+    "exact_literals": ["exit code 0", "zero steps"],
+    "forbidden_filler": ["Sure!", "basically"],
+    "candidate": "The failure occurs before tests start: the job reports zero steps, so exit code 0 was never produced by the test command. Billing remains the leading explanation, but without the provider billing record this is not code failure proof."
+  },
+  {
+    "id": "irreversible-instruction",
+    "signals": {
+      "kind": "warning",
+      "complexity": "medium",
+      "consequence": "irreversible",
+      "unresolved": false,
+      "evidence_count": 1
+    },
+    "expected_profile": "explicit",
+    "max_words": 58,
+    "required_facts": ["permanently deletes", "Verify the backup first", "requires explicit confirmation"],
+    "exact_literals": ["DROP TABLE users;"],
+    "forbidden_filler": ["no worries", "simply"],
+    "candidate": "Warning: `DROP TABLE users;` permanently deletes the table and cannot be undone by this command. Verify the backup first. Execution requires explicit confirmation after the exact target database has been identified."
+  }
+]

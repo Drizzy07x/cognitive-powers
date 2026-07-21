@@ -1,0 +1,4 @@
+interface:
+  display_name: "Map Project"
+  short_description: "Build compact hierarchical project memory"
+  default_prompt: "Use $map-project to map this repository into concise AGENTS.md guidance."

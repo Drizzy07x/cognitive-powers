@@ -1,0 +1,4 @@
+interface:
+  display_name: "Communicate Efficiently"
+  short_description: "Adapt output detail without losing evidence"
+  default_prompt: "Use $communicate-efficiently to deliver this result with the shortest safe level of detail."

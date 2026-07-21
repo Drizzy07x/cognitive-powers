@@ -1,0 +1,10 @@
+[
+  {
+    "artifact_type": "screenshot",
+    "uri": "https://example.test/artifacts/final.png"
+  },
+  {
+    "artifact_type": "recording",
+    "uri": "https://example.test/artifacts/run.mp4"
+  }
+]

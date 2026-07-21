@@ -1,0 +1,43 @@
+[
+  {
+    "id": "preserve-marketing-system",
+    "brief": {
+      "page_kind": "marketing",
+      "mode": "preserve",
+      "audience": "technical buyers",
+      "direction": ["premium", "restrained"],
+      "avoid": ["fabricated social proof"],
+      "preserve": ["routes", "legal copy"],
+      "existing_system": "Fluent UI"
+    },
+    "expected_ready": true,
+    "expected_foundation": "reuse-existing",
+    "expected_dials": {"variance": 7, "motion": 5, "density": 2},
+    "expected_unresolved": []
+  },
+  {
+    "id": "dense-operational-dashboard",
+    "brief": {
+      "page_kind": "dashboard",
+      "mode": "greenfield",
+      "audience": "operations analysts",
+      "direction": ["technical", "operational", "dense"]
+    },
+    "expected_ready": true,
+    "expected_foundation": "select-after-dependency-audit",
+    "expected_dials": {"variance": 3, "motion": 2, "density": 10},
+    "expected_unresolved": []
+  },
+  {
+    "id": "ambiguous-redesign",
+    "brief": {
+      "page_kind": "product",
+      "mode": "overhaul",
+      "direction": ["calm"]
+    },
+    "expected_ready": false,
+    "expected_foundation": "select-after-dependency-audit",
+    "expected_dials": {"variance": 4, "motion": 2, "density": 6},
+    "expected_unresolved": ["audience", "preserve"]
+  }
+]

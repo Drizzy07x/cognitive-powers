@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "plugin": "cognitive-powers",
+  "meta_version": 1,
+  "labels": {
+    "semantic:graphify": "Graphify-Labs/graphify@abff1b1ca4052fcf9d955c5f6a034088723f4536",
+    "memory:memu": "NevaMind-AI/memU@0245de9710f8f73a8b21361442ac3dfd6c7829c7",
+    "large-output:context-mode": "mksglu/context-mode@1618d9764921c66f3c9cdab8a45d2d8f7f0b0648"
+  },
+  "sources": [
+    {
+      "name": "mksglu/context-mode",
+      "kind": "provider",
+      "source": "https://github.com/mksglu/context-mode",
+      "commit": "1618d9764921c66f3c9cdab8a45d2d8f7f0b0648",
+      "license": "Elastic-2.0",
+      "status": "candidate",
+      "decision": "external-only",
+      "capabilities": ["large-output", "session-search"],
+      "files": []
+    },
+    {
+      "name": "Graphify-Labs/graphify",
+      "kind": "provider",
+      "source": "https://github.com/Graphify-Labs/graphify",
+      "commit": "abff1b1ca4052fcf9d955c5f6a034088723f4536",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "external-adapter",
+      "capabilities": ["semantic-navigation", "knowledge-graph"],
+      "files": []
+    },
+    {
+      "name": "lobehub/lobehub",
+      "kind": "pattern",
+      "source": "https://github.com/lobehub/lobehub",
+      "commit": "c0836ad8b8fce46e7d2ab7882d26441ddcee2830",
+      "license": "LobeHub-Community",
+      "status": "approved",
+      "decision": "clean-room-pattern",
+      "capabilities": ["context-pipeline", "context-lint"],
+      "files": []
+    },
+    {
+      "name": "addyosmani/agent-skills",
+      "kind": "pattern",
+      "source": "https://github.com/addyosmani/agent-skills",
+      "commit": "2fbfa004a0192529bc997d103fc12f19a3804aab",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["skill-routing-evaluation"],
+      "files": []
+    },
+    {
+      "name": "ruvnet/ruflo",
+      "kind": "provider",
+      "source": "https://github.com/ruvnet/ruflo",
+      "commit": "26c35b59b40a0a95b286ccf5ac675a15edcc995f",
+      "license": "MIT",
+      "status": "deferred",
+      "decision": "external-only",
+      "capabilities": ["coordination", "registry", "witness"],
+      "files": []
+    },
+    {
+      "name": "zhayujie/CowAgent",
+      "kind": "pattern",
+      "source": "https://github.com/zhayujie/CowAgent",
+      "commit": "76d6186bd3a24d740aecd56bbbaf8407766ff40e",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["memory-decay", "snapshot-undo"],
+      "files": []
+    },
+    {
+      "name": "kepano/obsidian-skills",
+      "kind": "vertical",
+      "source": "https://github.com/kepano/obsidian-skills",
+      "commit": "a1dc48e68138490d522c04cbf5822214c6eb1202",
+      "license": "MIT",
+      "status": "deferred",
+      "decision": "separate-pack",
+      "capabilities": ["obsidian"],
+      "files": []
+    },
+    {
+      "name": "alibaba/nacos",
+      "kind": "provider",
+      "source": "https://github.com/alibaba/nacos",
+      "commit": "0797f4ecc3775706c56d45682292b6e1c46e2ec7",
+      "license": "Apache-2.0",
+      "status": "deferred",
+      "decision": "external-only",
+      "capabilities": ["distributed-registry", "mcp-discovery", "a2a"],
+      "files": []
+    },
+    {
+      "name": "KKKKhazix/khazix-skills",
+      "kind": "pattern",
+      "source": "https://github.com/KKKKhazix/khazix-skills",
+      "commit": "2b4a645cfdc894156ae347d897723562f719ce95",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["knowledge-closeout"],
+      "files": []
+    },
+    {
+      "name": "anthropics/claude-plugins-official",
+      "kind": "pattern",
+      "source": "https://github.com/anthropics/claude-plugins-official",
+      "commit": "9ddfad2e999789e0220cacaf359b64dd873e7d72",
+      "license": "Apache-2.0",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["catalog-governance", "provenance"],
+      "files": []
+    },
+    {
+      "name": "VoltAgent/awesome-agent-skills",
+      "kind": "catalog",
+      "source": "https://github.com/VoltAgent/awesome-agent-skills",
+      "commit": "c97eda5e3406670f3285c6bf9eb7639a7ecc03cc",
+      "license": "MIT-index-only",
+      "status": "candidate",
+      "decision": "discovery-only",
+      "capabilities": ["skill-discovery"],
+      "files": []
+    },
+    {
+      "name": "composio-community/awesome-codex-skills",
+      "kind": "catalog",
+      "source": "https://github.com/composio-community/awesome-codex-skills",
+      "commit": "9c9da64cf1bbea611d43dd14a10788d55369b353",
+      "license": "NO-LICENSE-DETECTED",
+      "status": "rejected",
+      "decision": "discovery-metadata-only",
+      "capabilities": ["skill-discovery"],
+      "files": []
+    },
+    {
+      "name": "NevaMind-AI/memU",
+      "kind": "provider",
+      "source": "https://github.com/NevaMind-AI/memU",
+      "commit": "0245de9710f8f73a8b21361442ac3dfd6c7829c7",
+      "license": "Apache-2.0",
+      "status": "approved",
+      "decision": "external-adapter",
+      "capabilities": ["memory-retrieval"],
+      "files": []
+    },
+    {
+      "name": "tradecatlabs/vibe-coding-cn",
+      "kind": "pattern",
+      "source": "https://github.com/tradecatlabs/vibe-coding-cn",
+      "commit": "b1b3e7501da730419619877b3adeaf34c731cfc0",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["quality-gates", "coordination-reports"],
+      "files": []
+    },
+    {
+      "name": "Orchestra-Research/AI-Research-SKILLs",
+      "kind": "pattern",
+      "source": "https://github.com/Orchestra-Research/AI-Research-SKILLs",
+      "commit": "773a52944ba4747a18bd4ae9ade53fff041adcbc",
+      "license": "MIT-with-metadata-conflict",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["reproducible-research"],
+      "files": []
+    },
+    {
+      "name": "MemTensor/MemOS",
+      "kind": "pattern",
+      "source": "https://github.com/MemTensor/MemOS",
+      "commit": "554bb98ee7c28307dbaeac569a0dea49ff0062fd",
+      "license": "Apache-2.0",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["memory-lifecycle", "retrieval-fusion"],
+      "files": []
+    },
+    {
+      "name": "obra/superpowers",
+      "kind": "pattern",
+      "source": "https://github.com/obra/superpowers",
+      "commit": "d884ae04edebef577e82ff7c4e143debd0bbec99",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["adversarial-evals", "review-handoffs"],
+      "files": []
+    },
+    {
+      "name": "EvoMap/evolver",
+      "kind": "reference",
+      "source": "https://github.com/EvoMap/evolver",
+      "commit": "ea842c37feaec1bf11a9181b2d12b50e3896f3bd",
+      "license": "GPL-3.0-or-later",
+      "status": "rejected",
+      "decision": "benchmark-reference-only",
+      "capabilities": ["capability-evolution"],
+      "files": []
+    }
+  ]
+}

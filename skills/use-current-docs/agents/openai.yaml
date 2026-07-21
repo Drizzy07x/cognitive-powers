@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Current Docs"
+  short_description: "Retrieve version-matched library documentation"
+  default_prompt: "Use $use-current-docs to verify this library API against current version-specific documentation."

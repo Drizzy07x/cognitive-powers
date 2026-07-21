@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "pluginVersion": "1.1.0",
+  "recordedAt": "2026-07-20T21:48:21.8671964-04:00",
+  "environment": {
+    "platform": "Windows",
+    "python": "bundled Codex workspace Python"
+  },
+  "validation": {
+    "skillValidationPassed": true,
+    "unitTestsPassed": true,
+    "unitTestsRun": 159,
+    "offlineSuitesPassed": [
+      "context-selection",
+      "communication-contract",
+      "design-intent-contract",
+      "capability-audit-contract",
+      "coordination-contract",
+      "qcu-desktop-evidence-contract",
+      "skyvern-navigation-contract",
+      "extension-contract"
+    ]
+  },
+  "limitations": {
+    "endToEndImprovementProven": false,
+    "liveDesktopValidated": false,
+    "liveProviderValidated": false,
+    "liveRenderValidated": false,
+    "runtimePerformanceMeasured": false,
+    "semanticPromptQualityProven": false,
+    "semanticProviderLiveValidated": false,
+    "memoryProviderLiveValidated": false
+  }
+}

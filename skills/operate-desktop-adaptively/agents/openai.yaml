@@ -1,0 +1,4 @@
+interface:
+  display_name: "Operate Desktop Adaptively"
+  short_description: "Operate Windows apps with verified QCU evidence"
+  default_prompt: "Use $operate-desktop-adaptively to complete and verify this task in a Windows application."

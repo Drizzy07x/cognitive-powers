@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Systematically"
+  short_description: "Run traceable experiments without moving the goalposts"
+  default_prompt: "Use $research-systematically to pre-register this question, run evidence-bound experiments, and obtain an independent verdict."

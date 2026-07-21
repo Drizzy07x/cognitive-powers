@@ -1,0 +1,50 @@
+---
+name: map-project
+description: Build or refresh a compact hierarchical AGENTS.md knowledge base for a large or unfamiliar repository. Use when the user asks to map, initialize, document, or refresh project memory; when repository guidance is missing or stale; or when repeated exploration is wasting context across tasks.
+---
+
+# Map Project
+
+Create durable project memory that contains only facts future Codex tasks cannot cheaply infer. Do not run this workflow during ordinary focused work unless the user asks for project memory.
+
+## 1. Measure before writing
+
+Set `$python` to a working Python 3 executable before running the script. In Codex desktop, use the bundled path returned by the workspace dependency loader before considering an installation; verify it with `& $python --version` and do not rely on a Microsoft Store alias.
+
+Run the project-map mode from Cognitive Powers' `solve-efficiently` skill:
+
+```powershell
+& $python <plugin-root>/skills/solve-efficiently/scripts/context_lens.py <repo-root> --project-map --max-depth 3 --json
+```
+
+Treat scores as candidates, not truth. Read every existing `AGENTS.md` before editing. Inspect entry points, build/test configuration, module boundaries, and explicit project prohibitions. When CodeGraph is already indexed and fresh, use `$solve-efficiently`'s semantic-navigation workflow to identify entry points, cross-directory dependencies, routes, and central public symbols. Otherwise use targeted search and Context Lens.
+
+Read existing `CONTEXT.md`, `CONTEXT-MAP.md`, and architectural decision records when present. Keep domain language separate from operational agent guidance.
+
+For an ambiguous large tree, delegate at most two independent read-only investigations: one for structure/entry points and one for conventions/tests. Verify their claims against files before writing.
+
+## 2. Choose locations conservatively
+
+Always consider the repository root. Add a child `AGENTS.md` only when the directory is a distinct domain with guidance that would otherwise burden unrelated work. Preserve an existing child file even when its current score is low.
+
+Do not create files for generated output, dependencies, caches, or every directory. Parent guidance applies to descendants; child guidance must add or override something specific.
+
+## 3. Write compact memory
+
+Patch existing files instead of replacing them wholesale. Root guidance should normally stay within 40–120 lines and cover only useful sections:
+
+- What the project does and its actual stack.
+- Non-obvious structure and where to make common changes.
+- Project-specific conventions and prohibited patterns.
+- Exact build, test, and run commands verified from source.
+- Important behavioral or tooling gotchas.
+
+Child guidance should normally stay within 20–60 lines. Never repeat the parent. Omit generic engineering advice, decorative prose, generated timestamps, and claims not grounded in the checkout.
+
+## 4. Capture domain language only when useful
+
+Read [domain-glossary.md](references/domain-glossary.md) when repeated ambiguity in project-specific terms is making navigation, naming, or requirements harder. Create or update `CONTEXT.md` only for resolved domain meanings; do not turn it into another project map.
+
+## 5. Verify the hierarchy
+
+Confirm every referenced path and command exists, parent/child guidance does not conflict, and no child merely duplicates its parent. Report files created or updated, whether structural placement came from CodeGraph or lexical heuristics, and any centrality or runtime behavior that remained unmeasured.

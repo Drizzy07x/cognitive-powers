@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Intentionally"
+  short_description: "Turn visual intent into verified interface work"
+  default_prompt: "Use $design-intentionally to define and verify this interface direction."

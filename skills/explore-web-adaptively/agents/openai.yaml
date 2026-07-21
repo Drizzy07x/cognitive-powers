@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explore Web Adaptively"
+  short_description: "Discover unknown web flows with bounded AI navigation"
+  default_prompt: "Use $explore-web-adaptively to discover this web flow and hand it off for deterministic verification."

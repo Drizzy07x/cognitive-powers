@@ -1,0 +1,14 @@
+[
+  {
+    "step": 1,
+    "action": "inspect page"
+  },
+  {
+    "step": 2,
+    "action": "identify retry control"
+  },
+  {
+    "step": 3,
+    "action": "observe visible result"
+  }
+]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Capabilities"
+  short_description: "Find evidence-backed skill gaps and updates"
+  default_prompt: "Use $audit-capabilities to identify the highest-value skill updates and additions for this project."
