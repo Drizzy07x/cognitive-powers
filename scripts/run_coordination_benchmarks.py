@@ -96,10 +96,20 @@ def run(
         fixture = expected_agent_cases[case["id"]]
         expected = {
             "mode": fixture["expected_mode"],
+            "selected_mode": fixture.get(
+                "expected_selected_mode", fixture["expected_mode"]
+            ),
+            "executed_mode": fixture.get("expected_executed_mode"),
+            "outcome": fixture.get("expected_outcome", "planned"),
+            "degradation": fixture.get("expected_degradation"),
             "spawn_count": fixture["expected_spawn_count"],
         }
         observed = {
             "mode": actual["mode"],
+            "selected_mode": actual["selected_mode"],
+            "executed_mode": actual["executed_mode"],
+            "outcome": actual["outcome"],
+            "degradation": actual["degradation"],
             "spawn_count": actual["spawn_count"],
             "checks": case["checks"],
         }

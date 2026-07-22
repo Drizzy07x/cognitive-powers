@@ -308,6 +308,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
             pair, task_contract=self.contract, controller_protocol=identity
         )
         self.assertEqual(report["controller_protocol"]["sha256"], identity["sha256"])
+        self.assertFalse(report["host_execution_receipts_eligible"])
         pair[1]["quality_score"] = 0.8
         report = evaluation.compare(
             pair, task_contract=self.contract, controller_protocol=identity
@@ -319,6 +320,63 @@ class IntegrationEvaluationTests(unittest.TestCase):
             evaluation.compare(
                 pair, task_contract=self.contract, controller_protocol=identity
             )
+
+    def test_host_execution_receipt_is_required_for_claim_eligibility(self) -> None:
+        identity = evaluation.load_controller_protocol(
+            PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+        )
+        receipt = self._v2_pair("controller-pilot-solo-bug-fix-01", 1, live=True)[0]
+        receipt.update(
+            {
+                "fixture_git_sha256": "b" * 64,
+                "experiment_sha256": "c" * 64,
+                "hidden_check_sha256": "d" * 64,
+                "quality_check_sha256": "e" * 64,
+                "allowed_changes_sha256": "f" * 64,
+                "pre_evaluation_diff_sha256": "1" * 64,
+                "controller_protocol_sha256": identity["sha256"],
+                "controller_protocol_id": identity["protocol_id"],
+                "agent_slots": 4,
+                "controller_mode": "forced-solo",
+                "host_identity": {
+                    "version": "codex-test",
+                    "executable_sha256": "2" * 64,
+                    "features": {"multi_agent": True},
+                    "persistent_parent_thread": True,
+                },
+                "agent_telemetry": {
+                    "schema_version": 2,
+                    "controller_mode": "forced-solo",
+                    "spawn_count": 0,
+                    "join_count": 0,
+                    "complete": True,
+                    "actual_mode": "solo",
+                    "observed_assignments": [],
+                    "agent_execution_receipt": {
+                        "schema_version": 2,
+                        "complete": True,
+                        "selected_mode": "solo",
+                        "executed_mode": "solo",
+                        "outcome": "completed",
+                        "parent_thread_id": "thread-1",
+                        "planned_assignment_ids": [],
+                        "planned_assignments": [],
+                        "lifecycle_bindings": [],
+                        "semantic_binding": True,
+                        "spawned_assignment_ids": [],
+                        "joined_assignment_ids": [],
+                        "result_assignment_ids": [],
+                        "descendant_usage": {},
+                    },
+                },
+            }
+        )
+        normalized = evaluation.normalize_receipt(receipt)
+        self.assertTrue(normalized["agent_execution_claim_eligible"])
+        receipt["agent_telemetry"]["agent_execution_receipt"]["outcome"] = "degraded"
+        self.assertFalse(
+            evaluation.normalize_receipt(receipt)["agent_execution_claim_eligible"]
+        )
 
     def test_verifier_compliance_uses_observed_actor_identity(self) -> None:
         assignments = [

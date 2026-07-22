@@ -125,9 +125,25 @@ class ControllerAbBatchTests(unittest.TestCase):
             ):
                 case_id = f"{task_id}-rep{repetition}"
                 telemetry = {
+                    "schema_version": 2,
                     "complete": True,
                     "controller_mode": mode,
                     "actual_mode": "solo",
+                    "agent_execution_receipt": {
+                        "schema_version": 2,
+                        "complete": True,
+                        "selected_mode": "solo",
+                        "executed_mode": "solo",
+                        "outcome": "completed",
+                        "planned_assignment_ids": [],
+                        "planned_assignments": [],
+                        "lifecycle_bindings": [],
+                        "semantic_binding": True,
+                        "spawned_assignment_ids": [],
+                        "joined_assignment_ids": [],
+                        "result_assignment_ids": [],
+                        "descendant_usage": {},
+                    },
                 }
                 receipts.append(
                     {
@@ -135,6 +151,7 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "variant": variant,
                         "controller_protocol_sha256": "a" * 64,
                         "experiment_sha256": "b" * 64,
+                        "host_identity": {"version": "codex-test"},
                         "agent_telemetry": telemetry,
                     }
                 )
@@ -160,6 +177,7 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "baseline": "forced-solo",
                         "candidate": "adaptive",
                     },
+                    "host_identity": {"version": "codex-test"},
                 }
             ),
             encoding="utf-8",
@@ -184,6 +202,17 @@ class ControllerAbBatchTests(unittest.TestCase):
             self.assertLessEqual(
                 abs(baseline_first - (len(task_jobs) - baseline_first)), 1
             )
+
+    def test_v2_round_schedule_does_not_mix_pilot_and_promotion(self) -> None:
+        pilot = batch.build_schedule(self._contract(), "pilot")
+        promotion = batch.build_schedule(self._contract(), "promotion")
+        self.assertEqual({job["split"] for job in pilot["jobs"]}, {"pilot"})
+        self.assertEqual({job["split"] for job in promotion["jobs"]}, {"promotion"})
+        self.assertTrue(
+            {job["task_id"] for job in pilot["jobs"]}.isdisjoint(
+                {job["task_id"] for job in promotion["jobs"]}
+            )
+        )
 
     def test_journal_rejects_duplicates_and_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -298,6 +327,51 @@ class ControllerAbBatchTests(unittest.TestCase):
             receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
             with self.assertRaisesRegex(batch.BatchError, "telemetry"):
                 batch.validate_job_output(root, job)
+
+            self._fake_runner_output(command)
+            receipts = json.loads(receipts_path.read_text(encoding="utf-8"))
+            execution = receipts[0]["agent_telemetry"]["agent_execution_receipt"]
+            execution["selected_mode"] = "parallel-packets"
+            execution["outcome"] = "degraded"
+            receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "degraded"):
+                batch.validate_job_output(root, job)
+
+            self._fake_runner_output(command)
+            receipts = json.loads(receipts_path.read_text(encoding="utf-8"))
+            execution = receipts[0]["agent_telemetry"]["agent_execution_receipt"]
+            execution["semantic_binding"] = False
+            receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "semantic binding"):
+                batch.validate_job_output(root, job)
+
+            self._fake_runner_output(command)
+            receipts = json.loads(receipts_path.read_text(encoding="utf-8"))
+            execution = receipts[0]["agent_telemetry"]["agent_execution_receipt"]
+            execution["lifecycle_bindings"] = [
+                {
+                    "assignment_id": "unplanned",
+                    "actor_id": "actor",
+                    "role": "verifier",
+                    "parent_id": "root",
+                    "delegation_depth": 1,
+                }
+            ]
+            receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "semantic identities"):
+                batch.validate_job_output(root, job)
+
+    def test_schema_v1_is_not_claim_eligible_for_v2_confirmatory_inputs(self) -> None:
+        legacy = {"schema_version": 1, "claim_eligible": False}
+        self.assertFalse(
+            batch.validate_confirmatory_schema_binding(
+                legacy, {"schema_version": 2}, {"schema_version": 1}
+            )
+        )
+        with self.assertRaisesRegex(batch.BatchError, "not claim-eligible"):
+            batch.validate_confirmatory_schema_binding(
+                legacy, {"schema_version": 3}, {"schema_version": 2}
+            )
 
 
 if __name__ == "__main__":

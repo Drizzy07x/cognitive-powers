@@ -1,11 +1,19 @@
 {
-  "schema_version": 1,
-  "protocol_id": "cognitive-powers-controller-ab-v1",
+  "schema_version": 2,
+  "protocol_id": "cognitive-powers-controller-ab-v2",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v1",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
   "contains_execution_results": false,
   "contains_provider_evidence": false,
+  "previous_protocol_evidence": {
+    "protocol_id": "cognitive-powers-controller-ab-v1",
+    "verdict": "invalid",
+    "immutable_preflight_sessions": 8,
+    "sha256_index": "31509c6aaf2e664596fd2910e9fc8b2f64663728dc9c3f3817a40a56ab534ef9",
+    "reusable_for_v2_claims": false
+  },
   "comparison": {
     "design": "paired-provider-backed",
     "control_arm": {
@@ -62,6 +70,7 @@
       "fresh_home_per_session": true,
       "fresh_cognitive_powers_storage_per_session": true,
       "development_and_held_out_disjoint": true
+      ,"promotion_access": "promotion-round-only"
     },
     "rounds": {
       "pilot": {
@@ -93,7 +102,7 @@
       "level": 0.95,
       "method": "paired-stratified-bootstrap-by-fixture",
       "resamples": 10000,
-      "seed": "controller-ab-bootstrap-v1"
+      "seed": "controller-ab-bootstrap-v2"
     }
   },
   "promotion_gates": [
@@ -195,6 +204,20 @@
     "independent-verdict.json"
   ],
   "fail_closed_requirements": {
+    "host_capabilities": {
+      "required": [
+        "persistent_parent_thread",
+        "native_agent_tools_observed",
+        "spawn_events_observed",
+        "join_events_observed",
+        "descendant_tokens_observed",
+        "available_agent_slots",
+        "codex_cli_sha256",
+        "event_schema_version"
+      ],
+      "declared_without_observation": "invalid",
+      "missing_or_inconsistent": "invalid"
+    },
     "identity": {
       "required": [
         "source_commit",
@@ -264,9 +287,9 @@
     "current": null
   },
   "execution_state": {
-    "fixtures_created": 80,
-    "fixture_lock_sha256": "b5dbc2d6bc3f8b0be694f549ef443fec9341e3aa9b7f75fd3deb3fb6fde9b622",
-    "fixture_status": "ready",
+    "fixtures_created": 0,
+    "fixture_lock_sha256": null,
+    "fixture_status": "pending-v2-materialization",
     "sessions_completed": 0,
     "results_available": false,
     "provider_evidence_available": false

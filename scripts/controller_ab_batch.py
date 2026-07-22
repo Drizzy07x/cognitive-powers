@@ -66,12 +66,17 @@ def _append_journal(path: Path, row: Mapping[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
-def build_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
+def build_schedule(
+    contract: Mapping[str, Any], round_name: str | None = None
+) -> dict[str, Any]:
     """Create deterministic globally randomized repetition pairs and sessions."""
     jobs: list[dict[str, Any]] = []
     sessions: list[dict[str, Any]] = []
     ordinal = 0
-    for split in ("pilot", "promotion"):
+    splits = (round_name,) if round_name is not None else ("pilot", "promotion")
+    if any(split not in {"pilot", "promotion"} for split in splits):
+        raise BatchError("round_name must be pilot or promotion")
+    for split in splits:
         round_value = contract["rounds"][split]
         seed = round_value["arm_order"]["seed"]
         repetitions = round_value["repetitions_per_task"]
@@ -195,8 +200,14 @@ def _load_json(path: Path, label: str) -> Any:
 
 def load_config(path: Path) -> dict[str, Any]:
     value = _load_json(path.resolve(), "batch config")
-    if not isinstance(value, dict) or value.get("schema_version") != 1:
-        raise BatchError("batch config must use schema_version 1")
+    if not isinstance(value, dict) or value.get("schema_version") not in {1, 2}:
+        raise BatchError("batch config must use schema_version 1 or 2")
+    if value["schema_version"] == 2 and value.get("round_name") not in {
+        "pilot",
+        "promotion",
+    }:
+        raise BatchError("batch config v2 requires round_name")
+    value["claim_eligible"] = value["schema_version"] == 2
     required = {
         "task_contract",
         "controller_protocol",
@@ -279,6 +290,23 @@ def load_config(path: Path) -> dict[str, Any]:
     return value
 
 
+def validate_confirmatory_schema_binding(
+    config: Mapping[str, Any],
+    task_contract: Mapping[str, Any],
+    controller_protocol: Mapping[str, Any],
+) -> bool:
+    """Keep v1 readable while preventing it from entering the v2 confirmatory path."""
+    claim_eligible = config.get("claim_eligible") is True
+    if not claim_eligible and (
+        task_contract.get("schema_version") == 3
+        or controller_protocol.get("schema_version") == 2
+    ):
+        raise BatchError(
+            "batch config schema v1 is not claim-eligible for protocol v2 or task contract v3"
+        )
+    return claim_eligible
+
+
 def build_manifest(
     config: Mapping[str, Any],
     contract: Mapping[str, Any],
@@ -345,6 +373,123 @@ def read_journal(path: Path, known_jobs: set[str]) -> dict[str, str]:
     return states
 
 
+def _validate_execution_semantics(execution: Mapping[str, Any]) -> None:
+    planned = execution.get("planned_assignments")
+    bindings = execution.get("lifecycle_bindings")
+    if (
+        execution.get("semantic_binding") is not True
+        or not isinstance(planned, list)
+        or not isinstance(bindings, list)
+        or not all(isinstance(item, dict) for item in (*planned, *bindings))
+    ):
+        raise BatchError("runner execution receipt lacks semantic binding")
+    planned_by_id = {item.get("assignment_id"): item for item in planned}
+    bindings_by_id = {item.get("assignment_id"): item for item in bindings}
+    if (
+        len(planned_by_id) != len(planned)
+        or None in planned_by_id
+        or len(bindings_by_id) != len(bindings)
+        or None in bindings_by_id
+        or set(planned_by_id) != set(bindings_by_id)
+    ):
+        raise BatchError("runner assignment semantic identities are incomplete")
+    actor_ids: list[str] = []
+    prior_units: set[str] = set()
+    write_paths: list[tuple[str, str]] = []
+    wave_indexes = {item.get("wave_index") for item in planned}
+    if any(
+        not isinstance(index, int) or isinstance(index, bool) for index in wave_indexes
+    ):
+        raise BatchError("runner assignment wave is invalid")
+    ordered = sorted(planned, key=lambda item: item["wave_index"])
+    for wave_index in sorted(wave_indexes):
+        wave_items = [item for item in ordered if item.get("wave_index") == wave_index]
+        wave_units: set[str] = set()
+        for item in wave_items:
+            assignment_id = item.get("assignment_id")
+            unit_id = item.get("unit_id")
+            role = item.get("role")
+            permissions = item.get("permissions")
+            ownership = item.get("ownership")
+            dependencies = item.get("dependencies")
+            depth = item.get("delegation_depth")
+            binding = bindings_by_id.get(assignment_id, {})
+            actor_id = binding.get("actor_id")
+            if (
+                wave_index < 0
+                or not isinstance(item.get("wave_kind"), str)
+                or not isinstance(item.get("wave_parallel"), bool)
+                or not isinstance(unit_id, str)
+                or not unit_id
+                or not isinstance(role, str)
+                or permissions not in {"read-only", "write-owned-paths"}
+                or not isinstance(ownership, list)
+                or not all(isinstance(path, str) and path for path in ownership)
+                or not isinstance(dependencies, list)
+                or not set(dependencies).issubset(prior_units)
+                or not isinstance(depth, int)
+                or isinstance(depth, bool)
+                or depth < 1
+                or item.get("may_spawn") is not False
+                or item.get("may_verify_parent") is not False
+                or binding.get("role") != role
+                or binding.get("delegation_depth") != depth
+                or not isinstance(binding.get("parent_id"), str)
+                or not binding["parent_id"]
+                or not isinstance(actor_id, str)
+                or not actor_id
+                or (permissions == "write-owned-paths" and not ownership)
+                or (permissions == "read-only" and bool(ownership))
+            ):
+                raise BatchError("runner assignment semantic binding is invalid")
+            actor_ids.append(actor_id)
+            wave_units.add(unit_id)
+            if permissions == "write-owned-paths":
+                for path in ownership:
+                    normalized = path.replace("\\", "/").strip("/").casefold()
+                    if any(
+                        other_id != assignment_id
+                        and (
+                            normalized == other
+                            or normalized.startswith(other + "/")
+                            or other.startswith(normalized + "/")
+                        )
+                        for other_id, other in write_paths
+                    ):
+                        raise BatchError("runner write ownership overlaps")
+                    write_paths.append((assignment_id, normalized))
+        prior_units.update(wave_units)
+    if len(actor_ids) != len(set(actor_ids)):
+        raise BatchError("runner verifier or worker reuses an actor identity")
+    selected = execution.get("selected_mode")
+    verifiers = [item for item in planned if item.get("role") == "verifier"]
+    writers = [
+        item for item in planned if item.get("permissions") == "write-owned-paths"
+    ]
+    if selected == "solo" and (planned or bindings):
+        raise BatchError("solo execution contains agent assignments")
+    if selected == "parallel-read-only" and (len(planned) < 2 or writers or verifiers):
+        raise BatchError("parallel read-only execution semantics are invalid")
+    if selected == "parallel-packets" and (
+        len(writers) < 2
+        or len(
+            {item.get("wave_index") for item in writers if item.get("wave_parallel")}
+        )
+        != 1
+    ):
+        raise BatchError("parallel packet execution semantics are invalid")
+    if selected == "staged-verify" and (
+        not writers
+        or len(verifiers) != 1
+        or verifiers[0].get("wave_kind") != "verification"
+        or verifiers[0].get("wave_index")
+        <= max(item.get("wave_index", -1) for item in writers)
+        or set(verifiers[0].get("dependencies", []))
+        != {item.get("unit_id") for item in writers}
+    ):
+        raise BatchError("staged verifier execution semantics are invalid")
+
+
 def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
     summary = _load_json(path / "summary.json", "runner summary")
     receipts = _load_json(path / "receipts.json", "runner receipts")
@@ -369,19 +514,61 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
     }
     if len(keys) != expected:
         raise BatchError(f"runner receipts contain duplicates for {job['job_id']}")
+    frozen_host = summary.get("host_identity")
+    if not isinstance(frozen_host, dict):
+        raise BatchError(f"runner summary lacks host identity for {job['job_id']}")
     for receipt in receipts:
         telemetry = (
             receipt.get("agent_telemetry") if isinstance(receipt, dict) else None
+        )
+        execution = (
+            telemetry.get("agent_execution_receipt")
+            if isinstance(telemetry, dict)
+            else None
         )
         if (
             receipt.get("controller_protocol_sha256") is None
             or receipt.get("experiment_sha256") is None
             or not isinstance(telemetry, dict)
+            or telemetry.get("schema_version") != 2
             or telemetry.get("complete") is not True
+            or receipt.get("host_identity") != frozen_host
+            or not isinstance(execution, dict)
+            or execution.get("schema_version") != 2
+            or execution.get("complete") is not True
         ):
             raise BatchError(
                 f"runner receipt lacks identity or telemetry for {job['job_id']}"
             )
+        planned = execution.get("planned_assignment_ids")
+        spawned = execution.get("spawned_assignment_ids")
+        joined = execution.get("joined_assignment_ids")
+        results_seen = execution.get("result_assignment_ids")
+        usage = execution.get("descendant_usage")
+        if not all(
+            isinstance(items, list)
+            for items in (planned, spawned, joined, results_seen)
+        ):
+            raise BatchError(
+                f"runner execution receipt is malformed for {job['job_id']}"
+            )
+        if not (
+            len(planned) == len(set(planned))
+            and sorted(planned)
+            == sorted(spawned)
+            == sorted(joined)
+            == sorted(results_seen)
+        ):
+            raise BatchError(f"runner lifecycle is incomplete for {job['job_id']}")
+        if set(usage or {}) != set(planned):
+            raise BatchError(
+                f"runner descendant usage is incomplete for {job['job_id']}"
+            )
+        if execution.get("selected_mode") != execution.get("executed_mode"):
+            raise BatchError(f"runner execution degraded for {job['job_id']}")
+        if execution.get("outcome") != "completed":
+            raise BatchError(f"runner execution did not complete for {job['job_id']}")
+        _validate_execution_semantics(execution)
     hashes = {
         name: file_sha256(path / name)
         for name in ("summary.json", "receipts.json", "results.json")
@@ -550,15 +737,29 @@ def run_batch(
         raise BatchError("live A/B runner is missing")
     config = load_config(config_path)
     contract_raw = _load_json(Path(config["task_contract"]), "task contract")
+    protocol_raw = _load_json(
+        Path(config["controller_protocol"]), "controller protocol"
+    )
+    claim_eligible = validate_confirmatory_schema_binding(
+        config, contract_raw, protocol_raw
+    )
     contract = validate_task_contract(contract_raw)
     protocol = load_controller_protocol(Path(config["controller_protocol"]))
-    if set(config["tasks"]) != set(contract["tasks"]):
-        raise BatchError("batch task bindings must exactly match the frozen contract")
+    expected_tasks = (
+        set(contract["rounds"][config["round_name"]]["task_ids"])
+        if config["schema_version"] == 2
+        else set(contract["tasks"])
+    )
+    if set(config["tasks"]) != expected_tasks:
+        raise BatchError("batch task bindings must exactly match the selected round")
     config["task_prompts"] = {
         task_id: task["prompt"] for task_id, task in contract["tasks"].items()
     }
+    config["claim_eligible"] = claim_eligible
     schedule = (
-        build_preflight_schedule(contract) if preflight else build_schedule(contract)
+        build_preflight_schedule(contract)
+        if preflight
+        else build_schedule(contract, config.get("round_name"))
     )
     manifest = build_manifest(config, contract, protocol, schedule, runner)
     output = output.resolve()

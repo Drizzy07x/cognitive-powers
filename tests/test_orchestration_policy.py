@@ -117,6 +117,52 @@ def red_observation():
 
 
 class OrchestrationPolicyTests(unittest.TestCase):
+    def test_agent_plan_template_is_versioned_compact_and_executable(self) -> None:
+        def discover(version: int) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--agent-plan-template",
+                    str(version),
+                    "--json",
+                ],
+                cwd=PLUGIN_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        completed_v1 = discover(1)
+        completed_v2 = discover(2)
+        v1 = json.loads(completed_v1.stdout)
+        v2 = json.loads(completed_v2.stdout)
+        planned = policy.select_agent_plan(v2["template"])
+
+        self.assertEqual(v1["schema_version"], 1)
+        self.assertEqual(v1["planner_input_schema_version"], 1)
+        self.assertEqual(v2["planner_input_schema_version"], 2)
+        self.assertEqual(v2["supported_planner_input_schema_versions"], [1, 2])
+        self.assertIn("retry_record", v2["template"])
+        self.assertIn("previous_worker_failed", v1["template"])
+        self.assertTrue(planned["valid_input"])
+        self.assertEqual(
+            completed_v1.returncode, 0, completed_v1.stdout + completed_v1.stderr
+        )
+        self.assertEqual(
+            completed_v2.returncode, 0, completed_v2.stdout + completed_v2.stderr
+        )
+
+    def test_new_plan_distinguishes_selection_from_host_execution(self) -> None:
+        delegated = policy.select_agent_plan(agent_signals_v2())
+        solo = policy.select_agent_plan(agent_signals_v2(boundaries_clear=False))
+
+        for plan in (delegated, solo):
+            self.assertEqual(plan["selected_mode"], plan["mode"])
+            self.assertIsNone(plan["executed_mode"])
+            self.assertEqual(plan["outcome"], "planned")
+            self.assertIsNone(plan["degradation"])
+
     def test_simple_work_abstains_from_heavy_process(self) -> None:
         result = policy.select_intensity(signals())
 

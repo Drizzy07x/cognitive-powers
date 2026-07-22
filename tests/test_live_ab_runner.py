@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v1")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v2")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -153,6 +154,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             events = Path(temporary) / "events.jsonl"
             rows = [
+                {"type": "thread.started", "thread_id": "thread-1"},
                 {
                     "type": "item.completed",
                     "item": {
@@ -175,6 +177,24 @@ class LiveAbRunnerTests(unittest.TestCase):
                     "assignment_id": "assignment-1",
                     "actor_id": "worker-1",
                     "role": "researcher",
+                    "event": "spawned",
+                },
+                {
+                    "type": "agent.lifecycle",
+                    "provenance": "host",
+                    "assignment_id": "assignment-1",
+                    "actor_id": "worker-1",
+                    "role": "researcher",
+                    "event": "joined",
+                },
+                {
+                    "type": "agent.lifecycle",
+                    "provenance": "host",
+                    "assignment_id": "assignment-1",
+                    "actor_id": "worker-1",
+                    "role": "researcher",
+                    "event": "completed",
+                    "usage": {"input_tokens": 4, "output_tokens": 2},
                 },
                 {
                     "type": "turn.completed",
@@ -192,6 +212,7 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(parsed["agent_spawns"], 1)
             self.assertEqual(parsed["agent_plans"][0]["mode"], "parallel-read-only")
             self.assertEqual(parsed["observed_assignments"][0]["actor_id"], "worker-1")
+            self.assertEqual(parsed["parent_thread_id"], "thread-1")
 
     def test_no_agent_fast_path_is_observed_as_solo(self) -> None:
         parsed = {
@@ -200,6 +221,9 @@ class LiveAbRunnerTests(unittest.TestCase):
             "agent_joins": 0,
             "observed_assignments": [],
             "usage_includes_subagents": False,
+            "agent_lifecycle": [],
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
         }
         decision = runner.classify_agent_decision(parsed, "adaptive")
         self.assertEqual(decision["actual_mode"], "solo")
@@ -215,9 +239,12 @@ class LiveAbRunnerTests(unittest.TestCase):
             "agent_joins": 0,
             "observed_assignments": [],
             "usage_includes_subagents": False,
+            "agent_lifecycle": [],
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
         }
         decision = runner.classify_agent_decision(parsed, "adaptive")
-        self.assertIsNone(decision["actual_mode"])
+        self.assertEqual(decision["actual_mode"], "solo")
         self.assertEqual(decision["decision_observation"], "missing")
         self.assertFalse(decision["complete"])
 
@@ -233,11 +260,220 @@ class LiveAbRunnerTests(unittest.TestCase):
             "agent_joins": 0,
             "observed_assignments": [],
             "usage_includes_subagents": False,
+            "agent_lifecycle": [],
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
         }
         decision = runner.classify_agent_decision(parsed, "adaptive")
         self.assertEqual(decision["planned_assignment_count"], 1)
-        self.assertEqual(decision["actual_mode"], "parallel-packets")
+        self.assertEqual(decision["actual_mode"], "solo")
         self.assertFalse(decision["complete"])
+        self.assertEqual(decision["selected_mode"], "parallel-packets")
+        self.assertEqual(decision["executed_mode"], "solo")
+        self.assertEqual(decision["outcome"], "degraded")
+
+    def test_complete_delegation_requires_exact_host_lifecycle_and_usage(self) -> None:
+        executor = {
+            "id": "executor-unit",
+            "assignment_id": "executor",
+            "role": "executor",
+            "permissions": "write-owned-paths",
+            "ownership": ["src/feature.py"],
+            "dependencies": [],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+        }
+        verifier = {
+            "id": "verifier-unit",
+            "assignment_id": "verifier",
+            "role": "verifier",
+            "permissions": "read-only",
+            "ownership": [],
+            "dependencies": ["executor-unit"],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+            "must_be_distinct_from": ["executor-unit"],
+        }
+        plan = {
+            "mode": "staged-verify",
+            "waves": [
+                {
+                    "kind": "implementation",
+                    "parallel": False,
+                    "assignments": [executor],
+                },
+                {
+                    "kind": "verification",
+                    "parallel": False,
+                    "assignments": [verifier],
+                },
+            ],
+        }
+        lifecycle = [
+            {
+                "assignment_id": assignment,
+                "actor_id": f"actor-{assignment}",
+                "role": role,
+                "parent_id": "root-actor",
+                "delegation_depth": 1,
+                "phases": ["spawned", "joined", "result"],
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 2,
+                },
+            }
+            for assignment, role in (("executor", "executor"), ("verifier", "verifier"))
+        ]
+        parsed = {
+            "agent_plans": [plan],
+            "agent_spawns": 2,
+            "agent_joins": 2,
+            "observed_assignments": [],
+            "agent_lifecycle": lifecycle,
+            "usage_includes_subagents": True,
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertTrue(decision["complete"])
+        self.assertEqual(decision["selected_mode"], "staged-verify")
+        self.assertEqual(decision["executed_mode"], "staged-verify")
+        self.assertEqual(
+            decision["agent_execution_receipt"]["descendant_total_tokens"], 24
+        )
+
+        parsed["agent_lifecycle"][1]["phases"] = ["spawned", "result"]
+        self.assertFalse(runner.classify_agent_decision(parsed, "adaptive")["complete"])
+
+    def test_staged_verify_rejects_inverted_roles_and_same_actor(self) -> None:
+        executor = {
+            "id": "executor-unit",
+            "assignment_id": "executor",
+            "role": "executor",
+            "permissions": "write-owned-paths",
+            "ownership": ["src/feature.py"],
+            "dependencies": [],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+        }
+        verifier = {
+            "id": "verifier-unit",
+            "assignment_id": "verifier",
+            "role": "verifier",
+            "permissions": "read-only",
+            "ownership": [],
+            "dependencies": ["executor-unit"],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+        }
+        plan = {
+            "mode": "staged-verify",
+            "waves": [
+                {
+                    "kind": "implementation",
+                    "parallel": False,
+                    "assignments": [executor],
+                },
+                {"kind": "verification", "parallel": False, "assignments": [verifier]},
+            ],
+        }
+        lifecycle = [
+            {
+                "assignment_id": assignment,
+                "actor_id": f"actor-{assignment}",
+                "role": role,
+                "parent_id": "root-actor",
+                "delegation_depth": 1,
+                "phases": ["spawned", "joined", "result"],
+                "usage": {
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                },
+            }
+            for assignment, role in (("executor", "verifier"), ("verifier", "executor"))
+        ]
+        parsed = {
+            "agent_plans": [plan],
+            "agent_spawns": 2,
+            "agent_joins": 2,
+            "agent_lifecycle": lifecycle,
+            "usage_includes_subagents": True,
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertFalse(decision["complete"])
+        self.assertFalse(decision["agent_execution_receipt"]["semantic_binding"])
+        for item, role in zip(lifecycle, ("executor", "verifier"), strict=True):
+            item["role"] = role
+            item["actor_id"] = "same-actor"
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertFalse(decision["complete"])
+        self.assertFalse(decision["agent_execution_receipt"]["semantic_binding"])
+
+    def test_no_thread_host_error_fails_closed(self) -> None:
+        parsed = {
+            "agent_plans": [],
+            "agent_spawns": 0,
+            "agent_joins": 0,
+            "observed_assignments": [],
+            "agent_lifecycle": [],
+            "usage_includes_subagents": False,
+            "parent_thread_id": None,
+            "host_errors": ["no thread with id"],
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertFalse(decision["complete"])
+        self.assertEqual(decision["outcome"], "degraded")
+
+    def test_codex_command_is_persistent_and_enables_multi_agent(self) -> None:
+        command = runner.build_codex_command(
+            codex="codex",
+            fixture=Path("fixture"),
+            message=Path("message.txt"),
+            prompt="work",
+            model="gpt-test",
+            reasoning_effort="medium",
+            bypass_sandbox=False,
+        )
+        self.assertNotIn("--ephemeral", command)
+        self.assertIn("features.multi_agent=true", command)
+
+    def test_host_identity_freezes_binary_version_and_effective_features(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "codex.exe"
+            executable.write_bytes(b"binary")
+            version = mock.Mock(returncode=0, stdout="codex 1.2.3\n", stderr="")
+            features = mock.Mock(
+                returncode=0,
+                stdout="multi_agent stable true\nmemories stable false\n",
+                stderr="",
+            )
+            with (
+                mock.patch.object(runner.shutil, "which", return_value=str(executable)),
+                mock.patch.object(
+                    runner.subprocess, "run", side_effect=[version, features]
+                ),
+            ):
+                identity = runner.codex_host_identity("codex")
+            self.assertEqual(identity["version"], "codex 1.2.3")
+            self.assertEqual(len(identity["executable_sha256"]), 64)
+            self.assertTrue(identity["effective_features"]["multi_agent"]["enabled"])
+
+    def test_parse_events_rejects_unknown_schema_type(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            events.write_text(
+                json.dumps({"type": "future.event"}) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(runner.LiveEvaluationError, "unsupported"):
+                runner.parse_events(events)
 
     def test_parse_events_rejects_self_reported_actor_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

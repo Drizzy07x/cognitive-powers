@@ -172,8 +172,9 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
         payload = json.loads(raw)
     except (OSError, json.JSONDecodeError) as error:
         raise EvaluationError("controller protocol cannot be loaded") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise EvaluationError("controller protocol must use schema_version 1")
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
+        raise EvaluationError("controller protocol must use schema_version 1 or 2")
+    protocol_schema = payload["schema_version"]
     comparison = payload.get("comparison")
     design = payload.get("design")
     analysis = payload.get("analysis")
@@ -215,7 +216,7 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
         or not isinstance(confidence, dict)
         or confidence.get("method") != "paired-stratified-bootstrap-by-fixture"
         or confidence.get("resamples") != 10000
-        or confidence.get("seed") != "controller-ab-bootstrap-v1"
+        or confidence.get("seed") != f"controller-ab-bootstrap-v{protocol_schema}"
         or len(gate_map) != len(promotion_gates)
         or gate_map != EXPECTED_PROMOTION_GATES
         or not isinstance(payload.get("required_artifacts"), list)
@@ -258,10 +259,23 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
             )
         )
         or not isinstance(execution_state, dict)
-        or execution_state.get("fixtures_created") != 80
-        or execution_state.get("fixture_status") != "ready"
-        or not isinstance(execution_state.get("fixture_lock_sha256"), str)
-        or len(execution_state["fixture_lock_sha256"]) != 64
+        or (
+            protocol_schema == 1
+            and (
+                execution_state.get("fixtures_created") != 80
+                or execution_state.get("fixture_status") != "ready"
+                or not isinstance(execution_state.get("fixture_lock_sha256"), str)
+                or len(execution_state["fixture_lock_sha256"]) != 64
+            )
+        )
+        or (
+            protocol_schema == 2
+            and (
+                execution_state.get("fixtures_created") != 0
+                or execution_state.get("fixture_status") != "pending-v2-materialization"
+                or execution_state.get("fixture_lock_sha256") is not None
+            )
+        )
         or execution_state.get("sessions_completed") != 0
         or execution_state.get("results_available") is not False
         or execution_state.get("provider_evidence_available") is not False
@@ -719,8 +733,8 @@ def validate_task_contract(value: object) -> dict[str, Any]:
     """Normalize the frozen v2 task-definition contract."""
     if not isinstance(value, dict):
         raise EvaluationError("task contract must be an object")
-    if value.get("schema_version") != 2:
-        raise EvaluationError("task contract schema_version must be 2")
+    if value.get("schema_version") not in {2, 3}:
+        raise EvaluationError("task contract schema_version must be 2 or 3")
     task_set_id = _string(value.get("task_set_id"), "task_set_id")
     if value.get("contains_run_results") is not False:
         raise EvaluationError("task contract must declare contains_run_results false")
@@ -1035,6 +1049,99 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                     }
                 )
             result["agent_telemetry"]["observed_assignments"] = normalized_observations
+            result["agent_execution_claim_eligible"] = False
+            execution = telemetry.get("agent_execution_receipt")
+            if telemetry.get("schema_version") == 2 and isinstance(execution, dict):
+                selected_mode = _string(
+                    execution.get("selected_mode"),
+                    "agent_execution_receipt.selected_mode",
+                )
+                executed_mode = _string(
+                    execution.get("executed_mode"),
+                    "agent_execution_receipt.executed_mode",
+                )
+                if (
+                    selected_mode not in AGENT_PLAN_MODES
+                    or executed_mode not in AGENT_PLAN_MODES
+                ):
+                    raise EvaluationError("agent execution mode is not recognized")
+                assignment_fields = (
+                    "planned_assignment_ids",
+                    "spawned_assignment_ids",
+                    "joined_assignment_ids",
+                    "result_assignment_ids",
+                )
+                assignment_sets = {
+                    field: _string_list(
+                        execution.get(field), f"agent_execution_receipt.{field}"
+                    )
+                    for field in assignment_fields
+                }
+                planned_ids = assignment_sets["planned_assignment_ids"]
+                exact_lifecycle = len(planned_ids) == len(set(planned_ids)) and all(
+                    sorted(items) == sorted(planned_ids)
+                    for items in assignment_sets.values()
+                )
+                usage = execution.get("descendant_usage")
+                usage_complete = isinstance(usage, dict) and set(usage) == set(
+                    planned_ids
+                )
+                planned_semantics = execution.get("planned_assignments")
+                lifecycle_bindings = execution.get("lifecycle_bindings")
+                semantic_complete = (
+                    execution.get("semantic_binding") is True
+                    and isinstance(planned_semantics, list)
+                    and isinstance(lifecycle_bindings, list)
+                    and all(isinstance(item, dict) for item in planned_semantics)
+                    and all(isinstance(item, dict) for item in lifecycle_bindings)
+                )
+                if semantic_complete:
+                    expected = {
+                        item.get("assignment_id"): item for item in planned_semantics
+                    }
+                    observed = {
+                        item.get("assignment_id"): item for item in lifecycle_bindings
+                    }
+                    actor_ids = [item.get("actor_id") for item in lifecycle_bindings]
+                    semantic_complete = (
+                        len(expected) == len(planned_semantics)
+                        and len(observed) == len(lifecycle_bindings)
+                        and set(expected) == set(planned_ids) == set(observed)
+                        and len(actor_ids) == len(set(actor_ids))
+                        and all(
+                            observed[assignment_id].get("role") == item.get("role")
+                            and observed[assignment_id].get("delegation_depth")
+                            == item.get("delegation_depth")
+                            and isinstance(
+                                observed[assignment_id].get("parent_id"), str
+                            )
+                            and bool(observed[assignment_id]["parent_id"])
+                            for assignment_id, item in expected.items()
+                        )
+                    )
+                parent_thread_id = execution.get("parent_thread_id")
+                host_identity = value.get("host_identity")
+                host_valid = (
+                    isinstance(host_identity, dict)
+                    and isinstance(host_identity.get("version"), str)
+                    and isinstance(host_identity.get("executable_sha256"), str)
+                    and len(host_identity["executable_sha256"]) == 64
+                    and host_identity.get("features", {}).get("multi_agent") is True
+                    and host_identity.get("persistent_parent_thread") is True
+                )
+                result["host_identity"] = host_identity if host_valid else None
+                result["agent_execution_claim_eligible"] = bool(
+                    execution.get("schema_version") == 2
+                    and execution.get("complete") is True
+                    and execution.get("outcome") == "completed"
+                    and selected_mode == executed_mode
+                    and exact_lifecycle
+                    and usage_complete
+                    and semantic_complete
+                    and isinstance(parent_thread_id, str)
+                    and bool(parent_thread_id)
+                    and host_valid
+                )
         if result["live_execution"]:
             missing = [
                 field
@@ -1745,6 +1852,11 @@ def compare(
         and protocol_bound
         else None
     )
+    execution_receipts_eligible = bool(evidence_scope) and all(
+        receipt.get("agent_execution_claim_eligible") is True
+        for receipt in normalized
+        if any(pair["case_id"] == receipt["case_id"] for pair in evidence_scope)
+    )
     quality_confident = quality_ci is not None and quality_ci[0] > 0
     proven = (
         contract is not None
@@ -1759,6 +1871,7 @@ def compare(
         and success_noninferior
         and literal_efficiency_passed
         and routing_passed
+        and execution_receipts_eligible
     )
     if proven:
         reason = None
@@ -1772,6 +1885,8 @@ def compare(
         reason = "requires enough paired live executions"
     elif not protocol_bound:
         reason = "requires receipts bound to the frozen controller protocol"
+    elif not execution_receipts_eligible:
+        reason = "requires host-backed agent execution receipts"
     elif semantic_artifact_binding is None:
         reason = (
             "requires a complete hash-verified artifact bundle and independent verdict"
@@ -1839,6 +1954,7 @@ def compare(
         "efficiency_evaluated": bool(eligible_efficiency),
         "aggregate_efficiency_improved": aggregate_efficiency_improved,
         "confirmatory_efficiency_passed": literal_efficiency_passed,
+        "host_execution_receipts_eligible": execution_receipts_eligible,
         "end_to_end_improvement_proven": proven,
         "verdict": "proven" if proven else "not-proven",
         "reason": reason,

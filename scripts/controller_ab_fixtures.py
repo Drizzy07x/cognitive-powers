@@ -26,6 +26,9 @@ CATEGORIES = (
     "real-host-interaction",
 )
 SPLIT_COUNTS = {"pilot": 1, "promotion": 3}
+CORPUS_SCHEMA_VERSION = 2
+FIXTURE_SCHEMA_VERSION = 2
+TASK_CONTRACT_SCHEMA_VERSION = 3
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 
 
@@ -58,8 +61,11 @@ def _safe_relative(value: str, field: str) -> str:
 
 def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("schema_version") != 1:
-        raise CorpusError("manifest must be a schema_version 1 object")
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != CORPUS_SCHEMA_VERSION
+    ):
+        raise CorpusError("manifest must be a schema_version 2 object")
     if value.get("contains_run_results") is not False:
         raise CorpusError("fixture manifest cannot contain run results")
     return value
@@ -67,13 +73,15 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
 
 def _actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": FIXTURE_SCHEMA_VERSION,
         "corpus_id": definition["corpus_id"],
         "fixture_id": definition["fixture_id"],
         "category": definition["category"],
         "prompt": definition["prompt"],
         "goal": definition["goal"],
         "allowed_paths": definition["allowed_paths"],
+        "work_contract": definition["work_contract"],
+        "verification": definition["verification"],
         "public_check": ["python", "-m", "unittest", "tests.test_public"],
         "repetitions_per_arm": definition["repetitions_per_arm"],
     }
@@ -82,7 +90,13 @@ def _actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
 def actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
     """Return the only payload that may be handed to an acting arm."""
     payload = _actor_payload(definition)
-    forbidden = {"expected_mode", "evaluation", "hidden_check", "quality_check"}
+    forbidden = {
+        "expected_mode",
+        "evaluation",
+        "hidden_check",
+        "quality_check",
+        "evaluator_path",
+    }
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
@@ -100,26 +114,154 @@ def actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
 
 def _goal(mode: str, fixture_id: str) -> str:
     if mode == "solo":
-        return f"Set src/scenario.txt to resolved:{fixture_id}."
+        return (
+            "Resolve the single bounded discrepancy in src/target.txt from the "
+            "local specification, then run the cheap public check."
+        )
     if mode == "parallel-read-only":
-        return "Report both immutable evidence markers without changing the checkout."
+        return (
+            "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then "
+            "report both RESULT markers without changing the checkout."
+        )
     if mode == "parallel-packets":
         return (
-            f"Set packets/a/state.txt to completed:{fixture_id}:a and "
-            f"packets/b/state.txt to completed:{fixture_id}:b."
+            "Complete the two independent packet outputs under work/a and work/b, "
+            "integrate their results, and have a distinct verifier run the check."
         )
-    return f"Set src/scenario.txt to verified:{fixture_id} and prove it with tests."
+    return (
+        "Correct src/target.txt, then have a fresh read-only verifier execute "
+        "verification/verify.py after the change is integrated."
+    )
+
+
+def _scenario_value(category: str, fixture_id: str, unit: str = "target") -> str:
+    outcomes = {
+        "bug-fix": "defect=fixed",
+        "multi-file-implementation": "feature=integrated",
+        "current-source-research": "decision=evidence-backed",
+        "delivery-verification": "delivery=verified",
+        "real-host-interaction": "workflow=completed",
+    }
+    return f"{outcomes[category]};unit={unit};fixture={fixture_id}"
+
+
+def _work_contract(mode: str) -> dict[str, Any]:
+    if mode == "solo":
+        return {
+            "units": [
+                {
+                    "id": "bounded-fix",
+                    "ownership": ["src/target.txt"],
+                    "read_only": False,
+                    "depends_on": [],
+                }
+            ],
+            "independence": "one bounded unit",
+            "coordination_budget": "complete locally when cheaper than delegation",
+        }
+    if mode == "parallel-read-only":
+        return {
+            "units": [
+                {
+                    "id": "evidence-a",
+                    "ownership": ["evidence/unit-a.txt"],
+                    "read_only": True,
+                    "depends_on": [],
+                },
+                {
+                    "id": "evidence-b",
+                    "ownership": ["evidence/unit-b.txt"],
+                    "read_only": True,
+                    "depends_on": [],
+                },
+            ],
+            "independence": "two independent read-only investigations",
+            "coordination_budget": "parallel investigation is permitted",
+        }
+    if mode == "parallel-packets":
+        return {
+            "units": [
+                {
+                    "id": "packet-a",
+                    "ownership": ["work/a/result.txt"],
+                    "read_only": False,
+                    "depends_on": [],
+                },
+                {
+                    "id": "packet-b",
+                    "ownership": ["work/b/result.txt"],
+                    "read_only": False,
+                    "depends_on": [],
+                },
+            ],
+            "independence": "two disjoint writable packets",
+            "coordination_budget": "parallel execution followed by primary integration",
+        }
+    return {
+        "units": [
+            {
+                "id": "executor",
+                "ownership": ["src/target.txt"],
+                "read_only": False,
+                "depends_on": [],
+            },
+            {
+                "id": "verification",
+                "ownership": [],
+                "read_only": True,
+                "depends_on": ["executor"],
+            },
+        ],
+        "independence": "ordered executor then distinct read-only verifier",
+        "coordination_budget": "verification must run in a later wave",
+    }
+
+
+def _validate_structural_definition(definition: dict[str, Any]) -> None:
+    mode = definition["expected_mode"]
+    units = definition["work_contract"]["units"]
+    allowed = definition["allowed_paths"]
+    verification = definition["verification"]
+    if mode == "solo":
+        if len(units) != 1 or units[0]["read_only"] or len(allowed) != 1:
+            raise CorpusError("solo fixtures require one bounded writable unit")
+    elif mode == "parallel-read-only":
+        if len(units) != 2 or not all(unit["read_only"] for unit in units) or allowed:
+            raise CorpusError("parallel read-only fixtures require two immutable units")
+    elif mode == "parallel-packets":
+        ownership = [tuple(unit["ownership"]) for unit in units]
+        if (
+            len(units) != 2
+            or any(unit["read_only"] for unit in units)
+            or not all(not unit["depends_on"] for unit in units)
+            or len(set(ownership)) != 2
+            or set(allowed) != {"work/a/result.txt", "work/b/result.txt"}
+            or verification["distinct_verifier_required"] is not True
+        ):
+            raise CorpusError(
+                "parallel packet fixtures require two disjoint writes and a verifier"
+            )
+    else:
+        if (
+            len(units) != 2
+            or units[0]["read_only"]
+            or not units[1]["read_only"]
+            or units[1]["depends_on"] != [units[0]["id"]]
+            or verification["executable_check"] != ["python", "verification/verify.py"]
+            or verification["distinct_verifier_required"] is not True
+        ):
+            raise CorpusError(
+                "staged fixtures require an executor and later executable verification"
+            )
 
 
 def _render_actor_files(definition: dict[str, Any]) -> dict[str, bytes]:
     fixture_id = definition["fixture_id"]
-    mode = definition["expected_mode"]
+    category = definition["category"]
     payload = actor_payload(definition)
-    initial_scenario = (
-        f"EVIDENCE-A:{fixture_id}\nEVIDENCE-B:{fixture_id}\n"
-        if mode == "parallel-read-only"
-        else f"pending:{fixture_id}\n"
-    )
+    expected_target = _scenario_value(category, fixture_id)
+    evidence_a = f"RESULT-A:{_sha256((fixture_id + ':a').encode())[:16]}"
+    evidence_b = f"RESULT-B:{_sha256((fixture_id + ':b').encode())[:16]}"
     test_source = """import json
 import unittest
 from pathlib import Path
@@ -132,23 +274,30 @@ class PublicFixtureTest(unittest.TestCase):
     def test_declared_outcome(self):
         task = json.loads((ROOT / "task.json").read_text(encoding="utf-8"))
         self.assertNotIn("expected_mode", json.dumps(task))
-        fixture_id = task["fixture_id"]
-        allowed = task["allowed_paths"]
-        if allowed == []:
-            text = (ROOT / "src" / "scenario.txt").read_text(encoding="utf-8")
-            self.assertIn("EVIDENCE-A:" + fixture_id, text)
-            self.assertIn("EVIDENCE-B:" + fixture_id, text)
-        elif "packets/a/**" in allowed:
-            self.assertEqual((ROOT / "packets/a/state.txt").read_text(encoding="utf-8").strip(), "completed:" + fixture_id + ":a")
-            self.assertEqual((ROOT / "packets/b/state.txt").read_text(encoding="utf-8").strip(), "completed:" + fixture_id + ":b")
-        elif "tests/**" in allowed:
-            self.assertEqual((ROOT / "src/scenario.txt").read_text(encoding="utf-8").strip(), "verified:" + fixture_id)
+        units = task["work_contract"]["units"]
+        if all(unit["read_only"] for unit in units):
+            self.assertTrue((ROOT / "evidence/unit-a.txt").is_file())
+            self.assertTrue((ROOT / "evidence/unit-b.txt").is_file())
+        elif len(units) == 2 and not units[0]["read_only"] and not units[1]["read_only"]:
+            for packet in ("a", "b"):
+                expected = (ROOT / f"work/{packet}/expected.txt").read_text(encoding="utf-8").strip()
+                actual = (ROOT / f"work/{packet}/result.txt").read_text(encoding="utf-8").strip()
+                self.assertEqual(actual, expected)
         else:
-            self.assertEqual((ROOT / "src/scenario.txt").read_text(encoding="utf-8").strip(), "resolved:" + fixture_id)
+            expected = (ROOT / "spec/expected.txt").read_text(encoding="utf-8").strip()
+            self.assertEqual((ROOT / "src/target.txt").read_text(encoding="utf-8").strip(), expected)
 
 
 if __name__ == "__main__":
     unittest.main()
+"""
+    verifier = """from pathlib import Path
+import sys
+
+root = Path(__file__).resolve().parents[1]
+actual = (root / "src/target.txt").read_text(encoding="utf-8").strip()
+expected = (root / "spec/expected.txt").read_text(encoding="utf-8").strip()
+raise SystemExit(0 if actual == expected else 1)
 """
     return {
         "README.md": (
@@ -156,9 +305,21 @@ if __name__ == "__main__":
             "This is a deterministic evaluation fixture definition, not a run result.\n"
         ).encode(),
         "task.json": (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(),
-        "src/scenario.txt": initial_scenario.encode(),
-        "packets/a/state.txt": f"pending:{fixture_id}:a\n".encode(),
-        "packets/b/state.txt": f"pending:{fixture_id}:b\n".encode(),
+        "src/target.txt": f"pending:{fixture_id}\n".encode(),
+        "spec/expected.txt": f"{expected_target}\n".encode(),
+        "evidence/unit-a.txt": f"{evidence_a}\n".encode(),
+        "evidence/unit-b.txt": f"{evidence_b}\n".encode(),
+        "work/a/input.txt": f"source:{fixture_id}:a\n".encode(),
+        "work/a/expected.txt": (
+            _scenario_value(category, fixture_id, "packet-a") + "\n"
+        ).encode(),
+        "work/a/result.txt": f"pending:{fixture_id}:a\n".encode(),
+        "work/b/input.txt": f"source:{fixture_id}:b\n".encode(),
+        "work/b/expected.txt": (
+            _scenario_value(category, fixture_id, "packet-b") + "\n"
+        ).encode(),
+        "work/b/result.txt": f"pending:{fixture_id}:b\n".encode(),
+        "verification/verify.py": verifier.encode(),
         "tests/__init__.py": b"",
         "tests/test_public.py": test_source.encode(),
     }
@@ -197,10 +358,26 @@ completed = subprocess.run(
 )
 score = 100.0 if completed.returncode == 0 else 0.0
 evidence = ["independent public-contract check"]
-if message is not None and not message.exists():
+critical_errors = []
+if message is None or not message.exists():
     score = 0.0
     evidence.append("final message missing")
-print(json.dumps({"score": score, "evidence": evidence, "critical_errors": []}))
+else:
+    task = json.loads((fixture / "task.json").read_text(encoding="utf-8"))
+    units = task["work_contract"]["units"]
+    if all(unit["read_only"] for unit in units):
+        response = message.read_text(encoding="utf-8", errors="replace")
+        markers = [
+            (fixture / "evidence/unit-a.txt").read_text(encoding="utf-8").strip(),
+            (fixture / "evidence/unit-b.txt").read_text(encoding="utf-8").strip(),
+        ]
+        missing = [marker for marker in markers if marker not in response]
+        if missing:
+            score = 0.0
+            critical_errors.append("independent evidence markers missing")
+        else:
+            evidence.append("both independent evidence markers reported")
+print(json.dumps({"score": score, "evidence": evidence, "critical_errors": critical_errors}))
 """
     return {"hidden_check.py": hidden.encode(), "quality_check.py": quality.encode()}
 
@@ -236,7 +413,7 @@ def expand_definitions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 for ordinal in range(1, count + 1):
                     fixture_id = f"controller-{split}-{mode}-{category}-{ordinal:02d}"
                     definition = {
-                        "schema_version": 1,
+                        "schema_version": FIXTURE_SCHEMA_VERSION,
                         "corpus_id": manifest["corpus_id"],
                         "fixture_id": fixture_id,
                         "split": split,
@@ -250,6 +427,27 @@ def expand_definitions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                         "allowed_paths": manifest["mode_recipes"][mode][
                             "allowed_paths"
                         ],
+                        "work_contract": _work_contract(mode),
+                        "verification": {
+                            "public_check": [
+                                "python",
+                                "-m",
+                                "unittest",
+                                "tests.test_public",
+                            ],
+                            "executable_check": (
+                                ["python", "verification/verify.py"]
+                                if mode == "staged-verify"
+                                else [
+                                    "python",
+                                    "-m",
+                                    "unittest",
+                                    "tests.test_public",
+                                ]
+                            ),
+                            "distinct_verifier_required": mode
+                            in {"parallel-packets", "staged-verify"},
+                        },
                         "actor_path": _safe_relative(
                             f"{split_config['actor_root']}/{fixture_id}", "actor_path"
                         ),
@@ -276,6 +474,7 @@ def expand_definitions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                             "clean": True,
                         },
                     }
+                    _validate_structural_definition(definition)
                     actor_files = _render_actor_files(definition)
                     evaluator_files = _render_evaluator_files(definition)
                     definition["expected_hashes"] = {
@@ -313,15 +512,15 @@ def build_task_contract(manifest: dict[str, Any]) -> dict[str, Any]:
         tasks.append(
             {
                 "task_id": definition["fixture_id"],
-                "version": 1,
+                "version": FIXTURE_SCHEMA_VERSION,
                 "split": definition["split"],
                 "category": definition["category"],
                 "fixture_id": definition["fixture_id"],
                 "expected_mode": definition["expected_mode"],
                 "prompt": prompt,
                 "initial_state": (
-                    "A clean, versioned, deterministic fixture with evaluator files "
-                    "held outside the acting checkout."
+                    "A clean, versioned, deterministic fixture with a bounded public "
+                    "contract."
                 ),
                 "expected_outcome": definition["goal"],
                 "independent_tests": [
@@ -341,8 +540,8 @@ def build_task_contract(manifest: dict[str, Any]) -> dict[str, Any]:
         )
     rounds: dict[str, Any] = {}
     for split, seed in (
-        ("pilot", "cp-controller-pilot-2026-07-v1"),
-        ("promotion", "cp-controller-promotion-2026-07-v1"),
+        ("pilot", "cp-controller-pilot-2026-07-v2"),
+        ("promotion", "cp-controller-promotion-2026-07-v2"),
     ):
         rounds[split] = {
             "held_out": split == "promotion",
@@ -351,8 +550,8 @@ def build_task_contract(manifest: dict[str, Any]) -> dict[str, Any]:
             "arm_order": {"method": "seeded-balanced", "seed": seed},
         }
     return {
-        "schema_version": 2,
-        "task_set_id": "controller-ab-confirmatory-80-v1",
+        "schema_version": TASK_CONTRACT_SCHEMA_VERSION,
+        "task_set_id": "controller-ab-confirmatory-80-v2",
         "contains_run_results": False,
         "controller_confirmatory_corpus": {
             "manifest": "benchmarks/confirmatory/controller_ab_corpus.json",
@@ -364,6 +563,11 @@ def build_task_contract(manifest: dict[str, Any]) -> dict[str, Any]:
             "contains_run_results": False,
             "end_to_end_improvement_proven": False,
             "definition_seal_sha256": promotion_definition_seal(definitions),
+            "promotion_access_policy": {
+                "sealed": True,
+                "allowed_round": "promotion",
+                "forbidden_purposes": ["development", "preflight", "pilot-debug"],
+            },
         },
         "protocol": {
             "locked_between_arms": [
@@ -395,16 +599,27 @@ def build_batch_config(
     model: str,
     reasoning_effort: str,
     bypass_sandbox: bool = False,
+    round_name: str = "pilot",
 ) -> dict[str, Any]:
-    report = validate_corpus(manifest, materialized_root)
+    if round_name not in {"pilot", "promotion"}:
+        raise CorpusError("batch round must be pilot or promotion")
+    report = validate_corpus(manifest, materialized_root, round_name=round_name)
+    expected_fixture_count = sum(
+        item["split"] == round_name for item in expand_definitions(manifest)
+    )
     if (
         report.get("fixture_status") != "ready"
-        or report.get("ready_fixture_count") != 80
+        or report.get("ready_fixture_count") != expected_fixture_count
+        or report.get("materialized_round") != round_name
     ):
-        raise CorpusError("batch configuration requires all 80 materialized fixtures")
+        raise CorpusError(
+            f"batch configuration requires an isolated {round_name} fixture bundle"
+        )
     definitions = expand_definitions(manifest)
     tasks: dict[str, Any] = {}
     for definition in definitions:
+        if definition["split"] != round_name:
+            continue
         evaluator = materialized_root / definition["evaluator_path"]
         allowed = definition["allowed_paths"] or ["__read_only_no_changes__"]
         tasks[definition["fixture_id"]] = {
@@ -426,7 +641,9 @@ def build_batch_config(
             "guard_roots": [str(evaluator.resolve())],
         }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "round_name": round_name,
+        "promotion_content_accessed": round_name == "promotion",
         "task_contract": str(task_contract.resolve()),
         "controller_protocol": str(controller_protocol.resolve()),
         "baseline_home": str(baseline_home.resolve()),
@@ -499,7 +716,14 @@ def _write_files(root: Path, files: dict[str, bytes]) -> None:
         path.write_bytes(content)
 
 
-def materialize(manifest: dict[str, Any], output_root: Path) -> dict[str, Any]:
+def materialize(
+    manifest: dict[str, Any],
+    output_root: Path,
+    *,
+    round_name: str | None = None,
+) -> dict[str, Any]:
+    if round_name not in {None, "pilot", "promotion"}:
+        raise CorpusError("materialization round must be pilot or promotion")
     if not output_root.is_absolute():
         raise CorpusError("materialization output must be an explicit absolute path")
     resolved = output_root.resolve()
@@ -514,7 +738,12 @@ def materialize(manifest: dict[str, Any], output_root: Path) -> dict[str, Any]:
     if resolved.exists() and any(resolved.iterdir()):
         raise CorpusError("materialization output must not already contain files")
     resolved.mkdir(parents=True, exist_ok=True)
-    definitions = expand_definitions(manifest)
+    all_definitions = expand_definitions(manifest)
+    definitions = [
+        item
+        for item in all_definitions
+        if round_name is None or item["split"] == round_name
+    ]
     locks: list[dict[str, Any]] = []
     recipe = manifest["recipe"]
     for definition in definitions:
@@ -559,12 +788,21 @@ def materialize(manifest: dict[str, Any], output_root: Path) -> dict[str, Any]:
         item for item in locks if item["fixture_id"].startswith("controller-promotion-")
     ]
     lock = {
-        "schema_version": 1,
+        "schema_version": 3,
         "kind": "controller_ab_fixture_lock",
         "corpus_id": manifest["corpus_id"],
+        "materialized_round": round_name or "all",
+        "declared_fixture_count": len(all_definitions),
+        "materialized_fixture_count": len(locks),
+        "fixture_ids": [item["fixture_id"] for item in locks],
         "contains_run_results": False,
-        "definition_seal_sha256": promotion_definition_seal(definitions),
-        "promotion_content_seal_sha256": _sha256(_canonical(promotion_locks)),
+        "definition_seal_sha256": promotion_definition_seal(all_definitions),
+        "round_content_seal_sha256": _sha256(_canonical(locks)),
+        "promotion_content_seal_sha256": (
+            _sha256(_canonical(promotion_locks))
+            if round_name in {None, "promotion"}
+            else None
+        ),
         "fixtures": locks,
     }
     (resolved / "corpus-lock.json").write_text(
@@ -574,18 +812,32 @@ def materialize(manifest: dict[str, Any], output_root: Path) -> dict[str, Any]:
 
 
 def validate_corpus(
-    manifest: dict[str, Any], materialized_root: Path | None = None
+    manifest: dict[str, Any],
+    materialized_root: Path | None = None,
+    *,
+    round_name: str | None = None,
 ) -> dict[str, Any]:
-    definitions = expand_definitions(manifest)
-    seal = promotion_definition_seal(definitions)
+    if round_name not in {None, "pilot", "promotion"}:
+        raise CorpusError("validation round must be pilot or promotion")
+    all_definitions = expand_definitions(manifest)
+    definitions = all_definitions
+    seal = promotion_definition_seal(all_definitions)
     promotion = manifest["splits"]["promotion"]
     contract_errors: list[str] = []
     if promotion.get("definition_sealed") is not True:
         contract_errors.append("promotion definitions are not sealed")
     if promotion.get("definition_seal_sha256") != seal:
         contract_errors.append("promotion definition seal does not match")
+    if (
+        manifest.get("promotion_content_sealed") is not True
+        or manifest.get("promotion_materialized_lock_required") is not True
+        or promotion.get("allowed_round") != "promotion"
+        or set(promotion.get("forbidden_purposes", []))
+        != {"development", "preflight", "pilot-debug"}
+    ):
+        contract_errors.append("promotion access and sealing policy is incomplete")
     cell_counts: dict[str, int] = {}
-    for item in definitions:
+    for item in all_definitions:
         key = f"{item['split']}|{item['expected_mode']}|{item['category']}"
         cell_counts[key] = cell_counts.get(key, 0) + 1
     expected_cells = {
@@ -600,12 +852,33 @@ def validate_corpus(
     statuses: list[dict[str, Any]] = []
     lock_by_id: dict[str, Any] = {}
     root = materialized_root.resolve() if materialized_root is not None else None
+    materialized_round: str | None = None
     if root is not None:
         lock_path = root / "corpus-lock.json"
         if not lock_path.is_file():
             contract_errors.append("materialized corpus lock is missing")
         else:
             lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            if lock.get("schema_version") != 3:
+                contract_errors.append(
+                    "materialized corpus lock must use schema_version 3"
+                )
+            materialized_round = lock.get("materialized_round")
+            if materialized_round not in {"all", "pilot", "promotion"}:
+                contract_errors.append("materialized round is missing or invalid")
+            elif round_name is not None and materialized_round != round_name:
+                contract_errors.append(
+                    "materialized round does not match requested round"
+                )
+            effective_round = round_name or (
+                materialized_round
+                if materialized_round in {"pilot", "promotion"}
+                else None
+            )
+            if effective_round is not None:
+                definitions = [
+                    item for item in all_definitions if item["split"] == effective_round
+                ]
             if lock.get("contains_run_results") is not False:
                 contract_errors.append("corpus lock cannot contain run results")
             if lock.get("definition_seal_sha256") != seal:
@@ -615,14 +888,41 @@ def validate_corpus(
                 for item in lock.get("fixtures", [])
                 if isinstance(item, dict)
             }
-            promotion_locks = [
+            expected_ids = {item["fixture_id"] for item in definitions}
+            if set(lock_by_id) != expected_ids:
+                contract_errors.append(
+                    "materialized fixture IDs do not exactly match round"
+                )
+            if lock.get("fixture_ids") != [item["fixture_id"] for item in definitions]:
+                contract_errors.append(
+                    "materialized fixture order does not match round"
+                )
+            if lock.get("declared_fixture_count") != len(all_definitions):
+                contract_errors.append("declared fixture count does not match corpus")
+            if lock.get("materialized_fixture_count") != len(definitions):
+                contract_errors.append(
+                    "materialized fixture count does not match round"
+                )
+            selected_locks = [
                 lock_by_id[item["fixture_id"]]
                 for item in definitions
+                if item["fixture_id"] in lock_by_id
+            ]
+            if lock.get("round_content_seal_sha256") != _sha256(
+                _canonical(selected_locks)
+            ):
+                contract_errors.append("round content seal does not match")
+            promotion_locks = [
+                lock_by_id[item["fixture_id"]]
+                for item in all_definitions
                 if item["split"] == "promotion" and item["fixture_id"] in lock_by_id
             ]
-            if lock.get("promotion_content_seal_sha256") != _sha256(
-                _canonical(promotion_locks)
-            ):
+            expected_promotion_seal = (
+                _sha256(_canonical(promotion_locks))
+                if materialized_round in {"all", "promotion"}
+                else None
+            )
+            if lock.get("promotion_content_seal_sha256") != expected_promotion_seal:
                 contract_errors.append("promotion content seal does not match")
 
     for definition in definitions:
@@ -687,7 +987,7 @@ def validate_corpus(
         )
     ready = sum(item["fixture_status"] == "ready" for item in statuses)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "controller_ab_fixture_validation",
         "corpus_id": manifest["corpus_id"],
         "contract_valid": not contract_errors,
@@ -699,7 +999,12 @@ def validate_corpus(
         ),
         "repetitions_per_arm": manifest["repetitions_per_arm"],
         "ready_fixture_count": ready,
-        "fixture_status": "ready" if ready == 80 and not contract_errors else "pending",
+        "fixture_status": (
+            "ready"
+            if ready == len(definitions) and root is not None and not contract_errors
+            else "pending"
+        ),
+        "materialized_round": materialized_round,
         "contains_run_results": False,
         "end_to_end_improvement_proven": False,
         "promotion_definition_seal_sha256": seal,
@@ -713,8 +1018,12 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument("--materialized-root", type=Path)
+    validate_parser.add_argument("--round", choices=("pilot", "promotion"))
     materialize_parser = subparsers.add_parser("materialize")
     materialize_parser.add_argument("--output-root", type=Path, required=True)
+    materialize_parser.add_argument(
+        "--round", choices=("pilot", "promotion"), required=True
+    )
     actor_parser = subparsers.add_parser("actor-payload")
     actor_parser.add_argument("--fixture-id", required=True)
     subparsers.add_parser("definition-seal")
@@ -733,14 +1042,24 @@ def main() -> int:
         action="store_true",
         help="grant both frozen arms identical unsandboxed shell permissions",
     )
+    batch_parser.add_argument(
+        "--round",
+        choices=("pilot", "promotion"),
+        default="pilot",
+        help="expose only the selected round; promotion is never included in pilot",
+    )
     batch_parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
         manifest = load_manifest(args.manifest)
         if args.command == "materialize":
-            output = materialize(manifest, args.output_root)
+            output = materialize(manifest, args.output_root, round_name=args.round)
         elif args.command == "validate":
-            output = validate_corpus(manifest, args.materialized_root)
+            if args.materialized_root is not None and args.round is None:
+                raise CorpusError("validation of a materialized root requires --round")
+            output = validate_corpus(
+                manifest, args.materialized_root, round_name=args.round
+            )
         elif args.command == "definition-seal":
             output = {
                 "definition_seal_sha256": promotion_definition_seal(
@@ -768,6 +1087,7 @@ def main() -> int:
                 model=args.model,
                 reasoning_effort=args.reasoning_effort,
                 bypass_sandbox=args.bypass_sandbox,
+                round_name=args.round,
             )
             args.output.write_text(
                 json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8"

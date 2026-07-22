@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "task_set_id": "controller-ab-confirmatory-80-v1",
+  "schema_version": 3,
+  "task_set_id": "controller-ab-confirmatory-80-v2",
   "contains_run_results": false,
   "controller_confirmatory_corpus": {
     "manifest": "benchmarks/confirmatory/controller_ab_corpus.json",
@@ -11,7 +11,16 @@
     "repetitions_per_arm": 3,
     "contains_run_results": false,
     "end_to_end_improvement_proven": false,
-    "definition_seal_sha256": "b091c7ca8ecea85a908cfffc188218ae0b9fb6205403dbca856a20fafb8c6262"
+    "definition_seal_sha256": "963a6e1e412df5367e305266523efc8d5789a7100db5c61a96f2b30c9c404eee",
+    "promotion_access_policy": {
+      "sealed": true,
+      "allowed_round": "promotion",
+      "forbidden_purposes": [
+        "development",
+        "preflight",
+        "pilot-debug"
+      ]
+    }
   },
   "protocol": {
     "locked_between_arms": [
@@ -55,7 +64,7 @@
       "repetitions_per_task": 3,
       "arm_order": {
         "method": "seeded-balanced",
-        "seed": "cp-controller-pilot-2026-07-v1"
+        "seed": "cp-controller-pilot-2026-07-v2"
       }
     },
     "promotion": {
@@ -125,21 +134,21 @@
       "repetitions_per_task": 3,
       "arm_order": {
         "method": "seeded-balanced",
-        "seed": "cp-controller-promotion-2026-07-v1"
+        "seed": "cp-controller-promotion-2026-07-v2"
       }
     }
   },
   "tasks": [
     {
       "task_id": "controller-pilot-solo-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "bug-fix",
       "fixture_id": "controller-pilot-solo-bug-fix-01",
       "expected_mode": "solo",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-bug-fix-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-bug-fix-01.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -156,14 +165,14 @@
     },
     {
       "task_id": "controller-pilot-solo-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "multi-file-implementation",
       "fixture_id": "controller-pilot-solo-multi-file-implementation-01",
       "expected_mode": "solo",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-multi-file-implementation-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-multi-file-implementation-01.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -180,14 +189,14 @@
     },
     {
       "task_id": "controller-pilot-solo-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "current-source-research",
       "fixture_id": "controller-pilot-solo-current-source-research-01",
       "expected_mode": "solo",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-current-source-research-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-current-source-research-01.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -204,14 +213,14 @@
     },
     {
       "task_id": "controller-pilot-solo-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "delivery-verification",
       "fixture_id": "controller-pilot-solo-delivery-verification-01",
       "expected_mode": "solo",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-delivery-verification-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-delivery-verification-01.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -228,14 +237,14 @@
     },
     {
       "task_id": "controller-pilot-solo-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "real-host-interaction",
       "fixture_id": "controller-pilot-solo-real-host-interaction-01",
       "expected_mode": "solo",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-real-host-interaction-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-real-host-interaction-01.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -252,14 +261,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-read-only-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "bug-fix",
       "fixture_id": "controller-pilot-parallel-read-only-bug-fix-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -276,14 +285,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-read-only-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "multi-file-implementation",
       "fixture_id": "controller-pilot-parallel-read-only-multi-file-implementation-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -300,14 +309,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-read-only-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "current-source-research",
       "fixture_id": "controller-pilot-parallel-read-only-current-source-research-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -324,14 +333,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-read-only-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "delivery-verification",
       "fixture_id": "controller-pilot-parallel-read-only-delivery-verification-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -348,14 +357,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-read-only-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "real-host-interaction",
       "fixture_id": "controller-pilot-parallel-read-only-real-host-interaction-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -372,14 +381,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-packets-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "bug-fix",
       "fixture_id": "controller-pilot-parallel-packets-bug-fix-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:b.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -396,14 +405,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-packets-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "multi-file-implementation",
       "fixture_id": "controller-pilot-parallel-packets-multi-file-implementation-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:b.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -420,14 +429,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-packets-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "current-source-research",
       "fixture_id": "controller-pilot-parallel-packets-current-source-research-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:b.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -444,14 +453,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-packets-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "delivery-verification",
       "fixture_id": "controller-pilot-parallel-packets-delivery-verification-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:b.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -468,14 +477,14 @@
     },
     {
       "task_id": "controller-pilot-parallel-packets-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "real-host-interaction",
       "fixture_id": "controller-pilot-parallel-packets-real-host-interaction-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:b.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -492,14 +501,14 @@
     },
     {
       "task_id": "controller-pilot-staged-verify-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "bug-fix",
       "fixture_id": "controller-pilot-staged-verify-bug-fix-01",
       "expected_mode": "staged-verify",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-bug-fix-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-bug-fix-01 and prove it with tests.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -516,14 +525,14 @@
     },
     {
       "task_id": "controller-pilot-staged-verify-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "multi-file-implementation",
       "fixture_id": "controller-pilot-staged-verify-multi-file-implementation-01",
       "expected_mode": "staged-verify",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-multi-file-implementation-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -540,14 +549,14 @@
     },
     {
       "task_id": "controller-pilot-staged-verify-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "current-source-research",
       "fixture_id": "controller-pilot-staged-verify-current-source-research-01",
       "expected_mode": "staged-verify",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-current-source-research-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-current-source-research-01 and prove it with tests.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -564,14 +573,14 @@
     },
     {
       "task_id": "controller-pilot-staged-verify-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "delivery-verification",
       "fixture_id": "controller-pilot-staged-verify-delivery-verification-01",
       "expected_mode": "staged-verify",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-delivery-verification-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-delivery-verification-01 and prove it with tests.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -588,14 +597,14 @@
     },
     {
       "task_id": "controller-pilot-staged-verify-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "pilot",
       "category": "real-host-interaction",
       "fixture_id": "controller-pilot-staged-verify-real-host-interaction-01",
       "expected_mode": "staged-verify",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-real-host-interaction-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -612,14 +621,14 @@
     },
     {
       "task_id": "controller-promotion-solo-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-solo-bug-fix-01",
       "expected_mode": "solo",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-01.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -636,14 +645,14 @@
     },
     {
       "task_id": "controller-promotion-solo-bug-fix-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-solo-bug-fix-02",
       "expected_mode": "solo",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-02.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-02.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -660,14 +669,14 @@
     },
     {
       "task_id": "controller-promotion-solo-bug-fix-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-solo-bug-fix-03",
       "expected_mode": "solo",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-03.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-03.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -684,14 +693,14 @@
     },
     {
       "task_id": "controller-promotion-solo-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-solo-multi-file-implementation-01",
       "expected_mode": "solo",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-01.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -708,14 +717,14 @@
     },
     {
       "task_id": "controller-promotion-solo-multi-file-implementation-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-solo-multi-file-implementation-02",
       "expected_mode": "solo",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-02.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-02.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -732,14 +741,14 @@
     },
     {
       "task_id": "controller-promotion-solo-multi-file-implementation-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-solo-multi-file-implementation-03",
       "expected_mode": "solo",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-03.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-03.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -756,14 +765,14 @@
     },
     {
       "task_id": "controller-promotion-solo-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-solo-current-source-research-01",
       "expected_mode": "solo",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-01.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -780,14 +789,14 @@
     },
     {
       "task_id": "controller-promotion-solo-current-source-research-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-solo-current-source-research-02",
       "expected_mode": "solo",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-02.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-02.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -804,14 +813,14 @@
     },
     {
       "task_id": "controller-promotion-solo-current-source-research-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-solo-current-source-research-03",
       "expected_mode": "solo",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-03.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-03.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -828,14 +837,14 @@
     },
     {
       "task_id": "controller-promotion-solo-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-solo-delivery-verification-01",
       "expected_mode": "solo",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-01.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -852,14 +861,14 @@
     },
     {
       "task_id": "controller-promotion-solo-delivery-verification-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-solo-delivery-verification-02",
       "expected_mode": "solo",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-02.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-02.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -876,14 +885,14 @@
     },
     {
       "task_id": "controller-promotion-solo-delivery-verification-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-solo-delivery-verification-03",
       "expected_mode": "solo",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-03.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-03.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -900,14 +909,14 @@
     },
     {
       "task_id": "controller-promotion-solo-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-solo-real-host-interaction-01",
       "expected_mode": "solo",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-01.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-01.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -924,14 +933,14 @@
     },
     {
       "task_id": "controller-promotion-solo-real-host-interaction-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-solo-real-host-interaction-02",
       "expected_mode": "solo",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-02.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-02.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -948,14 +957,14 @@
     },
     {
       "task_id": "controller-promotion-solo-real-host-interaction-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-solo-real-host-interaction-03",
       "expected_mode": "solo",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-03.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-03.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Resolve the single bounded discrepancy in src/target.txt from the local specification, then run the cheap public check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -972,14 +981,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-read-only-bug-fix-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -996,14 +1005,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-bug-fix-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-read-only-bug-fix-02",
       "expected_mode": "parallel-read-only",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1020,14 +1029,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-bug-fix-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-read-only-bug-fix-03",
       "expected_mode": "parallel-read-only",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1044,14 +1053,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1068,14 +1077,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-02",
       "expected_mode": "parallel-read-only",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1092,14 +1101,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-03",
       "expected_mode": "parallel-read-only",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1116,14 +1125,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-read-only-current-source-research-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1140,14 +1149,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-current-source-research-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-read-only-current-source-research-02",
       "expected_mode": "parallel-read-only",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1164,14 +1173,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-current-source-research-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-read-only-current-source-research-03",
       "expected_mode": "parallel-read-only",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1188,14 +1197,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1212,14 +1221,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-delivery-verification-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-02",
       "expected_mode": "parallel-read-only",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1236,14 +1245,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-delivery-verification-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-03",
       "expected_mode": "parallel-read-only",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1260,14 +1269,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-01",
       "expected_mode": "parallel-read-only",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1284,14 +1293,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-real-host-interaction-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-02",
       "expected_mode": "parallel-read-only",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1308,14 +1317,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-read-only-real-host-interaction-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-03",
       "expected_mode": "parallel-read-only",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Independently inspect evidence/unit-a.txt and evidence/unit-b.txt, then report both RESULT markers without changing the checkout.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1332,14 +1341,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-packets-bug-fix-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:b.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1356,14 +1365,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-bug-fix-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-packets-bug-fix-02",
       "expected_mode": "parallel-packets",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:b.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1380,14 +1389,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-bug-fix-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-parallel-packets-bug-fix-03",
       "expected_mode": "parallel-packets",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:b.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1404,14 +1413,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:b.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1428,14 +1437,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-multi-file-implementation-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-02",
       "expected_mode": "parallel-packets",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:b.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1452,14 +1461,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-multi-file-implementation-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-03",
       "expected_mode": "parallel-packets",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:b.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1476,14 +1485,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-packets-current-source-research-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:b.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1500,14 +1509,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-current-source-research-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-packets-current-source-research-02",
       "expected_mode": "parallel-packets",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:b.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1524,14 +1533,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-current-source-research-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-parallel-packets-current-source-research-03",
       "expected_mode": "parallel-packets",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:b.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1548,14 +1557,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-packets-delivery-verification-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:b.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1572,14 +1581,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-delivery-verification-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-packets-delivery-verification-02",
       "expected_mode": "parallel-packets",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:b.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1596,14 +1605,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-delivery-verification-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-parallel-packets-delivery-verification-03",
       "expected_mode": "parallel-packets",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:b.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1620,14 +1629,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-01",
       "expected_mode": "parallel-packets",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:b.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1644,14 +1653,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-real-host-interaction-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-02",
       "expected_mode": "parallel-packets",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:b.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1668,14 +1677,14 @@
     },
     {
       "task_id": "controller-promotion-parallel-packets-real-host-interaction-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-03",
       "expected_mode": "parallel-packets",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:b.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:b.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Complete the two independent packet outputs under work/a and work/b, integrate their results, and have a distinct verifier run the check.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1692,14 +1701,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-bug-fix-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-staged-verify-bug-fix-01",
       "expected_mode": "staged-verify",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-01 and prove it with tests.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1716,14 +1725,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-bug-fix-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-staged-verify-bug-fix-02",
       "expected_mode": "staged-verify",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-02 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-02 and prove it with tests.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1740,14 +1749,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-bug-fix-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "bug-fix",
       "fixture_id": "controller-promotion-staged-verify-bug-fix-03",
       "expected_mode": "staged-verify",
-      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-03 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-03 and prove it with tests.",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1764,14 +1773,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-multi-file-implementation-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-01",
       "expected_mode": "staged-verify",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1788,14 +1797,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-multi-file-implementation-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-02",
       "expected_mode": "staged-verify",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-02 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-02 and prove it with tests.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1812,14 +1821,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-multi-file-implementation-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "multi-file-implementation",
       "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-03",
       "expected_mode": "staged-verify",
-      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-03 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-03 and prove it with tests.",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1836,14 +1845,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-current-source-research-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-staged-verify-current-source-research-01",
       "expected_mode": "staged-verify",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-01 and prove it with tests.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1860,14 +1869,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-current-source-research-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-staged-verify-current-source-research-02",
       "expected_mode": "staged-verify",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-02 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-02 and prove it with tests.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1884,14 +1893,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-current-source-research-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "current-source-research",
       "fixture_id": "controller-promotion-staged-verify-current-source-research-03",
       "expected_mode": "staged-verify",
-      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-03 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-03 and prove it with tests.",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1908,14 +1917,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-delivery-verification-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-staged-verify-delivery-verification-01",
       "expected_mode": "staged-verify",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-01 and prove it with tests.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1932,14 +1941,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-delivery-verification-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-staged-verify-delivery-verification-02",
       "expected_mode": "staged-verify",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-02 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-02 and prove it with tests.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1956,14 +1965,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-delivery-verification-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "delivery-verification",
       "fixture_id": "controller-promotion-staged-verify-delivery-verification-03",
       "expected_mode": "staged-verify",
-      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-03 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-03 and prove it with tests.",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -1980,14 +1989,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-real-host-interaction-01",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-staged-verify-real-host-interaction-01",
       "expected_mode": "staged-verify",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-01 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -2004,14 +2013,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-real-host-interaction-02",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-staged-verify-real-host-interaction-02",
       "expected_mode": "staged-verify",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-02 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-02 and prove it with tests.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."
@@ -2028,14 +2037,14 @@
     },
     {
       "task_id": "controller-promotion-staged-verify-real-host-interaction-03",
-      "version": 1,
+      "version": 2,
       "split": "promotion",
       "category": "real-host-interaction",
       "fixture_id": "controller-promotion-staged-verify-real-host-interaction-03",
       "expected_mode": "staged-verify",
-      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-03 and prove it with tests.",
-      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
-      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-03 and prove it with tests.",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
+      "initial_state": "A clean, versioned, deterministic fixture with a bounded public contract.",
+      "expected_outcome": "Correct src/target.txt, then have a fresh read-only verifier execute verification/verify.py after the change is integrated.",
       "independent_tests": [
         "Run the fixture public test inside the acting checkout.",
         "Run the external hidden and quality checks on independent clones."

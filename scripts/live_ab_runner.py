@@ -23,8 +23,24 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
 
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 CONTROLLER_MODES = {"forced-solo", "adaptive"}
+AGENT_PLAN_MODES = {
+    "solo",
+    "parallel-read-only",
+    "parallel-packets",
+    "staged-verify",
+}
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+SUPPORTED_EVENT_TYPES = {
+    "thread.started",
+    "turn.started",
+    "turn.completed",
+    "item.started",
+    "item.updated",
+    "item.completed",
+    "agent.lifecycle",
+    "error",
+}
 
 
 class LiveEvaluationError(ValueError):
@@ -40,8 +56,8 @@ def load_controller_protocol(path: Path) -> dict[str, str]:
         payload = json.loads(resolved.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise LiveEvaluationError("controller protocol is not valid JSON") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise LiveEvaluationError("controller protocol must use schema_version 1")
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
+        raise LiveEvaluationError("controller protocol must use schema_version 1 or 2")
     comparison = payload.get("comparison")
     design = payload.get("design")
     rounds = design.get("rounds") if isinstance(design, dict) else None
@@ -244,6 +260,51 @@ def command_identity(argv: Sequence[str]) -> dict[str, Any]:
     }
 
 
+def codex_host_identity(codex: str) -> dict[str, Any]:
+    """Freeze the executable and host capabilities used by both experiment arms."""
+    executable = Path(shutil.which(codex) or codex).expanduser().resolve()
+    if not executable.is_file():
+        raise LiveEvaluationError(f"Codex executable is unavailable: {codex}")
+    completed = subprocess.run(
+        [str(executable), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    version = (completed.stdout or completed.stderr).strip()
+    if completed.returncode != 0 or not version:
+        raise LiveEvaluationError("Codex version preflight failed")
+    features_completed = subprocess.run(
+        [str(executable), "-c", "features.multi_agent=true", "features", "list"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    feature_states: dict[str, dict[str, Any]] = {}
+    for line in features_completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[-1] in {"true", "false"}:
+            feature_states[fields[0]] = {
+                "stage": " ".join(fields[1:-1]),
+                "enabled": fields[-1] == "true",
+            }
+    if (
+        features_completed.returncode != 0
+        or feature_states.get("multi_agent", {}).get("enabled") is not True
+    ):
+        raise LiveEvaluationError("Codex multi_agent feature preflight failed")
+    return {
+        "executable": str(executable),
+        "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "version": version,
+        "features": {"multi_agent": True},
+        "effective_features": feature_states,
+        "persistent_parent_thread": True,
+        "event_schema_version": 1,
+        "supported_event_types": sorted(SUPPORTED_EVENT_TYPES),
+    }
+
+
 def changed_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
     return sorted(
         path for path in set(before) | set(after) if before.get(path) != after.get(path)
@@ -284,6 +345,18 @@ def parse_events(path: Path) -> dict[str, Any]:
             continue
         if isinstance(value, dict):
             rows.append(value)
+    unknown_types = sorted(
+        {
+            str(row.get("type"))
+            for row in rows
+            if row.get("type") not in SUPPORTED_EVENT_TYPES
+        }
+    )
+    if unknown_types:
+        raise LiveEvaluationError(
+            f"{path} contains unsupported event schema types: "
+            + ", ".join(unknown_types)
+        )
     completed = [row for row in rows if row.get("type") == "turn.completed"]
     if invalid_lines:
         raise LiveEvaluationError(f"{path} contains {invalid_lines} non-JSON lines")
@@ -328,7 +401,7 @@ def parse_events(path: Path) -> dict[str, Any]:
                     {"event": name, "item_type": str(item.get("type", "unknown"))}
                 )
     plan_receipts: list[dict[str, Any]] = []
-    observed_assignments: list[dict[str, str]] = []
+    lifecycle: dict[str, dict[str, Any]] = {}
     for row in rows:
         if row.get("type") != "agent.lifecycle" or row.get("provenance") != "host":
             continue
@@ -336,13 +409,94 @@ def parse_events(path: Path) -> dict[str, Any]:
             isinstance(row.get(field), str) and row.get(field)
             for field in ("assignment_id", "actor_id", "role")
         ):
-            observation = {
-                "assignment_id": row["assignment_id"],
-                "actor_id": row["actor_id"],
-                "role": row["role"],
-            }
-            if observation not in observed_assignments:
-                observed_assignments.append(observation)
+            assignment_id = row["assignment_id"]
+            observation = lifecycle.setdefault(
+                assignment_id,
+                {
+                    "assignment_id": assignment_id,
+                    "actor_id": row["actor_id"],
+                    "role": row["role"],
+                    "phases": [],
+                    "usage": None,
+                    "parent_id": None,
+                    "delegation_depth": None,
+                },
+            )
+            if (
+                observation["actor_id"] != row["actor_id"]
+                or observation["role"] != row["role"]
+            ):
+                raise LiveEvaluationError(
+                    f"{path} rebinds host lifecycle identity for {assignment_id}"
+                )
+            parent_id = (
+                row.get("parent_id")
+                or row.get("parent_actor_id")
+                or row.get("parent_thread_id")
+            )
+            if parent_id is not None:
+                if not isinstance(parent_id, str) or not parent_id:
+                    raise LiveEvaluationError(
+                        f"{path} contains invalid lifecycle parent for {assignment_id}"
+                    )
+                if observation["parent_id"] not in {None, parent_id}:
+                    raise LiveEvaluationError(
+                        f"{path} rebinds lifecycle parent for {assignment_id}"
+                    )
+                observation["parent_id"] = parent_id
+            depth = row.get("delegation_depth")
+            if depth is not None:
+                if not isinstance(depth, int) or isinstance(depth, bool) or depth < 1:
+                    raise LiveEvaluationError(
+                        f"{path} contains invalid lifecycle depth for {assignment_id}"
+                    )
+                if observation["delegation_depth"] not in {None, depth}:
+                    raise LiveEvaluationError(
+                        f"{path} rebinds lifecycle depth for {assignment_id}"
+                    )
+                observation["delegation_depth"] = depth
+            phase = row.get("event") or row.get("phase") or row.get("status")
+            if isinstance(phase, str) and phase:
+                normalized_phase = {
+                    "started": "spawned",
+                    "created": "spawned",
+                    "completed": "result",
+                    "failed": "result",
+                    "blocked": "result",
+                    "confirmed": "result",
+                    "rejected": "result",
+                    "inconclusive": "result",
+                }.get(phase, phase)
+                if normalized_phase not in {"spawned", "joined", "result"}:
+                    raise LiveEvaluationError(
+                        f"{path} contains unsupported agent lifecycle phase: {phase}"
+                    )
+                if normalized_phase not in observation["phases"]:
+                    observation["phases"].append(normalized_phase)
+            descendant_usage = row.get("usage")
+            if descendant_usage is not None:
+                if not isinstance(descendant_usage, dict) or any(
+                    not isinstance(descendant_usage.get(field), int)
+                    or descendant_usage[field] < 0
+                    for field in ("input_tokens", "output_tokens")
+                ):
+                    raise LiveEvaluationError(
+                        f"{path} contains invalid descendant usage for {assignment_id}"
+                    )
+                cached = descendant_usage.get("cached_input_tokens", 0)
+                if (
+                    not isinstance(cached, int)
+                    or cached < 0
+                    or cached > descendant_usage["input_tokens"]
+                ):
+                    raise LiveEvaluationError(
+                        f"{path} contains invalid descendant cache usage for {assignment_id}"
+                    )
+                observation["usage"] = {
+                    "input_tokens": descendant_usage["input_tokens"],
+                    "cached_input_tokens": cached,
+                    "output_tokens": descendant_usage["output_tokens"],
+                }
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
@@ -371,6 +525,25 @@ def parse_events(path: Path) -> dict[str, Any]:
                 pass
 
     visit(rows)
+    thread_rows = [row for row in rows if row.get("type") == "thread.started"]
+    thread_ids: set[str] = set()
+    for row in thread_rows:
+        nested_thread = row.get("thread")
+        thread_id = row.get("thread_id") or (
+            nested_thread.get("id") if isinstance(nested_thread, dict) else None
+        )
+        if isinstance(thread_id, str) and thread_id:
+            thread_ids.add(thread_id)
+    host_errors: list[str] = []
+    for row in rows:
+        if row.get("type") == "error":
+            encoded = json.dumps(row, sort_keys=True, default=str)
+            host_errors.append(encoded[-1000:])
+        elif "no thread with id" in json.dumps(row, default=str).casefold():
+            host_errors.append("no thread with id")
+    if len(thread_ids) > 1:
+        raise LiveEvaluationError(f"{path} contains multiple parent thread identities")
+    observations = list(lifecycle.values())
     return {
         "usage": dict(usage),
         "tool_calls": tool_calls,
@@ -380,7 +553,15 @@ def parse_events(path: Path) -> dict[str, Any]:
         "agent_spawns": sum(item["event"] == "spawn_agent" for item in agent_events),
         "agent_joins": sum(item["event"] == "wait_agent" for item in agent_events),
         "agent_plans": plan_receipts,
-        "observed_assignments": observed_assignments,
+        "observed_assignments": [
+            {key: item[key] for key in ("assignment_id", "actor_id", "role")}
+            for item in observations
+        ],
+        "agent_lifecycle": observations,
+        "parent_thread_id": next(iter(thread_ids), None),
+        "event_schema_version": 1,
+        "event_types": sorted({str(row.get("type")) for row in rows}),
+        "host_errors": host_errors,
         "usage_includes_subagents": (
             usage.get("includes_subagents") is True
             or usage.get("scope") in {"task-tree", "all-agents", "aggregate"}
@@ -389,45 +570,271 @@ def parse_events(path: Path) -> dict[str, Any]:
     }
 
 
+def _execution_semantics(
+    observed_plan: dict[str, Any] | None, lifecycle: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Bind host actors to the exact planned wave, role, dependencies and authority."""
+    if observed_plan is None:
+        return [], [], not lifecycle
+    waves = observed_plan.get("waves")
+    if not isinstance(waves, list):
+        return [], [], False
+    planned: list[dict[str, Any]] = []
+    prior_unit_ids: set[str] = set()
+    valid = True
+    for wave_index, wave in enumerate(waves):
+        if not isinstance(wave, dict) or not isinstance(wave.get("assignments"), list):
+            return [], [], False
+        wave_kind = wave.get("kind")
+        wave_parallel = wave.get("parallel")
+        if not isinstance(wave_kind, str) or not isinstance(wave_parallel, bool):
+            valid = False
+        wave_unit_ids: set[str] = set()
+        for assignment in wave["assignments"]:
+            if not isinstance(assignment, dict):
+                valid = False
+                continue
+            assignment_id = assignment.get("assignment_id")
+            unit_id = assignment.get("id")
+            role = assignment.get("role")
+            permissions = assignment.get("permissions")
+            ownership = assignment.get("ownership")
+            dependencies = assignment.get("dependencies")
+            depth = assignment.get("delegation_depth")
+            record = {
+                "assignment_id": assignment_id,
+                "unit_id": unit_id,
+                "role": role,
+                "wave_index": wave_index,
+                "wave_kind": wave_kind,
+                "wave_parallel": wave_parallel,
+                "dependencies": dependencies,
+                "ownership": ownership,
+                "permissions": permissions,
+                "delegation_depth": depth,
+                "may_spawn": assignment.get("may_spawn"),
+                "may_verify_parent": assignment.get("may_verify_parent"),
+                "must_be_distinct_from": assignment.get("must_be_distinct_from", []),
+            }
+            planned.append(record)
+            if (
+                not isinstance(assignment_id, str)
+                or not assignment_id
+                or not isinstance(unit_id, str)
+                or not unit_id
+                or not isinstance(role, str)
+                or permissions not in {"read-only", "write-owned-paths"}
+                or not isinstance(ownership, list)
+                or not all(isinstance(path, str) and path for path in ownership)
+                or not isinstance(dependencies, list)
+                or not all(isinstance(item, str) and item for item in dependencies)
+                or not isinstance(depth, int)
+                or isinstance(depth, bool)
+                or depth < 1
+                or assignment.get("may_spawn") is not False
+                or assignment.get("may_verify_parent") is not False
+                or not set(dependencies).issubset(prior_unit_ids)
+                or (permissions == "write-owned-paths" and not ownership)
+                or (permissions == "read-only" and bool(ownership))
+            ):
+                valid = False
+            wave_unit_ids.add(unit_id) if isinstance(unit_id, str) else None
+        prior_unit_ids.update(wave_unit_ids)
+
+    assignment_ids = [item["assignment_id"] for item in planned]
+    unit_ids = [item["unit_id"] for item in planned]
+    if len(assignment_ids) != len(set(assignment_ids)) or len(unit_ids) != len(
+        set(unit_ids)
+    ):
+        valid = False
+    write_paths: list[tuple[str, str]] = []
+    for item in planned:
+        if item["permissions"] != "write-owned-paths":
+            continue
+        for path in item["ownership"]:
+            normalized = path.replace("\\", "/").strip("/").casefold()
+            if any(
+                other_id != item["assignment_id"]
+                and (
+                    normalized == other
+                    or normalized.startswith(other + "/")
+                    or other.startswith(normalized + "/")
+                )
+                for other_id, other in write_paths
+            ):
+                valid = False
+            write_paths.append((item["assignment_id"], normalized))
+
+    lifecycle_by_id = {item.get("assignment_id"): item for item in lifecycle}
+    bindings: list[dict[str, Any]] = []
+    actor_ids: list[str] = []
+    for item in planned:
+        observed = lifecycle_by_id.get(item["assignment_id"])
+        if not isinstance(observed, dict):
+            valid = False
+            continue
+        binding = {
+            "assignment_id": item["assignment_id"],
+            "actor_id": observed.get("actor_id"),
+            "role": observed.get("role"),
+            "parent_id": observed.get("parent_id"),
+            "delegation_depth": observed.get("delegation_depth"),
+        }
+        bindings.append(binding)
+        if (
+            binding["role"] != item["role"]
+            or not isinstance(binding["actor_id"], str)
+            or not binding["actor_id"]
+            or not isinstance(binding["parent_id"], str)
+            or not binding["parent_id"]
+            or binding["delegation_depth"] != item["delegation_depth"]
+        ):
+            valid = False
+        actor_ids.append(binding["actor_id"])
+    if len(actor_ids) != len(set(actor_ids)):
+        valid = False
+
+    mode = observed_plan.get("mode")
+    verifier_items = [item for item in planned if item["role"] == "verifier"]
+    write_items = [
+        item for item in planned if item["permissions"] == "write-owned-paths"
+    ]
+    if mode == "parallel-read-only":
+        valid = valid and len(planned) >= 2 and not write_items and not verifier_items
+    elif mode == "parallel-packets":
+        implementation_waves = {
+            item["wave_index"] for item in write_items if item["wave_parallel"] is True
+        }
+        valid = valid and len(write_items) >= 2 and len(implementation_waves) == 1
+    elif mode == "staged-verify":
+        valid = (
+            valid
+            and bool(write_items)
+            and len(verifier_items) == 1
+            and verifier_items[0]["wave_kind"] == "verification"
+            and verifier_items[0]["wave_index"]
+            > max(item["wave_index"] for item in write_items)
+            and set(verifier_items[0]["dependencies"])
+            == {item["unit_id"] for item in write_items}
+        )
+    elif mode == "solo":
+        valid = valid and not planned and not lifecycle
+    else:
+        valid = False
+    return planned, bindings, bool(valid)
+
+
 def classify_agent_decision(
     parsed: dict[str, Any], controller_mode: str
 ) -> dict[str, Any]:
     """Classify an explicit plan or the focused no-agent fast path."""
     observed_plan = parsed["agent_plans"][-1] if parsed["agent_plans"] else None
-    implicit_solo = observed_plan is None and parsed["agent_spawns"] == 0
-    actual_mode = (
+    implicit_solo = (
+        observed_plan is None
+        and parsed["agent_spawns"] == 0
+        and not parsed.get("agent_lifecycle", [])
+    )
+    selected_mode = (
         observed_plan.get("mode")
         if observed_plan
         else ("solo" if implicit_solo else None)
     )
-    planned_assignments = (
-        sum(
-            len(wave.get("assignments", []))
-            for wave in observed_plan.get("waves", [])
-            if isinstance(wave, dict) and isinstance(wave.get("assignments", []), list)
-        )
-        if observed_plan is not None
-        else 0
+    lifecycle = parsed.get("agent_lifecycle", [])
+    planned, lifecycle_bindings, semantic_binding = _execution_semantics(
+        observed_plan, lifecycle
+    )
+    planned_ids = [item.get("assignment_id") for item in planned]
+    valid_plan_ids = all(
+        isinstance(item, str) and item for item in planned_ids
+    ) and len(planned_ids) == len(set(planned_ids))
+    spawned_ids = sorted(
+        item["assignment_id"]
+        for item in lifecycle
+        if "spawned" in item.get("phases", [])
+    )
+    joined_ids = sorted(
+        item["assignment_id"]
+        for item in lifecycle
+        if "joined" in item.get("phases", [])
+    )
+    result_ids = sorted(
+        item["assignment_id"]
+        for item in lifecycle
+        if "result" in item.get("phases", [])
+    )
+    usage_by_assignment = {
+        item["assignment_id"]: item.get("usage")
+        for item in lifecycle
+        if item.get("usage") is not None
+    }
+    exact_lifecycle = (
+        valid_plan_ids
+        and sorted(planned_ids) == spawned_ids == joined_ids == result_ids
+        and set(usage_by_assignment) == set(planned_ids)
+        and semantic_binding
+    )
+    host_persistent = bool(parsed.get("parent_thread_id")) and not parsed.get(
+        "host_errors"
     )
     explicit_plan_complete = observed_plan is not None and (
-        actual_mode == "solo"
-        and planned_assignments == 0
-        and parsed["agent_spawns"] == 0
-        or actual_mode != "solo"
-        and planned_assignments > 0
-        and parsed["agent_spawns"] == planned_assignments
-        and parsed["agent_joins"] == parsed["agent_spawns"]
-        and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
+        selected_mode == "solo"
+        and not planned
+        and not lifecycle
+        and host_persistent
+        or selected_mode != "solo"
+        and bool(planned)
+        and exact_lifecycle
         and parsed["usage_includes_subagents"]
+        and host_persistent
     )
     complete = (
-        parsed["agent_spawns"] == 0 and actual_mode == "solo"
+        parsed["agent_spawns"] == 0 and selected_mode == "solo" and host_persistent
         if controller_mode == "forced-solo"
-        else implicit_solo or explicit_plan_complete
+        else (implicit_solo and host_persistent) or explicit_plan_complete
     )
+    executed_mode = selected_mode if complete else "solo" if not spawned_ids else None
+    outcome = (
+        "completed"
+        if complete and selected_mode == executed_mode
+        else "degraded"
+        if selected_mode in AGENT_PLAN_MODES
+        else "invalid"
+    )
+    plan_sha256 = (
+        hashlib.sha256(
+            json.dumps(observed_plan, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if observed_plan is not None
+        else None
+    )
+    execution_receipt = {
+        "schema_version": 2,
+        "plan_sha256": plan_sha256,
+        "selected_mode": selected_mode,
+        "executed_mode": executed_mode,
+        "outcome": outcome,
+        "parent_thread_id": parsed.get("parent_thread_id"),
+        "planned_assignment_ids": planned_ids,
+        "planned_assignments": planned,
+        "lifecycle_bindings": lifecycle_bindings,
+        "semantic_binding": semantic_binding,
+        "spawned_assignment_ids": spawned_ids,
+        "joined_assignment_ids": joined_ids,
+        "result_assignment_ids": result_ids,
+        "descendant_usage": usage_by_assignment,
+        "descendant_total_tokens": sum(
+            item["input_tokens"] + item["output_tokens"]
+            for item in usage_by_assignment.values()
+        ),
+        "host_errors": list(parsed.get("host_errors", [])),
+        "complete": complete,
+    }
     return {
         "observed_plan": observed_plan,
-        "actual_mode": actual_mode,
+        "selected_mode": selected_mode,
+        "executed_mode": executed_mode,
+        "actual_mode": executed_mode,
+        "outcome": outcome,
         "decision_observation": (
             "explicit-agent-plan"
             if observed_plan is not None
@@ -435,7 +842,8 @@ def classify_agent_decision(
             if implicit_solo
             else "missing"
         ),
-        "planned_assignment_count": planned_assignments,
+        "planned_assignment_count": len(planned),
+        "agent_execution_receipt": execution_receipt,
         "complete": complete,
     }
 
@@ -741,6 +1149,43 @@ def aggregate_results(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_codex_command(
+    *,
+    codex: str,
+    fixture: Path,
+    message: Path,
+    prompt: str,
+    model: str,
+    reasoning_effort: str,
+    bypass_sandbox: bool,
+) -> list[str]:
+    command = [
+        codex,
+        "exec",
+        "--json",
+        "--color",
+        "never",
+        "--skip-git-repo-check",
+        "--cd",
+        str(fixture),
+        "--output-last-message",
+        str(message),
+        "--model",
+        model,
+        "-c",
+        f'model_reasoning_effort="{reasoning_effort}"',
+        "-c",
+        "features.multi_agent=true",
+    ]
+    command.extend(
+        ["--dangerously-bypass-approvals-and-sandbox"]
+        if bypass_sandbox
+        else ["--sandbox", "workspace-write"]
+    )
+    command.append(prompt)
+    return command
+
+
 def _run_one(
     *,
     codex: str,
@@ -769,29 +1214,15 @@ def _run_one(
     environment["COGNITIVE_POWERS_CONTROLLER_MODE"] = controller_mode
     environment["COGNITIVE_POWERS_DATA"] = str(storage_dir)
     environment["COGNITIVE_POWERS_AVAILABLE_AGENT_SLOTS"] = str(agent_slots)
-    command = [
-        codex,
-        "exec",
-        "--ephemeral",
-        "--json",
-        "--color",
-        "never",
-        "--skip-git-repo-check",
-        "--cd",
-        str(fixture),
-        "--output-last-message",
-        str(message),
-        "--model",
-        model,
-        "-c",
-        f'model_reasoning_effort="{reasoning_effort}"',
-    ]
-    command.extend(
-        ["--dangerously-bypass-approvals-and-sandbox"]
-        if bypass_sandbox
-        else ["--sandbox", "workspace-write"]
+    command = build_codex_command(
+        codex=codex,
+        fixture=fixture,
+        message=message,
+        prompt=prompt,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        bypass_sandbox=bypass_sandbox,
     )
-    command.append(prompt)
     started = time.monotonic()
     with (
         events.open("w", encoding="utf-8", newline="\n") as stream,
@@ -919,20 +1350,38 @@ def _run_one(
         ),
         "controller_mode": controller_mode,
         "agent_telemetry": {
+            "schema_version": 2,
             "source": "provider-event-stream",
             "controller_mode": controller_mode,
             "tool_names": parsed["tool_names"],
             "events": parsed["agent_events"],
-            "spawn_count": parsed["agent_spawns"],
-            "join_count": parsed["agent_joins"],
+            "observed_tools": sorted(set(parsed["tool_names"])),
+            "event_schema_version": parsed["event_schema_version"],
+            "event_types": parsed["event_types"],
+            "parent_thread_id": parsed["parent_thread_id"],
+            "host_errors": parsed["host_errors"],
+            "spawn_count": len(
+                decision["agent_execution_receipt"]["spawned_assignment_ids"]
+            ),
+            "join_count": len(
+                decision["agent_execution_receipt"]["joined_assignment_ids"]
+            ),
+            "result_count": len(
+                decision["agent_execution_receipt"]["result_assignment_ids"]
+            ),
             "plan_receipts": parsed["agent_plans"],
             "observed_assignments": parsed["observed_assignments"],
+            "selected_mode": decision["selected_mode"],
+            "executed_mode": decision["executed_mode"],
+            "outcome": decision["outcome"],
             "actual_mode": decision["actual_mode"],
             "decision_observation": decision["decision_observation"],
             "planned_assignment_count": decision["planned_assignment_count"],
             "usage_includes_subagents": (
-                parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"]
+                not decision["agent_execution_receipt"]["spawned_assignment_ids"]
+                or parsed["usage_includes_subagents"]
             ),
+            "agent_execution_receipt": decision["agent_execution_receipt"],
             "complete": decision["complete"],
         },
         "pre_evaluation_diff_sha256": source_sha256(
@@ -1068,6 +1517,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         plugin_identity = validate_arm_plugins(
             args.codex, baseline_home, candidate_home
         )
+        host_identity = codex_host_identity(args.codex)
         guards = protected_roots(args.guard_root, fixture, plugin_identity)
         guard_before = snapshot_guards(guards)
         plugin_version = plugin_identity["version"]
@@ -1091,6 +1541,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "available_tools": sorted(set(args.available_tool)),
             "agent_slots": args.agent_slots,
             "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
+            "host_identity_sha256": hashlib.sha256(
+                json.dumps(
+                    host_identity, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
         }
         experiment_sha256 = hashlib.sha256(
             json.dumps(
@@ -1253,6 +1708,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "tool_calls": result["tool_calls"],
                         "retries": result["retries"],
                         "agent_telemetry": result["agent_telemetry"],
+                        "host_identity": host_identity,
                         "hidden_check_sha256": hidden_identity["sha256"],
                         "quality_check_sha256": quality_identity["sha256"],
                         "allowed_changes_sha256": allowed_changes_sha256,
@@ -1283,6 +1739,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "plugin_version": plugin_version,
             "candidate_plugin": plugin_identity,
             "candidate_plugin_postflight": postflight_plugin_identity,
+            "host_identity": host_identity,
             "hidden_check": hidden_identity,
             "quality_check": quality_identity,
             "guarded_roots": guard_receipts,

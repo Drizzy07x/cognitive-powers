@@ -43,6 +43,10 @@
       "expected_spawn_count": 0,
       "expected_wave_kinds": [],
       "expected_plan_schema": 2,
+      "expected_selected_mode": "solo",
+      "expected_executed_mode": null,
+      "expected_outcome": "planned",
+      "expected_degradation": null,
       "expect_content_ids": true
     },
     {
@@ -103,6 +107,10 @@
       "expected_spawn_count": 2,
       "expected_wave_kinds": ["read-only-investigation"],
       "expected_plan_schema": 2,
+      "expected_selected_mode": "parallel-read-only",
+      "expected_executed_mode": null,
+      "expected_outcome": "planned",
+      "expected_degradation": null,
       "expect_content_ids": true
     },
     {
@@ -163,6 +171,10 @@
       "expected_spawn_count": 2,
       "expected_wave_kinds": ["implementation", "verification"],
       "expected_plan_schema": 2,
+      "expected_selected_mode": "parallel-packets",
+      "expected_executed_mode": null,
+      "expected_outcome": "planned",
+      "expected_degradation": null,
       "expect_content_ids": true
     },
     {
@@ -190,6 +202,10 @@
       "expected_spawn_count": 0,
       "expected_wave_kinds": ["verification"],
       "expected_plan_schema": 2,
+      "expected_selected_mode": "staged-verify",
+      "expected_executed_mode": null,
+      "expected_outcome": "planned",
+      "expected_degradation": null,
       "expect_content_ids": true
     }
   ]

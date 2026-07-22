@@ -21,6 +21,7 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
         self.assertNotIn("context-mode", config)
         self.assertNotIn("openai-bundled", config)
         self.assertIn("memories = false", config)
+        self.assertIn("multi_agent = true", config)
 
     def test_dirty_source_is_rejected(self) -> None:
         completed = mock.Mock(returncode=0, stdout="abc\n", stderr="")

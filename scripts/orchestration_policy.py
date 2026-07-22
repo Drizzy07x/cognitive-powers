@@ -25,6 +25,8 @@ AGENT_ROLES = {"investigator", "researcher", "reviewer", "test-writer", "executo
 READ_ONLY_ROLES = {"investigator", "researcher", "reviewer"}
 PROFILE = "automatic-conservative-balanced"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+AGENT_PLAN_INTERFACE_VERSION = 1
+AGENT_PLAN_INPUT_VERSIONS = (1, 2)
 
 
 class OrchestrationError(ValueError):
@@ -122,6 +124,82 @@ def select_intensity(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def agent_plan_template(schema_version: int = 2) -> dict[str, Any]:
+    """Return the compact, versioned planning-input interface."""
+    if schema_version not in AGENT_PLAN_INPUT_VERSIONS:
+        raise OrchestrationError("agent-plan template version must be 1 or 2")
+    unit = {
+        "id": "lane-a",
+        "role": "investigator",
+        "objective": "Produce one independent evidence-backed finding",
+        "context": ["minimum task context"],
+        "owned_paths": [],
+        "dependencies": [],
+        "read_only": True,
+        "ready": True,
+        "distinct_output": True,
+        "expected_output": "Evidence-backed finding",
+        "check": ["python", "-m", "unittest", "tests.test_target"],
+        "stop_conditions": ["Stop if the assigned boundary is invalid"],
+        "red_test_possible": False,
+        "depth": 1,
+    }
+    template: dict[str, Any] = {
+        "schema_version": schema_version,
+        "request_mode": "diagnose",
+        "phase": "diagnose",
+        "authorization": "read-only",
+        "boundaries_clear": True,
+        "cheap_local_step_available": False,
+        "symptom_reproduced": True,
+        "durable_or_release_critical": False,
+        "quality_claim": False,
+        "delegated_change": False,
+        "packet_plan_valid": False,
+        "available_agent_slots": 4,
+        "current_depth": 0,
+        "completed_unit_ids": [],
+        "units": [unit, {**unit, "id": "lane-b"}],
+    }
+    if schema_version == 2:
+        template.update(
+            {
+                "retry_record": None,
+                "verification_check": [
+                    "python",
+                    "-m",
+                    "unittest",
+                    "tests.test_target",
+                ],
+            }
+        )
+    else:
+        template.update(
+            {
+                "previous_worker_failed": False,
+                "failure_classified": False,
+                "retry_attempts": 0,
+            }
+        )
+    return {
+        "schema_version": AGENT_PLAN_INTERFACE_VERSION,
+        "kind": "agent_plan_input_interface",
+        "planner_input_schema_version": schema_version,
+        "supported_planner_input_schema_versions": list(AGENT_PLAN_INPUT_VERSIONS),
+        "commands": {
+            "discover": "orchestration_policy.py --agent-plan-template 2 --json",
+            "plan": "orchestration_policy.py --agent-plan - --json",
+        },
+        "execution_semantics": {
+            "selected_mode": "mode chosen by this planner",
+            "executed_mode": "mode observed by the host; null in a new plan",
+            "outcome": "planned until a host receipt records completed, degraded, failed, or blocked",
+            "degradation": "null unless execution differs from selection; record the exact cause in the host receipt",
+        },
+        "template": template,
+    }
+
+
 def _solo_plan(
     reason: str,
     *,
@@ -136,6 +214,10 @@ def _solo_plan(
         "profile": PROFILE,
         "valid_input": valid_input,
         "mode": "solo",
+        "selected_mode": "solo",
+        "executed_mode": None,
+        "outcome": "planned",
+        "degradation": None,
         "spawn_count": 0,
         "total_planned_agents": 0,
         "max_concurrent_workers": 0,
@@ -764,6 +846,10 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
         "profile": PROFILE,
         "valid_input": True,
         "mode": mode,
+        "selected_mode": mode,
+        "executed_mode": None,
+        "outcome": "planned",
+        "degradation": None,
         "spawn_count": len(selected),
         "total_planned_agents": total_agents,
         "max_concurrent_workers": max_concurrent_workers,
@@ -1070,6 +1156,12 @@ def evaluate_agent_cases(cases_path: Path) -> dict[str, Any]:
         actual = select_agent_plan(case.get("input", {}))
         checks = {
             "mode": actual["mode"] == case.get("expected_mode"),
+            "selected_mode": actual["selected_mode"]
+            == case.get("expected_selected_mode", case.get("expected_mode")),
+            "executed_mode": actual["executed_mode"]
+            == case.get("expected_executed_mode"),
+            "outcome": actual["outcome"] == case.get("expected_outcome", "planned"),
+            "degradation": actual["degradation"] == case.get("expected_degradation"),
             "spawn_count": actual["spawn_count"] == case.get("expected_spawn_count"),
             "valid_input": actual["valid_input"]
             is case.get("expected_valid_input", True),
@@ -1120,6 +1212,15 @@ def main() -> int:
     source.add_argument("--input", help="v1 task-signal JSON path or - for stdin")
     source.add_argument("--cases", type=Path, help="v1 intensity case fixture")
     source.add_argument("--agent-plan", help="agent-planning JSON path or - for stdin")
+    source.add_argument(
+        "--agent-plan-template",
+        nargs="?",
+        const=2,
+        type=int,
+        choices=AGENT_PLAN_INPUT_VERSIONS,
+        metavar="{1,2}",
+        help="emit the versioned compact planning-input interface (default: 2)",
+    )
     source.add_argument("--agent-cases", type=Path, help="agent-planning case fixture")
     source.add_argument(
         "--worker-result", help="worker-result JSON path or - for stdin"
@@ -1133,6 +1234,8 @@ def main() -> int:
             result = evaluate_cases(args.cases)
         elif args.agent_plan is not None:
             result = select_agent_plan(_read_object(args.agent_plan))
+        elif args.agent_plan_template is not None:
+            result = agent_plan_template(args.agent_plan_template)
         elif args.agent_cases is not None:
             result = evaluate_agent_cases(args.agent_cases)
         else:

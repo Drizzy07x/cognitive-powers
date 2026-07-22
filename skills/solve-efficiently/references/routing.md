@@ -34,7 +34,9 @@ Use when behavior crosses modules, tools, data sources, or external state. Creat
 ## Decide whether to delegate
 
 After bounded discovery, represent candidate work as explicit units and call the
-canonical orchestration runtime. Each unit names its role, objective, minimum
+canonical orchestration runtime. Discover its versioned input with
+`scripts/orchestration_policy.py --agent-plan-template 2 --json`; do not inspect
+the runtime source to reverse-engineer the contract. Each unit names its role, objective, minimum
 context, owned paths, dependencies, permissions, expected output, check, stop
 conditions, RED eligibility, readiness, distinct output, and delegation depth.
 
@@ -59,6 +61,12 @@ failure is classified. Then the main agent takes ownership or reports a blocker.
 Validate worker responses with the runtime's worker-result contract. Require
 status, changed paths, actual argv and exit codes, blockers, and remaining
 risks; an omitted or invented check is not evidence.
+
+Treat planner selection and host execution as different facts. A fresh plan is
+`planned` and has no executed mode. If delegated work is absorbed by the main
+agent, the host receipt records `executed_mode=solo`, `outcome=degraded`, and the
+cause; it must not count as completed delegation. Include planning and
+coordination cost in the benefit test and abstain when that overhead dominates.
 
 Do not delegate tightly coupled edits, trivial lookups, or work whose result cannot be integrated without rereading the same context. Give each worker the raw task and minimum needed context; do not leak the expected conclusion into an independent validation.
 

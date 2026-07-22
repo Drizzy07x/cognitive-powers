@@ -157,6 +157,8 @@ The temporary package is deleted after inspection. This validates installation s
 
 Claims about the adaptive controller require paired runs of the same Cognitive Powers build with `controller_mode=forced-solo` and `controller_mode=adaptive`; Codex base is an exploratory comparison, not the causal control. The versioned protocol freezes model, reasoning effort, prompt, tools, permissions, slots, fixture and Git identity, task version, evaluator identities, and balanced arm order. It uses four expected modes across five categories: bug fixing, multi-file implementation, current-source research, delivery verification, and real-host interaction.
 
+Protocol v2 also freezes the persistent parent-thread host identity, explicitly enables native multi-agent support, and binds the selected plan to an observed execution receipt. `selected_mode` is a planning decision; `executed_mode` is populated only from observed agent lifecycle events. A missing thread, unknown event schema, missing descendant usage, or declared-but-unobserved agent invalidates the experiment. The eight receipts from protocol v1 remain immutable evidence of an invalid preflight and are not reusable for v2 claims.
+
 - Pilot: 20 unique fixtures, three repetitions per arm, for 120 provider sessions.
 - Promotion: 60 new held-out fixtures, three repetitions per arm, for 360 provider sessions.
 - Score correctness and independent tests before efficiency; report every failure and reject critical failures.
@@ -174,8 +176,8 @@ Prepare the private fixture bundle and validate it before any provider call:
 
 ```powershell
 & $python scripts/controller_ab_fixtures.py validate
-& $python scripts/controller_ab_fixtures.py materialize --output-root <empty-absolute-private-root>
-& $python scripts/controller_ab_fixtures.py validate --materialized-root <private-root>
+& $python scripts/controller_ab_fixtures.py materialize --round pilot --output-root <empty-absolute-private-pilot-root>
+& $python scripts/controller_ab_fixtures.py validate --round pilot --materialized-root <private-pilot-root>
 ```
 
 After committing a clean experimental source snapshot, create two minimal and
@@ -184,11 +186,18 @@ and run the resumable schedule:
 
 ```powershell
 & $python scripts/prepare_controller_ab_homes.py --source-home <codex-home> --plugin-source . --output-root <private-homes-root> --model <model> --reasoning-effort <effort>
-& $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-fixture-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --output <private-batch-config.json>
-& $python scripts/controller_ab_batch.py --config <private-batch-config.json> --output <private-evidence-root>
+& $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-pilot-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --round pilot --output <private-pilot-config.json>
+& $python scripts/controller_ab_batch.py --config <private-pilot-config.json> --output <private-pilot-evidence-root>
+& $python scripts/controller_ab_fixtures.py materialize --round promotion --output-root <empty-absolute-private-promotion-root>
+& $python scripts/controller_ab_fixtures.py validate --round promotion --materialized-root <private-promotion-root>
+& $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-promotion-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --round promotion --output <private-promotion-config.json>
+& $python scripts/controller_ab_batch.py --config <private-promotion-config.json> --output <private-promotion-evidence-root>
 ```
 
-The batch journal never automatically retries an interrupted provider job;
+The pilot and promotion use physically distinct roots and batch configurations.
+Do not materialize the promotion root until the pilot has passed its blinded
+instrumental gate; this keeps held-out fixtures unavailable to pilot execution
+and debugging. The batch journal never automatically retries an interrupted provider job;
 the operator must inspect it first to avoid duplicate calls. Full receipts and
 events remain private, while a public report may contain only sanitized metrics
 and their immutable hashes.

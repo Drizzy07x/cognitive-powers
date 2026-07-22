@@ -1,6 +1,7 @@
 {
-  "schema_version": 1,
-  "corpus_id": "cognitive-powers-controller-ab-2026-07-v1",
+  "schema_version": 2,
+  "corpus_id": "cognitive-powers-controller-ab-2026-07-v2",
+  "supersedes_corpus_id": "cognitive-powers-controller-ab-2026-07-v1",
   "contains_run_results": false,
   "end_to_end_improvement_proven": false,
   "repetitions_per_arm": 3,
@@ -36,21 +37,31 @@
       "actor_root": "actor/promotion",
       "evaluator_root": "evaluators/promotion",
       "definition_sealed": true,
-      "definition_seal_sha256": "b091c7ca8ecea85a908cfffc188218ae0b9fb6205403dbca856a20fafb8c6262"
+      "definition_seal_sha256": "963a6e1e412df5367e305266523efc8d5789a7100db5c61a96f2b30c9c404eee",
+      "allowed_round": "promotion",
+      "forbidden_purposes": ["development", "preflight", "pilot-debug"]
     }
   },
   "recipe": {
-    "format": "controller-ab-mini-repo-v1",
+    "format": "controller-ab-mini-repo-v2",
     "git_default_branch": "main",
     "git_author_name": "Cognitive Powers Fixtures",
     "git_author_email": "fixtures@cognitive-powers.invalid",
-    "git_timestamp": "2026-07-21T12:00:00+00:00",
+    "git_timestamp": "2026-07-22T12:00:00+00:00",
     "actor_files": [
       "README.md",
       "task.json",
-      "src/scenario.txt",
-      "packets/a/state.txt",
-      "packets/b/state.txt",
+      "src/target.txt",
+      "spec/expected.txt",
+      "evidence/unit-a.txt",
+      "evidence/unit-b.txt",
+      "work/a/input.txt",
+      "work/a/expected.txt",
+      "work/a/result.txt",
+      "work/b/input.txt",
+      "work/b/expected.txt",
+      "work/b/result.txt",
+      "verification/verify.py",
       "tests/test_public.py"
     ],
     "evaluator_checks": [
@@ -69,7 +80,7 @@
   },
   "mode_recipes": {
     "solo": {
-      "allowed_paths": ["src/scenario.txt"],
+      "allowed_paths": ["src/target.txt"],
       "work_units": 1
     },
     "parallel-read-only": {
@@ -77,14 +88,14 @@
       "work_units": 2
     },
     "parallel-packets": {
-      "allowed_paths": ["packets/a/**", "packets/b/**", "tests/**"],
+      "allowed_paths": ["work/a/result.txt", "work/b/result.txt"],
       "work_units": 2
     },
     "staged-verify": {
-      "allowed_paths": ["src/**", "tests/**"],
+      "allowed_paths": ["src/target.txt"],
       "work_units": 2
     }
   },
-  "promotion_content_sealed": false,
-  "promotion_content_seal_sha256": null
+  "promotion_content_sealed": true,
+  "promotion_materialized_lock_required": true
 }

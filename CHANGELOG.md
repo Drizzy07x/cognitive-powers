@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hardened the adaptive-controller evaluation to protocol v2: persistent parent threads, explicit native-agent enablement, selected-versus-executed mode receipts, semantic lifecycle binding, descendant token accounting, and physically separate pilot/promotion roots with schema-v3 locks. Legacy batch configs are non-confirmatory. The previous provider preflight remains invalid and no performance improvement is claimed.
+
 - Added the 80-fixture controller corpus, deterministic external materializer, promotion seals, and fail-closed corpus validation.
 - Added minimal equivalent experiment homes and a resumable 240-pair/480-session batch coordinator with globally randomized pairs and immutable journals.
 - Kept provider results, causal improvement, publication, installation, and a 1.5.0 version claim pending; no live result is included in this checkout.

@@ -13,9 +13,11 @@ genuinely unclear.
 
 Obvious one-file work with a nearby check stays with the main agent; do not run
 an orchestration script merely to confirm that. After the first bounded
-discovery for non-trivial work, read the full skill and evaluate an explicit
-planning input with `<plugin-root>/scripts/orchestration_policy.py --agent-plan
-<json-or-stdin> --json`. Follow its `solo`, `parallel-read-only`,
+discovery for non-trivial work, read the full skill and obtain the compact v2
+input template with `<plugin-root>/scripts/orchestration_policy.py
+--agent-plan-template 2 --json`. Fill that template and submit it with
+`--agent-plan <json-or-stdin> --json`. Never read `orchestration_policy.py` to
+discover its contract. Follow its `solo`, `parallel-read-only`,
 `parallel-packets`, or `staged-verify` waves and re-evaluate after each wave.
 Use schema v2 for durable work or quality claims. It binds assignments to the
 plan, requires an observed RED cycle before a separate test-writer, and requires
@@ -28,6 +30,12 @@ synthesis, integration, and final claims. Never depend on custom agent TOML
 discovery, a fixed model, a fixed swarm size, or hooks to create agents. A
 semantic planning-input error fails closed to `solo`; it never expands scope or
 grants write authority.
+
+`selected_mode` is the planner decision. A new plan deliberately has
+`executed_mode=null`, `outcome=planned`, and `degradation=null`; only observed
+host execution may populate those receipt fields. If the main agent absorbs a
+delegated plan, report `executed_mode=solo`, `outcome=degraded`, and the exact
+degradation cause. Never present a selected mode as an executed one.
 
 ## Current-source decision
 

@@ -140,9 +140,9 @@ class ControllerAbProtocolTests(unittest.TestCase):
         self.assertEqual(self.protocol["verdict"]["current"], None)
 
         state = self.protocol["execution_state"]
-        self.assertEqual(state["fixtures_created"], 80)
-        self.assertEqual(state["fixture_status"], "ready")
-        self.assertEqual(len(state["fixture_lock_sha256"]), 64)
+        self.assertEqual(state["fixtures_created"], 0)
+        self.assertEqual(state["fixture_status"], "pending-v2-materialization")
+        self.assertIsNone(state["fixture_lock_sha256"])
         self.assertEqual(state["sessions_completed"], 0)
         self.assertFalse(state["results_available"])
         self.assertFalse(state["provider_evidence_available"])

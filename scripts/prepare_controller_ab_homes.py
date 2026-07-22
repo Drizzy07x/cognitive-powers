@@ -12,7 +12,12 @@ import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
-from live_ab_runner import source_sha256, tree_hashes, validate_arm_plugins
+from live_ab_runner import (
+    codex_host_identity,
+    source_sha256,
+    tree_hashes,
+    validate_arm_plugins,
+)
 
 
 class HomePreparationError(ValueError):
@@ -59,6 +64,7 @@ def _minimal_config(model: str, reasoning_effort: str) -> str:
         "[features]\n"
         "hooks = true\n"
         "memories = false\n"
+        "multi_agent = true\n"
     )
 
 
@@ -140,6 +146,10 @@ def prepare_homes(
                 "experiment homes use different authentication methods"
             )
         plugin = validate_arm_plugins(codex, homes["baseline"], homes["candidate"])
+        try:
+            host_identity = codex_host_identity(codex)
+        except ValueError as error:
+            raise HomePreparationError(str(error)) from error
         baseline_hashes = tree_hashes(homes["baseline"])
         candidate_hashes = tree_hashes(homes["candidate"])
         if baseline_hashes != candidate_hashes:
@@ -156,6 +166,7 @@ def prepare_homes(
             "authentication": "chatgpt",
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "host_identity": host_identity,
             "homes": {arm: str(home) for arm, home in homes.items()},
             "receipt_contains_secrets": False,
         }
