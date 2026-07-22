@@ -39,7 +39,20 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
     ValidationCommand(
         "skills-strict", ("scripts/validate_skills.py", "--strict-quality")
     ),
+    ValidationCommand(
+        "controller-ab-targeted-tests",
+        (
+            "-m",
+            "unittest",
+            "tests.test_live_ab_runner",
+            "tests.test_controller_ab_protocol",
+            "tests.test_controller_ab_fixtures",
+            "tests.test_controller_ab_batch",
+        ),
+    ),
     ValidationCommand("tests", ("-m", "unittest", "discover", "-s", "tests", "-v")),
+    ValidationCommand("ruff-check", ("-m", "ruff", "check", ".")),
+    ValidationCommand("ruff-format", ("-m", "ruff", "format", "--check", ".")),
     ValidationCommand("core-benchmarks", ("scripts/run_benchmarks.py",)),
     ValidationCommand(
         "communication-benchmarks", ("scripts/run_communication_benchmarks.py",)

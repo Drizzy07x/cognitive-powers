@@ -159,7 +159,10 @@ class OrchestrationPolicyTests(unittest.TestCase):
             },
         )
         self.assertTrue(v2["field_rules"]["enum_values_are_exact"])
-        self.assertIn("do not put role=verifier", v2["field_rules"]["verifier_units_are_synthetic"])
+        self.assertIn(
+            "do not put role=verifier",
+            v2["field_rules"]["verifier_units_are_synthetic"],
+        )
         self.assertIn("retry_record", v2["template"])
         self.assertIn("previous_worker_failed", v1["template"])
         self.assertTrue(planned["valid_input"])

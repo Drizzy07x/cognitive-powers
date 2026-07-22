@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v11",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v10",
+  "protocol_id": "cognitive-powers-controller-ab-v12",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v11",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -13,7 +13,7 @@
       "verdict": "invalid",
       "immutable_preflight_sessions": 8,
       "sha256_index": "31509c6aaf2e664596fd2910e9fc8b2f64663728dc9c3f3817a40a56ab534ef9",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v2",
@@ -23,7 +23,7 @@
       "failure": "codex exec JSON omitted host-backed child lifecycle and controller_mode did not yet apply an observable treatment",
       "sha256_index": null,
       "index_absent_reason": "the v2 batch aborted before its invalid-path artifact index was implemented",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v3",
@@ -32,7 +32,7 @@
       "preflight_sessions_required": 8,
       "failure": "agent lifecycle classifier raised while sorting multiple unbound assignment identifiers",
       "sha256_index": "5b77a4a1887ad642b2f1086c675e5f815fbf68b09e770baea679071842e2f9cb",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v4",
@@ -42,7 +42,7 @@
       "preflight_sessions_required": 8,
       "failure": "fixture identifiers and the installed evaluation manifest leaked expected modes; write tasks also lacked usable workspace permission and canonical plan telemetry",
       "sha256_index": "960af13ad534829eca6e59641b8dcf8643d2dbb7f8da6c547d139986436653ea",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v5",
@@ -52,7 +52,7 @@
       "preflight_sessions_required": 8,
       "failure": "the evaluator rejected read-only ownership scopes that the canonical planner validly emitted despite an unchanged workspace",
       "sha256_index": "72c9518754707d665b8868ff41709c6ac47f65a375e0ea0eec7af3cea42eca03",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v6",
@@ -62,7 +62,7 @@
       "preflight_sessions_required": 8,
       "failure": "the adaptive arm emitted a replacement verification plan instead of executing the immutable verification wave and assignment ids from its initial complete plan",
       "sha256_index": "3fa5db5eb14667d4f0796fc7d70e4ee4bedf7458cf6f6dc9684c74a72ad51e37",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v7",
@@ -72,7 +72,7 @@
       "pilot_sessions_required": 120,
       "failure": "the live evaluator rejected the canonical verifier-only staged-verify plan that the planner and benchmark contract explicitly permit",
       "sha256_index": "2a48f802b50d1e8782d48170b4bd7b7bc7e51a025499d23f0f79e06df61c4380",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v8",
@@ -81,7 +81,7 @@
       "preflight_sessions_required": 8,
       "failure": "the preflight completed instrumentally but did not exercise parallel-packets or staged-verify because generated planner inputs used unsupported enum aliases and declared synthetic verifier units; the coordinator also failed to enforce the expected preflight mode",
       "sha256_index": "10a59ed69ce059d44c79d720170d0302d31d46630a210686a336d3e5e36912e0",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v9",
@@ -91,7 +91,7 @@
       "preflight_sessions_required": 8,
       "failure": "the live runner correctly accepted the canonical verifier-only staged-verify execution, but the batch coordinator still rejected the same valid semantics",
       "sha256_index": "a08caa8de368b5a5fe14dc6fcabbfbfe987cb34f1735030812e80c0fe1c70037",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v10",
@@ -103,7 +103,17 @@
       "pilot_sessions_required": 120,
       "failure": "the live evaluator conflated a valid solo implementation to fresh-verifier phase transition with an impermissible replacement of a non-solo plan",
       "sha256_index": "aa0ea301cc14af0f8cbdaa67c4a9cd94df83633538880071d448884ddddb1080",
-      "reusable_for_v11_claims": false
+      "reusable_for_v12_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v11",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 0,
+      "pilot_sessions_completed": 0,
+      "failure": "the clean validation receipt omitted separate targeted controller tests and Ruff lint and format commands required by the acceptance contract",
+      "sha256_index": null,
+      "validation_receipt_sha256": "b6400f4eb4f11423cc14a76dec56d18dd91943622620b24beb08413f0150a50a",
+      "reusable_for_v12_claims": false
     }
   ],
   "comparison": {

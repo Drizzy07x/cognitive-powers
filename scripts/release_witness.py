@@ -24,7 +24,20 @@ IGNORED_PARTS = {
 EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("skills", ("scripts/validate_skills.py",)),
     ("skills-strict", ("scripts/validate_skills.py", "--strict-quality")),
+    (
+        "controller-ab-targeted-tests",
+        (
+            "-m",
+            "unittest",
+            "tests.test_live_ab_runner",
+            "tests.test_controller_ab_protocol",
+            "tests.test_controller_ab_fixtures",
+            "tests.test_controller_ab_batch",
+        ),
+    ),
     ("tests", ("-m", "unittest", "discover", "-s", "tests", "-v")),
+    ("ruff-check", ("-m", "ruff", "check", ".")),
+    ("ruff-format", ("-m", "ruff", "format", "--check", ".")),
     ("core-benchmarks", ("scripts/run_benchmarks.py",)),
     ("communication-benchmarks", ("scripts/run_communication_benchmarks.py",)),
     ("design-benchmarks", ("scripts/run_design_benchmarks.py",)),

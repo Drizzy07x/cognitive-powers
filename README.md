@@ -226,7 +226,10 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python --version
 & $python scripts/validate_skills.py
 & $python scripts/validate_skills.py --strict-quality
+& $python -m unittest tests.test_live_ab_runner tests.test_controller_ab_protocol tests.test_controller_ab_fixtures tests.test_controller_ab_batch
 & $python -m unittest discover -s tests -v
+& $python -m ruff check .
+& $python -m ruff format --check .
 & $python scripts/run_benchmarks.py
 & $python scripts/run_communication_benchmarks.py
 & $python scripts/run_design_benchmarks.py

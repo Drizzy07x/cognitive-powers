@@ -19,7 +19,15 @@ class ExistingBehaviorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store = Path(temporary) / "tasks.json"
             result = subprocess.run(
-                [sys.executable, "-m", "src.tasker.cli", "--store", str(store), "add", "Ship"],
+                [
+                    sys.executable,
+                    "-m",
+                    "src.tasker.cli",
+                    "--store",
+                    str(store),
+                    "add",
+                    "Ship",
+                ],
                 check=False,
                 capture_output=True,
                 text=True,

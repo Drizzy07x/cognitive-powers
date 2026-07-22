@@ -21,18 +21,25 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
     critical: list[str] = []
     score = 0
 
-    recommendation = (
-        "compression.zstd" in text
-        and any(
-            marker in text
-            for marker in ("recommend", "use ", "adopt", "standardize", "usar", "adoptar", "estandarizar")
+    recommendation = "compression.zstd" in text and any(
+        marker in text
+        for marker in (
+            "recommend",
+            "use ",
+            "adopt",
+            "standardize",
+            "usar",
+            "adoptar",
+            "estandarizar",
         )
     )
     if recommendation:
         score += 30
         evidence.append("recommends the Python 3.14 standard-library API")
     else:
-        critical.append("recommendation does not select compression.zstd for the stated constraints")
+        critical.append(
+            "recommendation does not select compression.zstd for the stated constraints"
+        )
 
     api_surface = all(
         marker in text
@@ -46,12 +53,16 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
     )
     if api_surface:
         score += 20
-        evidence.append("maps file, one-shot, and incremental requirements to documented APIs")
+        evidence.append(
+            "maps file, one-shot, and incremental requirements to documented APIs"
+        )
     else:
         evidence.append("documented API coverage is incomplete")
 
     optional = "optional" in text or "opcional" in text
-    distributor = any(marker in text for marker in ("distributor", "distribution", "distribuidor"))
+    distributor = any(
+        marker in text for marker in ("distributor", "distribution", "distribuidor")
+    )
     explicit_mitigation = any(
         marker in text
         for marker in (
@@ -64,15 +75,18 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
             "verificar import",
         )
     )
-    startup_gate = (
-        any(marker in text for marker in ("startup", "install-time", "installation"))
-        and any(marker in text for marker in ("check", "prerequisite", "require", "reject"))
+    startup_gate = any(
+        marker in text for marker in ("startup", "install-time", "installation")
+    ) and any(
+        marker in text for marker in ("check", "prerequisite", "require", "reject")
     )
     import_gate = "import compression.zstd" in text
     mitigation = explicit_mitigation or startup_gate or import_gate
     if optional and distributor and mitigation:
         score += 20
-        evidence.append("preserves the optional-module caveat with an operational mitigation")
+        evidence.append(
+            "preserves the optional-module caveat with an operational mitigation"
+        )
     else:
         critical.append("optional distributor-build caveat or mitigation is missing")
 
@@ -80,21 +94,49 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
         score += 15
         evidence.append("cites both exact version-matched official Python pages")
     else:
-        critical.append("material claims lack both exact Python 3.14 primary-source URLs")
+        critical.append(
+            "material claims lack both exact Python 3.14 primary-source URLs"
+        )
 
     separates = (
-        any(marker in text for marker in ("verified fact", "facts", "hechos verificados"))
-        and any(marker in text for marker in ("inference", "therefore", "therefore", "inferencia", "por tanto"))
-        and any(marker in text for marker in ("uncertainty", "caveat", "uncertainty", "incertidumbre", "limitación", "limitacion"))
+        any(
+            marker in text
+            for marker in ("verified fact", "facts", "hechos verificados")
+        )
+        and any(
+            marker in text
+            for marker in (
+                "inference",
+                "therefore",
+                "therefore",
+                "inferencia",
+                "por tanto",
+            )
+        )
+        and any(
+            marker in text
+            for marker in (
+                "uncertainty",
+                "caveat",
+                "uncertainty",
+                "incertidumbre",
+                "limitación",
+                "limitacion",
+            )
+        )
     )
     if separates:
         score += 10
-        evidence.append("separates verified facts, inference, and unresolved uncertainty")
+        evidence.append(
+            "separates verified facts, inference, and unresolved uncertainty"
+        )
     else:
         evidence.append("fact, inference, and uncertainty separation is incomplete")
 
     urls = re.findall(r"https?://[^\s)>\]]+", text)
-    secondary = [url for url in urls if not url.startswith("https://docs.python.org/3.14/")]
+    secondary = [
+        url for url in urls if not url.startswith("https://docs.python.org/3.14/")
+    ]
     if not secondary:
         score += 5
         evidence.append("uses no secondary or version-mismatched source")

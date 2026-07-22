@@ -20,7 +20,9 @@ class TaskStore:
         return [Task(**row) for row in rows]
 
     def save(self, tasks: list[Task]) -> None:
-        self.path.write_text(json.dumps([asdict(task) for task in tasks]), encoding="utf-8")
+        self.path.write_text(
+            json.dumps([asdict(task) for task in tasks]), encoding="utf-8"
+        )
 
     def add(self, title: str) -> Task:
         tasks = self.load()

@@ -85,7 +85,9 @@ class DeliveryQualityTests(unittest.TestCase):
 
             report = quality.evaluate(root, events, message)
 
-            self.assertIn("delivery is not identified as incomplete", report["critical_errors"])
+            self.assertIn(
+                "delivery is not identified as incomplete", report["critical_errors"]
+            )
 
     def test_unsupported_pass_phrase_does_not_count_as_test_success(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

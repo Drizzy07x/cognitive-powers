@@ -651,13 +651,19 @@ def _canonical_plan_transition(plans: Sequence[dict[str, Any]]) -> str | None:
         and initial.get("waves") == []
     )
     waves = verification.get("waves")
-    verification_wave = waves[0] if isinstance(waves, list) and len(waves) == 1 else None
+    verification_wave = (
+        waves[0] if isinstance(waves, list) and len(waves) == 1 else None
+    )
     assignments = (
         verification_wave.get("assignments")
         if isinstance(verification_wave, dict)
         else None
     )
-    verifier = assignments[0] if isinstance(assignments, list) and len(assignments) == 1 else None
+    verifier = (
+        assignments[0]
+        if isinstance(assignments, list) and len(assignments) == 1
+        else None
+    )
     verification_is_fresh_read_only = (
         verification.get("valid_input") is True
         and verification.get("mode") == "staged-verify"

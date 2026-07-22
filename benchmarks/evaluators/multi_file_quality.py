@@ -57,7 +57,8 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
                 and listed.returncode == 0
                 and added_row["priority"] == "high"
                 and listed_rows == [added_row]
-                and json.loads(store.read_text(encoding="utf-8"))[0]["priority"] == "high"
+                and json.loads(store.read_text(encoding="utf-8"))[0]["priority"]
+                == "high"
             )
         except (json.JSONDecodeError, KeyError, IndexError, TypeError, OSError):
             public_ok = False
@@ -170,9 +171,13 @@ def evaluate(fixture: Path, events: Path, message: Path) -> dict[str, Any]:
         and any(marker in final_text for marker in ("pass", "ok", "correct"))
     ):
         score += 15
-        evidence.append("final report identifies public behavior, compatibility, and test outcome")
+        evidence.append(
+            "final report identifies public behavior, compatibility, and test outcome"
+        )
     else:
-        evidence.append("final report lacks precise public, compatibility, and test evidence")
+        evidence.append(
+            "final report lacks precise public, compatibility, and test evidence"
+        )
 
     return {"score": score, "evidence": evidence, "critical_errors": critical}
 
