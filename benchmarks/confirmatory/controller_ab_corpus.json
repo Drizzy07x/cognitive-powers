@@ -28,16 +28,16 @@
     "pilot": {
       "held_out": false,
       "fixtures_per_cell": 1,
-      "actor_root": "actor/pilot",
-      "evaluator_root": "evaluators/pilot"
+      "actor_root": "actor",
+      "evaluator_root": "evaluators"
     },
     "promotion": {
       "held_out": true,
       "fixtures_per_cell": 3,
-      "actor_root": "actor/promotion",
-      "evaluator_root": "evaluators/promotion",
+      "actor_root": "actor",
+      "evaluator_root": "evaluators",
       "definition_sealed": true,
-      "definition_seal_sha256": "963a6e1e412df5367e305266523efc8d5789a7100db5c61a96f2b30c9c404eee",
+      "definition_seal_sha256": "40aad52c81a87254f84709d0105cf24bb23e182c8a8a152af0a4752bd859359e",
       "allowed_round": "promotion",
       "forbidden_purposes": ["development", "preflight", "pilot-debug"]
     }

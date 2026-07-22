@@ -32,11 +32,11 @@ AGENT_PLAN_MODES = {
 }
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
-CONTROLLER_DIRECTIVE_VERSION = 3
+CONTROLLER_DIRECTIVE_VERSION = 4
 CONTROLLER_DIRECTIVE_TEMPLATE = """[Cognitive Powers controller directive v{version}; mode={mode}]
 This directive is the controller_mode treatment and the only intentional A/B difference.
 {behavior}
-For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Emit the selected agent_plan as JSON before spawning. Never claim an agent ran unless the native host tool ran and was joined.
+For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Before spawning, emit the exact canonical v2 agent_plan returned by the orchestration runtime as a standalone JSON agent_message; do not summarize, rewrite, infer, or reconstruct it. Never claim an agent ran unless the native host tool ran and was joined.
 """
 SUPPORTED_EVENT_TYPES = {
     "thread.started",
@@ -577,6 +577,92 @@ def arm_order(repetitions: int, seed: str) -> list[list[str]]:
     return orders
 
 
+def _content_id_matches(value: Mapping[str, Any], field: str, prefix: str) -> bool:
+    claimed = value.get(field)
+    if not isinstance(claimed, str):
+        return False
+    unhashed = dict(value)
+    unhashed.pop(field, None)
+    encoded = json.dumps(
+        unhashed, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return claimed == f"{prefix}-{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _canonical_agent_plan_v2(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("kind") != "agent_plan":
+        return None
+    if (
+        value.get("schema_version") != 2
+        or value.get("mode") not in AGENT_PLAN_MODES
+        or value.get("selected_mode") != value.get("mode")
+        or value.get("executed_mode") is not None
+        or value.get("outcome") != "planned"
+        or not isinstance(value.get("waves"), list)
+        or not _content_id_matches(value, "plan_id", "plan")
+    ):
+        raise LiveEvaluationError("emitted agent_plan is not a canonical v2 plan")
+    for wave in value["waves"]:
+        if (
+            not isinstance(wave, dict)
+            or not isinstance(wave.get("kind"), str)
+            or not isinstance(wave.get("parallel"), bool)
+            or not isinstance(wave.get("assignments"), list)
+        ):
+            raise LiveEvaluationError("emitted agent_plan contains an invalid wave")
+        for assignment in wave["assignments"]:
+            if not isinstance(assignment, dict) or not _content_id_matches(
+                assignment, "assignment_id", "assignment"
+            ):
+                raise LiveEvaluationError(
+                    "emitted agent_plan contains a non-canonical assignment"
+                )
+    return value
+
+
+def _agent_message_json_values(item: Mapping[str, Any]) -> list[object]:
+    if item.get("type") != "agent_message":
+        return []
+    texts: list[str] = []
+    for field in ("text", "message", "output"):
+        value = item.get(field)
+        if isinstance(value, str) and value.strip():
+            texts.append(value)
+    content = item.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, str) and part.strip():
+                texts.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    texts.append(text)
+
+    values: list[object] = []
+    for text in texts:
+        stripped = text.strip()
+        payloads: list[str] = []
+        if stripped.startswith("{"):
+            payloads.append(stripped)
+        payloads.extend(
+            match.group(1).strip()
+            for match in re.finditer(
+                r"```(?:json)?\s*\r?\n?(.*?)```", text, re.IGNORECASE | re.DOTALL
+            )
+        )
+        for payload in payloads:
+            try:
+                values.append(json.loads(payload))
+            except json.JSONDecodeError as error:
+                if "agent_plan" in payload:
+                    raise LiveEvaluationError(
+                        "emitted agent_plan JSON is malformed"
+                    ) from error
+    return values
+
+
 def parse_events(path: Path) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     invalid_lines = 0
@@ -741,33 +827,27 @@ def parse_events(path: Path) -> dict[str, Any]:
                     "output_tokens": descendant_usage["output_tokens"],
                 }
 
-    def visit(value: object) -> None:
-        if isinstance(value, dict):
-            candidate = value.get("agent_plan", value)
-            if (
-                isinstance(candidate, dict)
-                and candidate.get("mode")
-                in {"solo", "parallel-read-only", "parallel-packets", "staged-verify"}
-                and isinstance(candidate.get("waves"), list)
+    for row in rows:
+        if row.get("type") != "item.completed" or not isinstance(row.get("item"), dict):
+            continue
+        for emitted in _agent_message_json_values(row["item"]):
+            if isinstance(emitted, dict) and "agent_plan" in emitted:
+                candidate = emitted["agent_plan"]
+                if not isinstance(candidate, dict):
+                    raise LiveEvaluationError("emitted agent_plan must be an object")
+            else:
+                candidate = emitted
+            canonical = _canonical_agent_plan_v2(candidate)
+            if canonical is None:
+                continue
+            encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+            if all(
+                json.dumps(item, sort_keys=True, separators=(",", ":")) != encoded
+                for item in plan_receipts
             ):
-                encoded = json.dumps(candidate, sort_keys=True, default=str)
-                if all(
-                    json.dumps(item, sort_keys=True, default=str) != encoded
-                    for item in plan_receipts
-                ):
-                    plan_receipts.append(candidate)
-            for nested in value.values():
-                visit(nested)
-        elif isinstance(value, list):
-            for nested in value:
-                visit(nested)
-        elif isinstance(value, str) and value.lstrip().startswith("{"):
-            try:
-                visit(json.loads(value))
-            except json.JSONDecodeError:
-                pass
-
-    visit(rows)
+                plan_receipts.append(canonical)
+    if len(plan_receipts) > 1:
+        raise LiveEvaluationError("multiple distinct agent_plan receipts were emitted")
     thread_rows = [row for row in rows if row.get("type") == "thread.started"]
     thread_ids: set[str] = set()
     for row in thread_rows:

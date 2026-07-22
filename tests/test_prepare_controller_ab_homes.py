@@ -15,6 +15,19 @@ import prepare_controller_ab_homes as homes  # noqa: E402
 
 
 class PrepareControllerAbHomesTests(unittest.TestCase):
+    @staticmethod
+    def _write_runtime_source(source: Path) -> None:
+        for relative in homes.INSTALLED_SURFACE_DIRECTORIES:
+            directory = source / relative
+            directory.mkdir(parents=True)
+            (directory / "runtime.txt").write_text(
+                f"runtime:{relative}\n", encoding="utf-8"
+            )
+        for relative in homes.INSTALLED_SURFACE_FILES:
+            target = source / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"runtime:{relative}\n", encoding="utf-8")
+
     def test_minimal_config_enables_only_cognitive_powers(self) -> None:
         config = homes._minimal_config("gpt-test", "medium")
         self.assertIn('[plugins."cognitive-powers@personal"]', config)
@@ -35,16 +48,58 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
             root = Path(temporary)
             source = root / "source"
             destination = root / "destination"
+            self._write_runtime_source(source)
             (source / ".git").mkdir(parents=True)
             (source / "__pycache__").mkdir()
-            (source / "scripts").mkdir()
             (source / ".git" / "HEAD").write_text("ref", encoding="utf-8")
             (source / "__pycache__" / "x.pyc").write_bytes(b"cache")
-            (source / "scripts" / "run.py").write_text("pass\n", encoding="utf-8")
-            homes._copy_plugin(source, destination)
-            self.assertTrue((destination / "scripts" / "run.py").is_file())
+            surface = homes._copy_plugin(source, destination)
+            self.assertTrue(
+                (destination / "scripts" / "orchestration_policy.py").is_file()
+            )
             self.assertFalse((destination / ".git").exists())
             self.assertFalse((destination / "__pycache__").exists())
+            self.assertEqual(
+                surface["sha256"], homes.source_sha256(homes.tree_hashes(destination))
+            )
+
+    def test_copy_plugin_excludes_confirmatory_and_evaluator_material(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            self._write_runtime_source(source)
+            (source / "benchmarks").mkdir()
+            (source / "benchmarks" / "evaluation_tasks.json").write_text(
+                '{"expected_mode":"parallel-packets"}\n', encoding="utf-8"
+            )
+            (source / "tests").mkdir()
+            (source / "tests" / "test_secret.py").write_text(
+                "EXPECTED_MODE = 'parallel-packets'\n", encoding="utf-8"
+            )
+            (source / "scripts" / "live_ab_runner.py").write_text(
+                "EXPECTED_MODE = 'parallel-packets'\n", encoding="utf-8"
+            )
+
+            surface = homes._copy_plugin(source, destination)
+
+            self.assertFalse((destination / "benchmarks").exists())
+            self.assertFalse((destination / "tests").exists())
+            self.assertFalse((destination / "scripts" / "live_ab_runner.py").exists())
+            self.assertEqual(
+                surface["excluded_development_paths"],
+                list(homes.SENSITIVE_DEVELOPMENT_PATHS),
+            )
+
+    def test_copy_plugin_requires_complete_runtime_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            with self.assertRaisesRegex(
+                homes.HomePreparationError, "runtime surface directory is missing"
+            ):
+                homes._copy_plugin(source, root / "destination")
 
     def test_login_must_be_chatgpt(self) -> None:
         completed = mock.Mock(

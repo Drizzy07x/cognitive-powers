@@ -17,6 +17,75 @@ SPEC.loader.exec_module(runner)
 
 
 class LiveAbRunnerTests(unittest.TestCase):
+    @staticmethod
+    def _canonical_plan() -> dict[str, object]:
+        assignments = []
+        for unit_id in ("investigator-a", "investigator-b"):
+            assignment = {
+                "id": unit_id,
+                "role": "investigator",
+                "objective": f"Investigate {unit_id}",
+                "context": ["bounded context"],
+                "ownership": [],
+                "permissions": "read-only",
+                "expected_output": "Evidence-backed finding",
+                "check": ["python", "-m", "unittest"],
+                "dependencies": [],
+                "stop_conditions": ["stop outside boundary"],
+                "delegation_depth": 1,
+                "may_spawn": False,
+                "may_verify_parent": False,
+            }
+            encoded = json.dumps(
+                assignment, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+            assignment["assignment_id"] = (
+                "assignment-" + runner.hashlib.sha256(encoded).hexdigest()
+            )
+            assignments.append(assignment)
+        plan = {
+            "schema_version": 2,
+            "kind": "agent_plan",
+            "profile": "auto-conservative",
+            "valid_input": True,
+            "mode": "parallel-read-only",
+            "selected_mode": "parallel-read-only",
+            "executed_mode": None,
+            "outcome": "planned",
+            "degradation": None,
+            "spawn_count": 2,
+            "total_planned_agents": 2,
+            "max_concurrent_workers": 2,
+            "max_depth": 1,
+            "reserve_verifier_slot": False,
+            "waves": [
+                {
+                    "kind": "read-only-investigation",
+                    "parallel": True,
+                    "assignments": assignments,
+                }
+            ],
+            "reasons": ["two independent units"],
+            "abstentions": ["undeclared writes"],
+            "retry_policy": {
+                "max_retries_per_assignment": 1,
+                "retry_allowed": False,
+                "target_assignment_id": None,
+                "fallback": "main-agent-absorbs-or-reports-blocker",
+            },
+            "stop_conditions": ["stop when coordination has no value"],
+            "receipt_policy": {
+                "emit_json": True,
+                "external_state_required": True,
+                "end_to_end_improvement_proven": False,
+            },
+        }
+        encoded = json.dumps(
+            plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        plan["plan_id"] = "plan-" + runner.hashlib.sha256(encoded).hexdigest()
+        return plan
+
     def _write_rollout_pair(
         self,
         home: Path,
@@ -234,7 +303,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v4")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v5")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -366,23 +435,21 @@ class LiveAbRunnerTests(unittest.TestCase):
     def test_parse_events_extracts_observed_agent_plan_and_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             events = Path(temporary) / "events.jsonl"
+            plan = self._canonical_plan()
             rows = [
                 {"type": "thread.started", "thread_id": "thread-1"},
                 {
                     "type": "item.completed",
                     "item": {
-                        "type": "function_call",
-                        "name": "spawn_agent",
-                        "output": json.dumps(
-                            {
-                                "agent_plan": {
-                                    "schema_version": 2,
-                                    "mode": "parallel-read-only",
-                                    "waves": [],
-                                }
-                            }
-                        ),
+                        "type": "agent_message",
+                        "text": "Selected plan:\n```json\n"
+                        + json.dumps({"agent_plan": plan})
+                        + "\n```",
                     },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {"type": "function_call", "name": "spawn_agent"},
                 },
                 {
                     "type": "agent.lifecycle",
@@ -426,6 +493,82 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(parsed["agent_plans"][0]["mode"], "parallel-read-only")
             self.assertEqual(parsed["observed_assignments"][0]["actor_id"], "worker-1")
             self.assertEqual(parsed["parent_thread_id"], "thread-1")
+
+    def test_parse_events_does_not_infer_plan_from_spawn_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            rows = [
+                {"type": "thread.started", "thread_id": "thread-1"},
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "function_call",
+                        "name": "spawn_agent",
+                        "arguments": json.dumps({"agent_plan": self._canonical_plan()}),
+                        "output": json.dumps({"agent_plan": self._canonical_plan()}),
+                    },
+                },
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                    },
+                },
+            ]
+            events.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+            parsed = runner.parse_events(events)
+            self.assertEqual(parsed["agent_spawns"], 1)
+            self.assertEqual(parsed["agent_plans"], [])
+
+    def test_parse_events_rejects_malformed_or_noncanonical_emitted_plan(self) -> None:
+        for message in (
+            '```json\n{"agent_plan": {broken}\n```',
+            "```json\n"
+            + json.dumps(
+                {
+                    "agent_plan": {
+                        "schema_version": 2,
+                        "kind": "agent_plan",
+                        "mode": "solo",
+                        "selected_mode": "solo",
+                        "executed_mode": None,
+                        "outcome": "planned",
+                        "waves": [],
+                        "plan_id": "plan-forged",
+                    }
+                }
+            )
+            + "\n```",
+        ):
+            with (
+                self.subTest(message=message),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                events = Path(temporary) / "events.jsonl"
+                rows = [
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": message},
+                    },
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 10,
+                            "cached_input_tokens": 2,
+                            "output_tokens": 3,
+                        },
+                    },
+                ]
+                events.write_text(
+                    "\n".join(json.dumps(row) for row in rows) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(runner.LiveEvaluationError):
+                    runner.parse_events(events)
 
     def test_no_agent_fast_path_is_observed_as_solo(self) -> None:
         parsed = {

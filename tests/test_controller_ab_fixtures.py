@@ -33,7 +33,7 @@ fixtures = load_module()
 
 
 class ControllerABFixtureTests(unittest.TestCase):
-    def test_v4_protocol_does_not_reuse_invalid_preflights(self) -> None:
+    def test_v5_protocol_does_not_reuse_invalid_preflights(self) -> None:
         manifest = fixtures.load_manifest(MANIFEST_PATH)
         protocol = json.loads(
             (PLUGIN_ROOT / "benchmarks/controller_ab_protocol.json").read_text(
@@ -43,13 +43,13 @@ class ControllerABFixtureTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], 2)
         self.assertTrue(manifest["corpus_id"].endswith("-v2"))
-        self.assertTrue(protocol["protocol_id"].endswith("-v4"))
+        self.assertTrue(protocol["protocol_id"].endswith("-v5"))
         previous = protocol["previous_protocol_evidence"]
         self.assertEqual(
             [item["verdict"] for item in previous],
-            ["invalid", "invalid", "invalid"],
+            ["invalid", "invalid", "invalid", "invalid"],
         )
-        self.assertTrue(all(not item["reusable_for_v4_claims"] for item in previous))
+        self.assertTrue(all(not item["reusable_for_v5_claims"] for item in previous))
 
     def test_manifest_expands_exact_confirmatory_matrix(self) -> None:
         manifest = fixtures.load_manifest(MANIFEST_PATH)
@@ -137,10 +137,31 @@ class ControllerABFixtureTests(unittest.TestCase):
             self.assertNotIn("hidden_check", encoded)
             self.assertNotIn("quality_check", encoded)
             self.assertNotIn("evaluator_path", encoded)
-            self.assertTrue(definition["actor_path"].startswith("actor/promotion/"))
-            self.assertTrue(
-                definition["evaluator_path"].startswith("evaluators/promotion/")
-            )
+            self.assertNotIn("category", payload)
+            self.assertRegex(definition["fixture_id"], r"^cpfx-[0-9a-f]{24}$")
+            disclosed = (
+                definition["fixture_id"]
+                + definition["actor_path"]
+                + definition["evaluator_path"]
+            ).casefold()
+            for label in (*fixtures.MODES, *fixtures.CATEGORIES, "pilot", "promotion"):
+                self.assertNotIn(label, disclosed)
+
+    def test_actor_visible_metadata_has_no_experiment_labels(self) -> None:
+        definitions = fixtures.expand_definitions(fixtures.load_manifest(MANIFEST_PATH))
+        ids = [item["fixture_id"] for item in definitions]
+        repeated = fixtures.expand_definitions(fixtures.load_manifest(MANIFEST_PATH))
+        self.assertEqual(ids, [item["fixture_id"] for item in repeated])
+        self.assertEqual(len(ids), len(set(ids)))
+        for definition in definitions:
+            payload = fixtures.actor_payload(definition)
+            encoded = json.dumps(payload, sort_keys=True).casefold()
+            self.assertNotIn('"expected_mode"', encoded)
+            self.assertNotIn('"category"', encoded)
+            self.assertNotIn('"split"', encoded)
+            identifier = payload["fixture_id"].casefold()
+            for label in (*fixtures.MODES, *fixtures.CATEGORIES, "pilot", "promotion"):
+                self.assertNotIn(label, identifier)
 
     def test_modes_are_structurally_necessary_without_label_leakage(self) -> None:
         definitions = fixtures.expand_definitions(fixtures.load_manifest(MANIFEST_PATH))
@@ -277,12 +298,13 @@ class ControllerABFixtureTests(unittest.TestCase):
             self.assertEqual(len(config["tasks"]), 20)
             self.assertFalse(config["promotion_content_accessed"])
             self.assertTrue(
-                all("controller-pilot-" in task_id for task_id in config["tasks"])
+                all(task_id.startswith("cpfx-") for task_id in config["tasks"])
             )
+            definition_by_id = {item["fixture_id"]: item for item in definitions}
             read_only = next(
                 item
                 for key, item in config["tasks"].items()
-                if "parallel-read-only" in key
+                if definition_by_id[key]["expected_mode"] == "parallel-read-only"
             )
             self.assertEqual(read_only["allow_changes"], ["__read_only_no_changes__"])
             self.assertFalse(config["bypass_sandbox"])
@@ -325,9 +347,7 @@ class ControllerABFixtureTests(unittest.TestCase):
             self.assertEqual(len(promotion["tasks"]), 60)
             self.assertTrue(promotion["promotion_content_accessed"])
             self.assertTrue(
-                all(
-                    "controller-promotion-" in task_id for task_id in promotion["tasks"]
-                )
+                all(task_id.startswith("cpfx-") for task_id in promotion["tasks"])
             )
             unsandboxed = fixtures.build_batch_config(
                 manifest,
@@ -359,7 +379,7 @@ class ControllerABFixtureTests(unittest.TestCase):
 
             extra_id = json.loads(original_lock)
             extra = dict(extra_id["fixtures"][0])
-            extra["fixture_id"] = "controller-promotion-injected"
+            extra["fixture_id"] = "cpfx-ffffffffffffffffffffffff"
             extra_id["fixtures"].append(extra)
             extra_id["fixture_ids"].append(extra["fixture_id"])
             extra_id["materialized_fixture_count"] += 1

@@ -24,6 +24,29 @@ class HomePreparationError(ValueError):
     """Raised when clean, equivalent experiment homes cannot be produced."""
 
 
+INSTALLED_SURFACE_DIRECTORIES = (
+    ".codex-plugin",
+    "assets",
+    "hooks",
+    "skills",
+    "skills-core",
+)
+INSTALLED_SURFACE_FILES = (
+    "scripts/orchestration_policy.py",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+)
+SENSITIVE_DEVELOPMENT_PATHS = (
+    "benchmarks",
+    "tests",
+    "README.md",
+    "CHANGELOG.md",
+    "scripts/controller_ab_batch.py",
+    "scripts/controller_ab_fixtures.py",
+    "scripts/live_ab_runner.py",
+)
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -68,20 +91,51 @@ def _minimal_config(model: str, reasoning_effort: str) -> str:
     )
 
 
-def _copy_plugin(source: Path, destination: Path) -> None:
-    shutil.copytree(
-        source,
-        destination,
-        ignore=shutil.ignore_patterns(
-            ".git",
-            "__pycache__",
-            ".pytest_cache",
-            ".ruff_cache",
-            "benchmark-results",
-            "*.pyc",
-            "*.pyo",
-        ),
+def _copy_plugin(source: Path, destination: Path) -> dict[str, Any]:
+    """Copy the runtime surface only, keeping evaluator data outside CODEX_HOME."""
+    ignored = shutil.ignore_patterns(
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        "benchmark-results",
+        "*.pyc",
+        "*.pyo",
     )
+    destination.mkdir(parents=True)
+    for relative in INSTALLED_SURFACE_DIRECTORIES:
+        source_path = source / relative
+        if not source_path.is_dir():
+            raise HomePreparationError(
+                f"runtime surface directory is missing: {relative}"
+            )
+        shutil.copytree(source_path, destination / relative, ignore=ignored)
+    for relative in INSTALLED_SURFACE_FILES:
+        source_path = source / relative
+        if not source_path.is_file():
+            raise HomePreparationError(f"runtime surface file is missing: {relative}")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target)
+
+    hashes = tree_hashes(destination)
+    leaked = [
+        relative
+        for relative in SENSITIVE_DEVELOPMENT_PATHS
+        if (destination / relative).exists()
+    ]
+    if leaked:
+        raise HomePreparationError(
+            "runtime surface contains evaluator/development paths: " + ", ".join(leaked)
+        )
+    return {
+        "schema_version": 1,
+        "included_directories": list(INSTALLED_SURFACE_DIRECTORIES),
+        "included_files": list(INSTALLED_SURFACE_FILES),
+        "excluded_development_paths": list(SENSITIVE_DEVELOPMENT_PATHS),
+        "file_count": len(hashes),
+        "sha256": source_sha256(hashes),
+    }
 
 
 def _login_status(codex: str, home: Path) -> str:
@@ -129,6 +183,7 @@ def prepare_homes(
     config = _minimal_config(model, reasoning_effort)
     homes: dict[str, Path] = {}
     try:
+        surfaces: dict[str, dict[str, Any]] = {}
         for arm in ("baseline", "candidate"):
             home = output_root / arm
             cache = (
@@ -138,8 +193,10 @@ def prepare_homes(
             shutil.copy2(source_home / "auth.json", home / "auth.json")
             shutil.copy2(source_home / "AGENTS.md", home / "AGENTS.md")
             (home / "config.toml").write_text(config, encoding="utf-8")
-            _copy_plugin(plugin_source, cache)
+            surfaces[arm] = _copy_plugin(plugin_source, cache)
             homes[arm] = home
+        if surfaces["baseline"] != surfaces["candidate"]:
+            raise HomePreparationError("experiment runtime surfaces differ")
         auth_methods = {arm: _login_status(codex, home) for arm, home in homes.items()}
         if len(set(auth_methods.values())) != 1:
             raise HomePreparationError(
@@ -160,6 +217,7 @@ def prepare_homes(
             "source_git": git,
             "plugin_version": version,
             "plugin_sha256": plugin["source_sha256"],
+            "installed_surface": surfaces["baseline"],
             "home_sha256": source_sha256(baseline_hashes),
             "config_sha256": _sha256(homes["baseline"] / "config.toml"),
             "instructions_sha256": _sha256(homes["baseline"] / "AGENTS.md"),

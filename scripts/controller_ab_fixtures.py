@@ -30,6 +30,20 @@ CORPUS_SCHEMA_VERSION = 2
 FIXTURE_SCHEMA_VERSION = 2
 TASK_CONTRACT_SCHEMA_VERSION = 3
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+OPAQUE_FIXTURE_ID_PREFIX = "cpfx-"
+ACTOR_FORBIDDEN_FIELDS = {
+    "actor_path",
+    "category",
+    "checks",
+    "evaluation",
+    "evaluator_path",
+    "expected_mode",
+    "held_out",
+    "hidden_check",
+    "ordinal",
+    "quality_check",
+    "split",
+}
 
 
 class CorpusError(ValueError):
@@ -76,7 +90,6 @@ def _actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
         "schema_version": FIXTURE_SCHEMA_VERSION,
         "corpus_id": definition["corpus_id"],
         "fixture_id": definition["fixture_id"],
-        "category": definition["category"],
         "prompt": definition["prompt"],
         "goal": definition["goal"],
         "allowed_paths": definition["allowed_paths"],
@@ -90,17 +103,10 @@ def _actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
 def actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
     """Return the only payload that may be handed to an acting arm."""
     payload = _actor_payload(definition)
-    forbidden = {
-        "expected_mode",
-        "evaluation",
-        "hidden_check",
-        "quality_check",
-        "evaluator_path",
-    }
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
-            if forbidden.intersection(value):
+            if ACTOR_FORBIDDEN_FIELDS.intersection(value):
                 raise CorpusError("actor payload contains evaluator-only fields")
             for item in value.values():
                 visit(item)
@@ -109,7 +115,25 @@ def actor_payload(definition: dict[str, Any]) -> dict[str, Any]:
                 visit(item)
 
     visit(payload)
+    fixture_id = payload.get("fixture_id")
+    if (
+        not isinstance(fixture_id, str)
+        or not fixture_id.startswith(OPAQUE_FIXTURE_ID_PREFIX)
+        or any(
+            label in fixture_id.casefold()
+            for label in (*MODES, *CATEGORIES, *SPLIT_COUNTS)
+        )
+    ):
+        raise CorpusError("actor payload requires an opaque fixture_id")
     return payload
+
+
+def _opaque_fixture_id(
+    corpus_id: str, split: str, mode: str, category: str, ordinal: int
+) -> str:
+    """Return a stable identifier whose text discloses no experiment labels."""
+    identity = "\0".join((corpus_id, split, mode, category, str(ordinal)))
+    return OPAQUE_FIXTURE_ID_PREFIX + _sha256(identity.encode("utf-8"))[:24]
 
 
 def _goal(mode: str, fixture_id: str) -> str:
@@ -411,7 +435,9 @@ def expand_definitions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         for mode in MODES:
             for category in CATEGORIES:
                 for ordinal in range(1, count + 1):
-                    fixture_id = f"controller-{split}-{mode}-{category}-{ordinal:02d}"
+                    fixture_id = _opaque_fixture_id(
+                        manifest["corpus_id"], split, mode, category, ordinal
+                    )
                     definition = {
                         "schema_version": FIXTURE_SCHEMA_VERSION,
                         "corpus_id": manifest["corpus_id"],
@@ -784,9 +810,10 @@ def materialize(
                 "git_identity": git_identity(actor_root),
             }
         )
-    promotion_locks = [
-        item for item in locks if item["fixture_id"].startswith("controller-promotion-")
-    ]
+    promotion_ids = {
+        item["fixture_id"] for item in all_definitions if item["split"] == "promotion"
+    }
+    promotion_locks = [item for item in locks if item["fixture_id"] in promotion_ids]
     lock = {
         "schema_version": 3,
         "kind": "controller_ab_fixture_lock",
@@ -972,8 +999,16 @@ def validate_corpus(
                 else:
                     if actual_payload != actor_payload(definition):
                         reasons.append("actor task payload differs from definition")
-                    if "expected_mode" in json.dumps(actual_payload):
-                        reasons.append("actor task payload leaks expected_mode")
+                    forbidden = ACTOR_FORBIDDEN_FIELDS.intersection(actual_payload)
+                    if forbidden:
+                        reasons.append(
+                            "actor task payload leaks evaluator metadata: "
+                            + ", ".join(sorted(forbidden))
+                        )
+                    try:
+                        actor_payload(definition)
+                    except CorpusError as error:
+                        reasons.append(str(error))
         statuses.append(
             {
                 "fixture_id": definition["fixture_id"],

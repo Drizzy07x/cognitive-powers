@@ -91,6 +91,15 @@ class IntegrationEvaluationTests(unittest.TestCase):
         }
         return [baseline, candidate]
 
+    def _task_id(self, split: str, mode: str, category: str) -> str:
+        return next(
+            task["task_id"]
+            for task in self.contract["tasks"]
+            if task["split"] == split
+            and task["expected_mode"] == mode
+            and task["category"] == category
+        )
+
     def _complete_protocol_receipts(self, *, live: bool = False) -> list[object]:
         receipts: list[object] = []
         for split in ("pilot", "promotion"):
@@ -180,14 +189,15 @@ class IntegrationEvaluationTests(unittest.TestCase):
             ("source_sha256", "b" * 64),
         ):
             with self.subTest(field=field):
-                pair = self._v2_pair("controller-pilot-solo-bug-fix-01", 1)
+                pair = self._v2_pair(self._task_id("pilot", "solo", "bug-fix"), 1)
                 pair[1][field] = replacement
                 with self.assertRaisesRegex(evaluation.EvaluationError, field):
                     evaluation.compare(pair, task_contract=self.contract)
 
     def test_task_binding_and_held_out_split_are_fail_closed(self) -> None:
         pair = self._v2_pair(
-            "controller-promotion-parallel-read-only-current-source-research-01", 1
+            self._task_id("promotion", "parallel-read-only", "current-source-research"),
+            1,
         )
         pair[0]["split"] = "pilot"
         pair[1]["split"] = "pilot"
@@ -197,14 +207,14 @@ class IntegrationEvaluationTests(unittest.TestCase):
             evaluation.compare(pair, task_contract=self.contract)
 
         bad_contract = copy.deepcopy(self.contract)
-        bad_contract["rounds"]["promotion"]["task_ids"][0] = (
-            "controller-pilot-solo-bug-fix-01"
+        bad_contract["rounds"]["promotion"]["task_ids"][0] = self._task_id(
+            "pilot", "solo", "bug-fix"
         )
         with self.assertRaisesRegex(evaluation.EvaluationError, "must be disjoint"):
             evaluation.validate_task_contract(bad_contract)
 
     def test_repeated_balanced_protocol_is_required(self) -> None:
-        pair = self._v2_pair("controller-promotion-solo-bug-fix-01", 1)
+        pair = self._v2_pair(self._task_id("promotion", "solo", "bug-fix"), 1)
         report = evaluation.compare(
             pair, minimum_live_pairs=1, task_contract=self.contract
         )
@@ -250,7 +260,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
         self.assertFalse(report["end_to_end_improvement_proven"])
 
     def test_cached_and_fresh_input_are_validated_and_reported(self) -> None:
-        pair = self._v2_pair("controller-pilot-solo-bug-fix-01", 1)
+        pair = self._v2_pair(self._task_id("pilot", "solo", "bug-fix"), 1)
         for receipt in pair:
             receipt["cached_input_tokens"] = 30
             receipt["fresh_input_tokens"] = receipt["input_tokens"] - 30
@@ -262,7 +272,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
             evaluation.compare(pair, task_contract=self.contract)
 
     def test_live_v2_receipts_fail_closed_without_experiment_identity(self) -> None:
-        pair = self._v2_pair("controller-pilot-solo-bug-fix-01", 1, live=True)
+        pair = self._v2_pair(self._task_id("pilot", "solo", "bug-fix"), 1, live=True)
         with self.assertRaisesRegex(evaluation.EvaluationError, "frozen identity"):
             evaluation.compare(pair, task_contract=self.contract)
 
@@ -270,7 +280,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
         identity = evaluation.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        pair = self._v2_pair("controller-pilot-solo-bug-fix-01", 1, live=True)
+        pair = self._v2_pair(self._task_id("pilot", "solo", "bug-fix"), 1, live=True)
         for receipt, mode in zip(pair, ("forced-solo", "adaptive"), strict=True):
             receipt.update(
                 {
@@ -325,7 +335,9 @@ class IntegrationEvaluationTests(unittest.TestCase):
         identity = evaluation.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        receipt = self._v2_pair("controller-pilot-solo-bug-fix-01", 1, live=True)[0]
+        receipt = self._v2_pair(
+            self._task_id("pilot", "solo", "bug-fix"), 1, live=True
+        )[0]
         receipt.update(
             {
                 "fixture_git_sha256": "b" * 64,
@@ -629,7 +641,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
         with self.assertRaisesRegex(evaluation.EvaluationError, "not paired"):
             evaluation.compare(self.receipts[:1])
 
-        first = self._v2_pair("controller-pilot-solo-bug-fix-01", 1)
+        first = self._v2_pair(self._task_id("pilot", "solo", "bug-fix"), 1)
         duplicate = copy.deepcopy(first)
         for receipt in duplicate:
             receipt["case_id"] = "another-case-id"
