@@ -17,8 +17,10 @@ discovery for non-trivial work, read the full skill and obtain the compact v2
 input template with `<plugin-root>/scripts/orchestration_policy.py
 --agent-plan-template 2 --json`. Fill that template and submit it with
 `--agent-plan <json-or-stdin> --json`. Never read `orchestration_policy.py` to
-discover its contract. Follow its `solo`, `parallel-read-only`,
-`parallel-packets`, or `staged-verify` waves and re-evaluate after each wave.
+discover its contract. Follow its complete `solo`, `parallel-read-only`,
+`parallel-packets`, or `staged-verify` plan and keep its assignment IDs immutable.
+After each wave, evaluate the declared stop conditions without generating a
+replacement plan; if it becomes invalid, stop delegation and report degradation.
 Use schema v2 for durable work or quality claims. It binds assignments to the
 plan, requires an observed RED cycle before a separate test-writer, and requires
 an executable verification target before scheduling a verifier. Treat v1 worker

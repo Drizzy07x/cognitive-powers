@@ -44,11 +44,11 @@ AGENT_PLAN_MODES = {
 }
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
-CONTROLLER_DIRECTIVE_VERSION = 4
+CONTROLLER_DIRECTIVE_VERSION = 5
 CONTROLLER_DIRECTIVE_TEMPLATE = """[Cognitive Powers controller directive v{version}; mode={mode}]
 This directive is the controller_mode treatment and the only intentional A/B difference.
 {behavior}
-For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Before spawning, emit the exact canonical v2 agent_plan returned by the orchestration runtime as a standalone JSON agent_message; do not summarize, rewrite, infer, or reconstruct it. Never claim an agent ran unless the native host tool ran and was joined.
+For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Emit exactly one complete canonical v2 agent_plan per task, as returned by the orchestration runtime, in a standalone JSON agent_message before any spawn; do not summarize, rewrite, infer, reconstruct, or replace it. Execute its waves in order. Between waves, evaluate its stop conditions without emitting a new plan or changing assignment ids; if the plan becomes invalid, stop delegation and report degradation. Never claim an agent ran unless the native host tool ran and was joined.
 """
 SUPPORTED_EVENT_TYPES = {
     "thread.started",

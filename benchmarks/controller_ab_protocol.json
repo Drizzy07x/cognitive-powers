@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v6",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v5",
+  "protocol_id": "cognitive-powers-controller-ab-v7",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v6",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -13,7 +13,7 @@
       "verdict": "invalid",
       "immutable_preflight_sessions": 8,
       "sha256_index": "31509c6aaf2e664596fd2910e9fc8b2f64663728dc9c3f3817a40a56ab534ef9",
-      "reusable_for_v6_claims": false
+      "reusable_for_v7_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v2",
@@ -23,7 +23,7 @@
       "failure": "codex exec JSON omitted host-backed child lifecycle and controller_mode did not yet apply an observable treatment",
       "sha256_index": null,
       "index_absent_reason": "the v2 batch aborted before its invalid-path artifact index was implemented",
-      "reusable_for_v6_claims": false
+      "reusable_for_v7_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v3",
@@ -32,7 +32,7 @@
       "preflight_sessions_required": 8,
       "failure": "agent lifecycle classifier raised while sorting multiple unbound assignment identifiers",
       "sha256_index": "5b77a4a1887ad642b2f1086c675e5f815fbf68b09e770baea679071842e2f9cb",
-      "reusable_for_v6_claims": false
+      "reusable_for_v7_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v4",
@@ -42,7 +42,7 @@
       "preflight_sessions_required": 8,
       "failure": "fixture identifiers and the installed evaluation manifest leaked expected modes; write tasks also lacked usable workspace permission and canonical plan telemetry",
       "sha256_index": "960af13ad534829eca6e59641b8dcf8643d2dbb7f8da6c547d139986436653ea",
-      "reusable_for_v6_claims": false
+      "reusable_for_v7_claims": false
     },
     {
       "protocol_id": "cognitive-powers-controller-ab-v5",
@@ -52,7 +52,17 @@
       "preflight_sessions_required": 8,
       "failure": "the evaluator rejected read-only ownership scopes that the canonical planner validly emitted despite an unchanged workspace",
       "sha256_index": "72c9518754707d665b8868ff41709c6ac47f65a375e0ea0eec7af3cea42eca03",
-      "reusable_for_v6_claims": false
+      "reusable_for_v7_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v6",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 4,
+      "preflight_sessions_attempted": 6,
+      "preflight_sessions_required": 8,
+      "failure": "the adaptive arm emitted a replacement verification plan instead of executing the immutable verification wave and assignment ids from its initial complete plan",
+      "sha256_index": "3fa5db5eb14667d4f0796fc7d70e4ee4bedf7458cf6f6dc9684c74a72ad51e37",
+      "reusable_for_v7_claims": false
     }
   ],
   "comparison": {
