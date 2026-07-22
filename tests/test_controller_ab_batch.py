@@ -81,6 +81,10 @@ class ControllerAbBatchTests(unittest.TestCase):
         )
         self.assertTrue(all(job["non_scored"] for job in schedule["jobs"]))
         self.assertEqual(
+            {job["expected_mode"] for job in schedule["jobs"]},
+            {"solo", "parallel-read-only", "parallel-packets", "staged-verify"},
+        )
+        self.assertEqual(
             {job["runner_seed"] for job in schedule["jobs"]},
             {contract["rounds"]["pilot"]["arm_order"]["seed"]},
         )
@@ -406,6 +410,15 @@ class ControllerAbBatchTests(unittest.TestCase):
             receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
             with self.assertRaisesRegex(batch.BatchError, "semantic identities"):
                 batch.validate_job_output(root, job)
+
+            self._fake_runner_output(command)
+            preflight_job = {
+                **job,
+                "job_id": "preflight-parallel-read-only",
+                "expected_mode": "parallel-read-only",
+            }
+            with self.assertRaisesRegex(batch.BatchError, "did not exercise"):
+                batch.validate_job_output(root, preflight_job)
 
     def test_schema_v1_is_not_claim_eligible_for_v2_confirmatory_inputs(self) -> None:
         legacy = {"schema_version": 1, "claim_eligible": False}

@@ -143,6 +143,23 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(v1["planner_input_schema_version"], 1)
         self.assertEqual(v2["planner_input_schema_version"], 2)
         self.assertEqual(v2["supported_planner_input_schema_versions"], [1, 2])
+        self.assertEqual(
+            v2["allowed_values"],
+            {
+                "request_mode": ["answer", "change", "diagnose", "monitor"],
+                "phase": ["diagnose", "discover", "implement", "verify"],
+                "authorization": ["change", "read-only"],
+                "unit_role": [
+                    "executor",
+                    "investigator",
+                    "researcher",
+                    "reviewer",
+                    "test-writer",
+                ],
+            },
+        )
+        self.assertTrue(v2["field_rules"]["enum_values_are_exact"])
+        self.assertIn("do not put role=verifier", v2["field_rules"]["verifier_units_are_synthetic"])
         self.assertIn("retry_record", v2["template"])
         self.assertIn("previous_worker_failed", v1["template"])
         self.assertTrue(planned["valid_input"])

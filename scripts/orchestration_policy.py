@@ -186,6 +186,19 @@ def agent_plan_template(schema_version: int = 2) -> dict[str, Any]:
         "kind": "agent_plan_input_interface",
         "planner_input_schema_version": schema_version,
         "supported_planner_input_schema_versions": list(AGENT_PLAN_INPUT_VERSIONS),
+        "allowed_values": {
+            "request_mode": sorted(REQUEST_MODES),
+            "phase": sorted(PHASES),
+            "authorization": sorted(AUTHORIZATIONS),
+            "unit_role": sorted(AGENT_ROLES),
+        },
+        "field_rules": {
+            "enum_values_are_exact": True,
+            "verifier_units_are_synthetic": (
+                "do not put role=verifier in units; provide verification_check and "
+                "the planner creates the fresh verifier"
+            ),
+        },
         "commands": {
             "discover": "orchestration_policy.py --agent-plan-template 2 --json",
             "plan": "orchestration_policy.py --agent-plan - --json",

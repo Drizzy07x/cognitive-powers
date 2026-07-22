@@ -165,6 +165,7 @@ def build_preflight_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
                 "declared_repetitions": 1,
                 "arm_orders": [order],
                 "non_scored": True,
+                "expected_mode": mode,
             }
         )
         for arm in order:
@@ -548,6 +549,15 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
         ):
             raise BatchError(
                 f"runner receipt lacks identity or telemetry for {job['job_id']}"
+            )
+        if (
+            receipt.get("variant") == "candidate"
+            and job.get("expected_mode") is not None
+            and telemetry.get("selected_mode") != job["expected_mode"]
+        ):
+            raise BatchError(
+                f"preflight candidate did not exercise {job['expected_mode']} "
+                f"for {job['job_id']}"
             )
         planned = execution.get("planned_assignment_ids")
         spawned = execution.get("spawned_assignment_ids")

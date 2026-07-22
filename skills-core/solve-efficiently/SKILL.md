@@ -33,6 +33,12 @@ discovery, a fixed model, a fixed swarm size, or hooks to create agents. A
 semantic planning-input error fails closed to `solo`; it never expands scope or
 grants write authority.
 
+Copy every enum from the template's `allowed_values` exactly. Do not invent
+aliases such as `write`, `workspace-write`, or `implement` for fields whose
+declared values are `change`. Do not add a `verifier` unit: provide the
+executable `verification_check` and let the planner create its fresh synthetic
+verifier.
+
 `selected_mode` is the planner decision. A new plan deliberately has
 `executed_mode=null`, `outcome=planned`, and `degradation=null`; only observed
 host execution may populate those receipt fields. If the main agent absorbs a
