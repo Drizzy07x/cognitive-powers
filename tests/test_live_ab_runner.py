@@ -234,7 +234,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v3")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v4")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -460,6 +460,50 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertEqual(decision["actual_mode"], "solo")
         self.assertEqual(decision["decision_observation"], "missing")
         self.assertFalse(decision["complete"])
+
+    def test_multiple_unbound_lifecycle_entries_fail_closed_without_crashing(
+        self,
+    ) -> None:
+        plan = {
+            "mode": "parallel-read-only",
+            "waves": [
+                {
+                    "assignments": [
+                        {"assignment_id": "investigator-a"},
+                        {"assignment_id": "investigator-b"},
+                    ]
+                }
+            ],
+        }
+        lifecycle = [
+            {
+                "assignment_id": None,
+                "actor_id": f"child-{index}",
+                "phases": ["spawned", "joined", "result"],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+            for index in range(2)
+        ]
+        parsed = {
+            "agent_plans": [plan],
+            "agent_spawns": 2,
+            "agent_joins": 2,
+            "agent_lifecycle": lifecycle,
+            "usage_includes_subagents": True,
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
+        }
+
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+
+        self.assertFalse(decision["complete"])
+        self.assertEqual(
+            decision["agent_execution_receipt"]["invalid_lifecycle_assignment_count"],
+            2,
+        )
+        self.assertEqual(
+            decision["agent_execution_receipt"]["spawned_assignment_ids"], []
+        )
 
     def test_parallel_plan_without_observed_agents_is_incomplete(self) -> None:
         parsed = {

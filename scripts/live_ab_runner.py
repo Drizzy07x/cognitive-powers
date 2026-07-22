@@ -1029,28 +1029,37 @@ def classify_agent_decision(
     valid_plan_ids = all(
         isinstance(item, str) and item for item in planned_ids
     ) and len(planned_ids) == len(set(planned_ids))
-    spawned_ids = sorted(
-        item["assignment_id"]
+    lifecycle_with_invalid_ids = [
+        item
         for item in lifecycle
-        if "spawned" in item.get("phases", [])
-    )
-    joined_ids = sorted(
-        item["assignment_id"]
-        for item in lifecycle
-        if "joined" in item.get("phases", [])
-    )
-    result_ids = sorted(
-        item["assignment_id"]
-        for item in lifecycle
-        if "result" in item.get("phases", [])
-    )
+        if any(
+            phase in item.get("phases", []) for phase in ("spawned", "joined", "result")
+        )
+        and not (isinstance(item.get("assignment_id"), str) and item["assignment_id"])
+    ]
+
+    def phase_assignment_ids(phase: str) -> list[str]:
+        return sorted(
+            item["assignment_id"]
+            for item in lifecycle
+            if phase in item.get("phases", [])
+            and isinstance(item.get("assignment_id"), str)
+            and item["assignment_id"]
+        )
+
+    spawned_ids = phase_assignment_ids("spawned")
+    joined_ids = phase_assignment_ids("joined")
+    result_ids = phase_assignment_ids("result")
     usage_by_assignment = {
         item["assignment_id"]: item.get("usage")
         for item in lifecycle
         if item.get("usage") is not None
+        and isinstance(item.get("assignment_id"), str)
+        and item["assignment_id"]
     }
     exact_lifecycle = (
         valid_plan_ids
+        and not lifecycle_with_invalid_ids
         and sorted(planned_ids) == spawned_ids == joined_ids == result_ids
         and set(usage_by_assignment) == set(planned_ids)
         and semantic_binding
@@ -1103,6 +1112,7 @@ def classify_agent_decision(
         "spawned_assignment_ids": spawned_ids,
         "joined_assignment_ids": joined_ids,
         "result_assignment_ids": result_ids,
+        "invalid_lifecycle_assignment_count": len(lifecycle_with_invalid_ids),
         "descendant_usage": usage_by_assignment,
         "descendant_total_tokens": sum(
             item["input_tokens"] + item["output_tokens"]
