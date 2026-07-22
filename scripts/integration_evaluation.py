@@ -1068,6 +1068,13 @@ def normalize_receipt(value: object) -> dict[str, Any]:
             )
             if not isinstance(telemetry.get("complete"), bool):
                 raise EvaluationError("agent_telemetry.complete must be boolean")
+            observation_complete = telemetry.get(
+                "telemetry_observation_complete", telemetry["complete"]
+            )
+            if not isinstance(observation_complete, bool):
+                raise EvaluationError(
+                    "agent_telemetry.telemetry_observation_complete must be boolean"
+                )
             actual_mode = telemetry.get("actual_mode")
             if actual_mode is not None:
                 actual_mode = _string(actual_mode, "agent_telemetry.actual_mode")
@@ -1081,6 +1088,7 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                 "spawn_count": spawn_count,
                 "join_count": join_count,
                 "complete": telemetry["complete"],
+                "telemetry_observation_complete": observation_complete,
                 "actual_mode": actual_mode,
             }
             observations = telemetry.get("observed_assignments", [])
@@ -1236,7 +1244,7 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                     "live schema-v2 receipt lacks frozen identity: "
                     + ", ".join(missing)
                 )
-            if not result["agent_telemetry"]["complete"]:
+            if not result["agent_telemetry"]["telemetry_observation_complete"]:
                 raise EvaluationError("live agent telemetry is incomplete")
     return result
 
@@ -1624,6 +1632,16 @@ def compare(
         efficiency_eligible = (
             successful_pair if confirmatory_pair else quality_gate_passed
         )
+        baseline_compliant = bool(
+            baseline.get("agent_telemetry", {})
+            .get("agent_execution_receipt", {})
+            .get("complete")
+        )
+        candidate_compliant = bool(
+            candidate.get("agent_telemetry", {})
+            .get("agent_execution_receipt", {})
+            .get("complete")
+        )
         token_delta = candidate_tokens - baseline_tokens if successful_pair else None
         baseline_fresh = baseline["fresh_input_tokens"]
         candidate_fresh = candidate["fresh_input_tokens"]
@@ -1638,6 +1656,9 @@ def compare(
             "candidate_success": candidate["success"],
             "success_delta": float(candidate["success"]) - float(baseline["success"]),
             "critical_failure": critical_failure,
+            "baseline_controller_compliant": baseline_compliant,
+            "candidate_controller_compliant": candidate_compliant,
+            "plan_compliant_pair": baseline_compliant and candidate_compliant,
             "candidate_critical_failure": bool(candidate["critical_errors"]),
             "quality_preserved": quality_preserved,
             "baseline_quality_score": baseline["quality_score"],
@@ -1904,6 +1925,19 @@ def compare(
         and routing_recall >= recall_min
         and agent_compliance
     )
+    plan_compliant_scope = [
+        pair for pair in evidence_scope if pair.get("plan_compliant_pair") is True
+    ]
+    analysis_populations = {
+        "primary": "intention-to-treat",
+        "itt_pair_count": len(evidence_scope),
+        "plan_compliant_pair_count": len(plan_compliant_scope),
+        "noncompliant_pair_count": len(evidence_scope) - len(plan_compliant_scope),
+        "secondary": "plan-compliant-only",
+        "secondary_exclusion_reasons": {
+            "controller_noncompliance": len(evidence_scope) - len(plan_compliant_scope)
+        },
+    }
     protocol_bound = bool(protocol_identity) and all(
         receipt.get("controller_protocol_id") == protocol_identity["protocol_id"]
         and receipt.get("controller_protocol_sha256") == protocol_identity["sha256"]
@@ -1930,6 +1964,7 @@ def compare(
             "recall": routing_recall,
             "agent_plan_compliant": agent_compliance,
         },
+        "analysis_populations": analysis_populations,
         "protocol_status": protocol_status,
     }
     semantic_artifact_binding = (
@@ -2033,6 +2068,7 @@ def compare(
             "agent_plan_compliant": agent_compliance,
             "passed": routing_passed,
         },
+        "analysis_populations": analysis_populations,
         "protocol": protocol_status,
         "controller_protocol": protocol_identity,
         "artifact_bundle": (

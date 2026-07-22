@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v16",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v15",
+  "protocol_id": "cognitive-powers-controller-ab-v17",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v16",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -157,6 +157,18 @@
       "failure": "the evaluator incorrectly treated the per-arm pre-evaluation diff hash as shared frozen identity, invalidating legitimate outcome differences; the coordinator diff metadata schema also differed from the independent semantic validator schema",
       "sha256_index": "6295120cdf1d51510fcb0a682d133922c63c5563c2b12ee71219302cbcc07ec1",
       "reusable_for_v16_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v16",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 8,
+      "preflight_sessions_required": 8,
+      "pilot_sessions_completed": 26,
+      "pilot_sessions_attempted": 28,
+      "pilot_sessions_required": 120,
+      "failure": "the batch conflated fully observed controller noncompliance with missing telemetry; a forced-solo arm suppressed all agents but emitted a policy plan, so the session should have remained an ITT outcome instead of invalidating the instrument",
+      "sha256_index": "9ddb8c6f72f20216c643b05e4530a6492e05624513f4c34fd4bc201fa1b4f936",
+      "reusable_for_v17_claims": false
     }
   ],
   "comparison": {

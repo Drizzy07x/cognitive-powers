@@ -44,7 +44,7 @@ AGENT_PLAN_MODES = {
 }
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
-CONTROLLER_DIRECTIVE_VERSION = 5
+CONTROLLER_DIRECTIVE_VERSION = 6
 CONTROLLER_DIRECTIVE_TEMPLATE = """[Cognitive Powers controller directive v{version}; mode={mode}]
 This directive is the controller_mode treatment and the only intentional A/B difference.
 {behavior}
@@ -70,7 +70,7 @@ def controller_directive(mode: str) -> dict[str, str]:
     if mode not in CONTROLLER_MODES:
         raise LiveEvaluationError(f"invalid controller mode: {mode}")
     behavior = (
-        "Do not spawn, delegate, or call any agent tool. Complete the task in the parent."
+        "Do not consult the orchestration planner, emit an agent_plan, spawn, delegate, or call any agent tool. Complete the task in the parent."
         if mode == "forced-solo"
         else "For non-trivial work, consult and execute the Cognitive Powers orchestration policy; obey its solo/delegation decision and use native agent tools when it delegates."
     )
@@ -1170,21 +1170,25 @@ def classify_agent_decision(
 ) -> dict[str, Any]:
     """Classify an explicit plan or the focused no-agent fast path."""
     observed_plan = parsed["agent_plans"][-1] if parsed["agent_plans"] else None
+    suppressed_plan = observed_plan if controller_mode == "forced-solo" else None
+    active_plan = None if controller_mode == "forced-solo" else observed_plan
     implicit_solo = (
-        observed_plan is None
+        active_plan is None
         and parsed["agent_spawns"] == 0
         and not parsed.get("agent_lifecycle", [])
     )
     selected_mode = (
-        observed_plan.get("mode")
-        if observed_plan
+        "solo"
+        if controller_mode == "forced-solo"
+        else active_plan.get("mode")
+        if active_plan
         else ("solo" if implicit_solo else None)
     )
     lifecycle = _bind_rollout_assignments(
-        observed_plan, parsed.get("agent_lifecycle", [])
+        active_plan, parsed.get("agent_lifecycle", [])
     )
     planned, lifecycle_bindings, semantic_binding = _execution_semantics(
-        observed_plan, lifecycle
+        active_plan, lifecycle
     )
     planned_ids = [item.get("assignment_id") for item in planned]
     valid_plan_ids = all(
@@ -1228,7 +1232,7 @@ def classify_agent_decision(
     host_persistent = bool(parsed.get("parent_thread_id")) and not parsed.get(
         "host_errors"
     )
-    explicit_plan_complete = observed_plan is not None and (
+    explicit_plan_complete = active_plan is not None and (
         selected_mode == "solo"
         and not planned
         and not lifecycle
@@ -1240,9 +1244,19 @@ def classify_agent_decision(
         and host_persistent
     )
     complete = (
-        parsed["agent_spawns"] == 0 and selected_mode == "solo" and host_persistent
+        parsed["agent_spawns"] == 0
+        and not lifecycle
+        and selected_mode == "solo"
+        and host_persistent
         if controller_mode == "forced-solo"
         else (implicit_solo and host_persistent) or explicit_plan_complete
+    )
+    telemetry_observation_complete = bool(
+        host_persistent
+        and selected_mode in AGENT_PLAN_MODES
+        and not lifecycle_with_invalid_ids
+        and spawned_ids == joined_ids == result_ids
+        and set(usage_by_assignment) == set(spawned_ids)
     )
     executed_mode = selected_mode if complete else "solo" if not spawned_ids else None
     outcome = (
@@ -1254,9 +1268,16 @@ def classify_agent_decision(
     )
     plan_sha256 = (
         hashlib.sha256(
-            json.dumps(observed_plan, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(active_plan, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
-        if observed_plan is not None
+        if active_plan is not None
+        else None
+    )
+    suppressed_plan_sha256 = (
+        hashlib.sha256(
+            json.dumps(suppressed_plan, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if suppressed_plan is not None
         else None
     )
     execution_receipt = {
@@ -1280,6 +1301,14 @@ def classify_agent_decision(
             for item in usage_by_assignment.values()
         ),
         "host_errors": list(parsed.get("host_errors", [])),
+        "telemetry_observation_complete": telemetry_observation_complete,
+        "controller_compliant": complete,
+        "plan_adherent": complete if controller_mode == "adaptive" else None,
+        "suppressed_policy_mode": (
+            suppressed_plan.get("mode") if suppressed_plan is not None else None
+        ),
+        "suppressed_policy_plan_sha256": suppressed_plan_sha256,
+        "override_reason": "forced-solo" if suppressed_plan is not None else None,
         "complete": complete,
     }
     return {
@@ -1289,14 +1318,17 @@ def classify_agent_decision(
         "actual_mode": executed_mode,
         "outcome": outcome,
         "decision_observation": (
-            "explicit-agent-plan"
-            if observed_plan is not None
+            "forced-solo-override"
+            if suppressed_plan is not None
+            else "explicit-agent-plan"
+            if active_plan is not None
             else "implicit-solo-no-agent-events"
             if implicit_solo
             else "missing"
         ),
         "planned_assignment_count": len(planned),
         "agent_execution_receipt": execution_receipt,
+        "telemetry_observation_complete": telemetry_observation_complete,
         "complete": complete,
     }
 
@@ -1842,10 +1874,10 @@ def _run_one(
     critical.extend(quality["critical_errors"])
     usage = parsed["usage"]
     decision = classify_agent_decision(parsed, controller_mode)
-    if not decision["complete"]:
-        critical.append(
-            "agent execution telemetry is incomplete or violates controller mode"
-        )
+    if not decision["telemetry_observation_complete"]:
+        critical.append("agent execution telemetry is incomplete")
+    elif not decision["complete"]:
+        critical.append("controller noncompliance: observed execution violated mode")
     if decision["executed_mode"] == "parallel-read-only" and changed:
         critical.append("read-only delegation changed the workspace")
     return {
@@ -1913,6 +1945,9 @@ def _run_one(
                 or parsed["usage_includes_subagents"]
             ),
             "agent_execution_receipt": decision["agent_execution_receipt"],
+            "telemetry_observation_complete": decision[
+                "telemetry_observation_complete"
+            ],
             "rollout_telemetry": rollout_telemetry,
             "workspace_change_check": {
                 "changed_paths": changed,

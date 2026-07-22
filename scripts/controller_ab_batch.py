@@ -592,11 +592,11 @@ def validate_job_output(
             or receipt.get("experiment_sha256") is None
             or not isinstance(telemetry, dict)
             or telemetry.get("schema_version") != 3
-            or telemetry.get("complete") is not True
+            or telemetry.get("telemetry_observation_complete") is not True
             or receipt.get("host_identity") != frozen_host
             or not isinstance(execution, dict)
             or execution.get("schema_version") != 3
-            or execution.get("complete") is not True
+            or execution.get("telemetry_observation_complete") is not True
             or not isinstance(workspace_check, dict)
             or workspace_check.get("provenance") != "pre-evaluator-tree-diff"
             or (
@@ -614,7 +614,11 @@ def validate_job_output(
         if (
             receipt.get("variant") == "candidate"
             and job.get("expected_mode") is not None
-            and telemetry.get("selected_mode") != job["expected_mode"]
+            and (
+                telemetry.get("selected_mode") != job["expected_mode"]
+                or execution.get("executed_mode") != job["expected_mode"]
+                or execution.get("complete") is not True
+            )
         ):
             raise BatchError(
                 f"preflight candidate did not exercise {job['expected_mode']} "
@@ -632,28 +636,37 @@ def validate_job_output(
             raise BatchError(
                 f"runner execution receipt is malformed for {job['job_id']}"
             )
-        if not (
-            len(planned) == len(set(planned))
-            and sorted(planned)
-            == sorted(spawned)
-            == sorted(joined)
-            == sorted(results_seen)
-        ):
-            raise BatchError(f"runner lifecycle is incomplete for {job['job_id']}")
-        if set(usage or {}) != set(planned):
+        unique_ids = all(
+            len(items) == len(set(items))
+            for items in (planned, spawned, joined, results_seen)
+        )
+        observed_lifecycle_complete = sorted(spawned) == sorted(joined) == sorted(
+            results_seen
+        ) and set(usage or {}) == set(spawned)
+        if not unique_ids or not observed_lifecycle_complete:
             raise BatchError(
-                f"runner descendant usage is incomplete for {job['job_id']}"
+                f"runner lifecycle telemetry is incomplete for {job['job_id']}"
             )
-        if execution.get("selected_mode") != execution.get("executed_mode"):
-            raise BatchError(f"runner execution degraded for {job['job_id']}")
-        if execution.get("outcome") != "completed":
-            raise BatchError(f"runner execution did not complete for {job['job_id']}")
+        if execution.get("complete") is True:
+            if (
+                sorted(planned) != sorted(spawned)
+                or execution.get("selected_mode") != execution.get("executed_mode")
+                or execution.get("outcome") != "completed"
+            ):
+                raise BatchError(
+                    f"runner completed execution is inconsistent for {job['job_id']}"
+                )
+        elif execution.get("outcome") not in {"degraded", "invalid"}:
+            raise BatchError(
+                f"runner degraded execution is inconsistent for {job['job_id']}"
+            )
         if (
             execution.get("executed_mode") == "parallel-read-only"
             and workspace_check.get("read_only_unchanged") is not True
         ):
             raise BatchError(f"read-only delegation changed files for {job['job_id']}")
-        _validate_execution_semantics(execution)
+        if execution.get("complete") is True:
+            _validate_execution_semantics(execution)
     result_keys: set[tuple[str, str]] = set()
     for result in results:
         if not isinstance(result, dict):
@@ -693,6 +706,20 @@ def validate_job_output(
         ):
             raise BatchError(
                 f"runner pre-evaluator diff is not bound for {job['job_id']}"
+            )
+        execution = receipt.get("agent_telemetry", {}).get(
+            "agent_execution_receipt", {}
+        )
+        critical_errors = result.get("critical_errors")
+        if execution.get("complete") is False and (
+            not isinstance(critical_errors, list)
+            or not any(
+                isinstance(item, str) and item.startswith("controller noncompliance:")
+                for item in critical_errors
+            )
+        ):
+            raise BatchError(
+                f"runner noncompliance is not counted as critical for {job['job_id']}"
             )
         result_keys.add(key)
     if result_keys != keys:

@@ -305,7 +305,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertNotEqual(
             forced_receipt["mode_sha256"], adaptive_receipt["mode_sha256"]
         )
-        self.assertIn("Do not spawn", forced)
+        self.assertIn("Do not consult the orchestration planner", forced)
         self.assertIn("consult and execute", adaptive)
         self.assertIn("exactly one complete canonical v2 agent_plan", adaptive)
 
@@ -375,7 +375,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v16")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v17")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -816,6 +816,35 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertEqual(decision["selected_mode"], "parallel-packets")
         self.assertEqual(decision["executed_mode"], "solo")
         self.assertEqual(decision["outcome"], "degraded")
+        self.assertTrue(decision["telemetry_observation_complete"])
+        self.assertFalse(decision["agent_execution_receipt"]["controller_compliant"])
+
+    def test_forced_solo_suppresses_policy_plan_without_false_degradation(self) -> None:
+        plan = {
+            "mode": "parallel-packets",
+            "waves": [{"assignments": [{"assignment_id": "worker-1"}]}],
+        }
+        parsed = {
+            "agent_plans": [plan],
+            "agent_spawns": 0,
+            "agent_joins": 0,
+            "observed_assignments": [],
+            "usage_includes_subagents": False,
+            "agent_lifecycle": [],
+            "parent_thread_id": "thread-1",
+            "host_errors": [],
+        }
+        decision = runner.classify_agent_decision(parsed, "forced-solo")
+        execution = decision["agent_execution_receipt"]
+        self.assertTrue(decision["complete"])
+        self.assertTrue(decision["telemetry_observation_complete"])
+        self.assertEqual(decision["selected_mode"], "solo")
+        self.assertEqual(decision["executed_mode"], "solo")
+        self.assertEqual(decision["outcome"], "completed")
+        self.assertEqual(execution["suppressed_policy_mode"], "parallel-packets")
+        self.assertEqual(len(execution["suppressed_policy_plan_sha256"]), 64)
+        self.assertEqual(execution["planned_assignment_ids"], [])
+        self.assertEqual(decision["decision_observation"], "forced-solo-override")
 
     def test_complete_delegation_requires_exact_host_lifecycle_and_usage(self) -> None:
         executor = {

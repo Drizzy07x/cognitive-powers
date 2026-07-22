@@ -258,11 +258,13 @@ class ControllerAbBatchTests(unittest.TestCase):
                 telemetry = {
                     "schema_version": 3,
                     "complete": True,
+                    "telemetry_observation_complete": True,
                     "controller_mode": mode,
                     "actual_mode": "solo",
                     "agent_execution_receipt": {
                         "schema_version": 3,
                         "complete": True,
+                        "telemetry_observation_complete": True,
                         "selected_mode": "solo",
                         "executed_mode": "solo",
                         "outcome": "completed",
@@ -383,6 +385,52 @@ class ControllerAbBatchTests(unittest.TestCase):
             (root / "results.json").write_text(json.dumps(results), encoding="utf-8")
             with self.assertRaisesRegex(batch.BatchError, "diff is not bound"):
                 batch.validate_job_output(root, job)
+
+    def test_observed_noncompliance_is_retained_for_intention_to_treat(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            command = [
+                "python",
+                "runner.py",
+                "--output",
+                str(root),
+                "--task-id",
+                "task-a",
+                "--repetitions",
+                "1",
+            ]
+            self._fake_runner_output(command)
+            receipts = json.loads((root / "receipts.json").read_text(encoding="utf-8"))
+            results = json.loads((root / "results.json").read_text(encoding="utf-8"))
+            telemetry = receipts[1]["agent_telemetry"]
+            execution = telemetry["agent_execution_receipt"]
+            telemetry.update(
+                {
+                    "complete": False,
+                    "selected_mode": "parallel-packets",
+                    "executed_mode": "solo",
+                    "outcome": "degraded",
+                }
+            )
+            execution.update(
+                {
+                    "complete": False,
+                    "controller_compliant": False,
+                    "plan_adherent": False,
+                    "selected_mode": "parallel-packets",
+                    "executed_mode": "solo",
+                    "outcome": "degraded",
+                    "planned_assignment_ids": ["worker-1"],
+                }
+            )
+            results[1]["agent_telemetry"] = telemetry
+            results[1]["critical_errors"] = [
+                "controller noncompliance: active plan was not executed"
+            ]
+            (root / "receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
+            (root / "results.json").write_text(json.dumps(results), encoding="utf-8")
+            job = {"job_id": "job-a", "task_id": "task-a", "repetitions": 1}
+            batch.validate_job_output(root, job)
 
     def test_schedule_is_deterministic_complete_and_counterbalanced(self) -> None:
         first = batch.build_schedule(self._contract())
@@ -531,7 +579,7 @@ class ControllerAbBatchTests(unittest.TestCase):
             execution["selected_mode"] = "parallel-packets"
             execution["outcome"] = "degraded"
             receipts_path.write_text(json.dumps(receipts), encoding="utf-8")
-            with self.assertRaisesRegex(batch.BatchError, "degraded"):
+            with self.assertRaisesRegex(batch.BatchError, "inconsistent"):
                 batch.validate_job_output(root, job)
 
             self._fake_runner_output(command)
