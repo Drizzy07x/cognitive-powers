@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v17",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v16",
+  "protocol_id": "cognitive-powers-controller-ab-v18",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v17",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -169,6 +169,17 @@
       "failure": "the batch conflated fully observed controller noncompliance with missing telemetry; a forced-solo arm suppressed all agents but emitted a policy plan, so the session should have remained an ITT outcome instead of invalidating the instrument",
       "sha256_index": "9ddb8c6f72f20216c643b05e4530a6492e05624513f4c34fd4bc201fa1b4f936",
       "reusable_for_v17_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v17",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 4,
+      "preflight_sessions_attempted": 6,
+      "preflight_sessions_required": 8,
+      "pilot_sessions_completed": 0,
+      "failure": "the non-scored preflight fixture did not deterministically exercise parallel-packets; the adaptive arm validly chose solo, so instrumentation could not prove all native modes before the pilot",
+      "sha256_index": "4ebe6e9434a2c37acedd8cac3d2006e8a9130e5e36802f8066165ebf6df8d3ba",
+      "reusable_for_v18_claims": false
     }
   ],
   "comparison": {

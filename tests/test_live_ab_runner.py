@@ -308,6 +308,14 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertIn("Do not consult the orchestration planner", forced)
         self.assertIn("consult and execute", adaptive)
         self.assertIn("exactly one complete canonical v2 agent_plan", adaptive)
+        preflight, preflight_receipt = runner.compose_controller_prompt(
+            base, "adaptive", "parallel-packets"
+        )
+        self.assertIn("non-scored instrumental preflight", preflight)
+        self.assertIn("execute parallel-packets exactly", preflight)
+        self.assertNotEqual(
+            adaptive_receipt["mode_sha256"], preflight_receipt["mode_sha256"]
+        )
 
     def test_rollout_binding_rejects_wrong_task_name_and_forced_solo_spawn(
         self,
@@ -375,7 +383,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v17")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v18")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"

@@ -939,6 +939,8 @@ def runner_command(
         command.extend(("--codex", config["codex"]))
     if config.get("bypass_sandbox") is True:
         command.append("--bypass-sandbox")
+    if job.get("expected_mode") is not None:
+        command.extend(("--preflight-expected-mode", job["expected_mode"]))
     return command
 
 

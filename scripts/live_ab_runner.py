@@ -66,7 +66,9 @@ class LiveEvaluationError(ValueError):
     """Raised when a live evaluation cannot produce trustworthy receipts."""
 
 
-def controller_directive(mode: str) -> dict[str, str]:
+def controller_directive(
+    mode: str, preflight_expected_mode: str | None = None
+) -> dict[str, str]:
     if mode not in CONTROLLER_MODES:
         raise LiveEvaluationError(f"invalid controller mode: {mode}")
     behavior = (
@@ -74,6 +76,13 @@ def controller_directive(mode: str) -> dict[str, str]:
         if mode == "forced-solo"
         else "For non-trivial work, consult and execute the Cognitive Powers orchestration policy; obey its solo/delegation decision and use native agent tools when it delegates."
     )
+    if preflight_expected_mode is not None and mode == "adaptive":
+        if preflight_expected_mode not in AGENT_PLAN_MODES:
+            raise LiveEvaluationError("preflight expected mode is invalid")
+        behavior += (
+            " This is a non-scored instrumental preflight: consult the canonical "
+            f"planner and execute {preflight_expected_mode} exactly."
+        )
     text = CONTROLLER_DIRECTIVE_TEMPLATE.format(
         version=CONTROLLER_DIRECTIVE_VERSION, mode=mode, behavior=behavior
     )
@@ -89,9 +98,9 @@ def controller_directive(mode: str) -> dict[str, str]:
 
 
 def compose_controller_prompt(
-    base_prompt: str, mode: str
+    base_prompt: str, mode: str, preflight_expected_mode: str | None = None
 ) -> tuple[str, dict[str, str]]:
-    directive = controller_directive(mode)
+    directive = controller_directive(mode, preflight_expected_mode)
     return base_prompt.rstrip() + "\n\n" + directive["text"], directive
 
 
@@ -1728,6 +1737,7 @@ def _run_one(
     allowed_changes: Sequence[str],
     bypass_sandbox: bool,
     session_timeout_seconds: int,
+    preflight_expected_mode: str | None = None,
 ) -> dict[str, Any]:
     if controller_mode not in CONTROLLER_MODES:
         raise LiveEvaluationError(f"invalid controller mode: {controller_mode}")
@@ -1739,7 +1749,9 @@ def _run_one(
     environment["COGNITIVE_POWERS_CONTROLLER_MODE"] = controller_mode
     environment["COGNITIVE_POWERS_DATA"] = str(storage_dir)
     environment["COGNITIVE_POWERS_AVAILABLE_AGENT_SLOTS"] = str(agent_slots)
-    effective_prompt, directive = compose_controller_prompt(prompt, controller_mode)
+    effective_prompt, directive = compose_controller_prompt(
+        prompt, controller_mode, preflight_expected_mode
+    )
     rollouts_before = rollout_snapshot(home)
     command = build_codex_command(
         codex=codex,
@@ -2013,6 +2025,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--bypass-sandbox", action="store_true")
     parser.add_argument("--session-timeout-seconds", type=int, default=1800)
+    parser.add_argument("--preflight-expected-mode", choices=sorted(AGENT_PLAN_MODES))
     return parser
 
 
@@ -2130,7 +2143,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "template_sha256"
             ],
             "controller_directive_mode_sha256": {
-                mode: controller_directive(mode)["mode_sha256"]
+                mode: controller_directive(
+                    mode,
+                    args.preflight_expected_mode if mode == "adaptive" else None,
+                )["mode_sha256"]
                 for mode in sorted(CONTROLLER_MODES)
             },
             "host_identity_sha256": hashlib.sha256(
@@ -2213,6 +2229,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     allowed_changes=args.allow_change,
                     bypass_sandbox=args.bypass_sandbox,
                     session_timeout_seconds=args.session_timeout_seconds,
+                    preflight_expected_mode=(
+                        args.preflight_expected_mode if arm == "candidate" else None
+                    ),
                 )
                 result.update(
                     {
