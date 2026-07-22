@@ -18,6 +18,39 @@ SPEC.loader.exec_module(batch)
 
 
 class ControllerAbBatchTests(unittest.TestCase):
+    def test_verifier_only_staged_execution_is_valid(self) -> None:
+        batch._validate_execution_semantics(
+            {
+                "semantic_binding": True,
+                "selected_mode": "staged-verify",
+                "planned_assignments": [
+                    {
+                        "assignment_id": "assignment-verifier",
+                        "unit_id": "fresh-verifier",
+                        "role": "verifier",
+                        "wave_index": 0,
+                        "wave_kind": "verification",
+                        "wave_parallel": False,
+                        "dependencies": [],
+                        "ownership": [],
+                        "permissions": "read-only",
+                        "delegation_depth": 1,
+                        "may_spawn": False,
+                        "may_verify_parent": False,
+                    }
+                ],
+                "lifecycle_bindings": [
+                    {
+                        "assignment_id": "assignment-verifier",
+                        "actor_id": "actor-verifier",
+                        "role_observed": None,
+                        "parent_id": "actor-root",
+                        "delegation_depth": 1,
+                    }
+                ],
+            }
+        )
+
     def test_read_only_assignments_may_declare_read_scope(self) -> None:
         planned = []
         bindings = []

@@ -481,16 +481,27 @@ def _validate_execution_semantics(execution: Mapping[str, Any]) -> None:
         != 1
     ):
         raise BatchError("parallel packet execution semantics are invalid")
-    if selected == "staged-verify" and (
-        not writers
-        or len(verifiers) != 1
-        or verifiers[0].get("wave_kind") != "verification"
-        or verifiers[0].get("wave_index")
-        <= max(item.get("wave_index", -1) for item in writers)
-        or set(verifiers[0].get("dependencies", []))
-        != {item.get("unit_id") for item in writers}
-    ):
-        raise BatchError("staged verifier execution semantics are invalid")
+    if selected == "staged-verify":
+        verifier_only = (
+            len(planned) == 1
+            and len(verifiers) == 1
+            and verifiers[0].get("wave_kind") == "verification"
+            and verifiers[0].get("wave_index") == 0
+            and verifiers[0].get("dependencies") == []
+            and verifiers[0].get("permissions") == "read-only"
+            and verifiers[0].get("ownership") == []
+        )
+        verifier_after_writes = (
+            bool(writers)
+            and len(verifiers) == 1
+            and verifiers[0].get("wave_kind") == "verification"
+            and verifiers[0].get("wave_index")
+            > max(item.get("wave_index", -1) for item in writers)
+            and set(verifiers[0].get("dependencies", []))
+            == {item.get("unit_id") for item in writers}
+        )
+        if not (verifier_only or verifier_after_writes):
+            raise BatchError("staged verifier execution semantics are invalid")
 
 
 def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
