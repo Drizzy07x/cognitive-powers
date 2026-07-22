@@ -641,7 +641,7 @@ def build_batch_config(
             "guard_roots": [str(evaluator.resolve())],
         }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "round_name": round_name,
         "promotion_content_accessed": round_name == "promotion",
         "task_contract": str(task_contract.resolve()),

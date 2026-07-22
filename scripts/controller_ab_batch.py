@@ -206,7 +206,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "pilot",
         "promotion",
     }:
-        raise BatchError("batch config v2 requires round_name")
+        raise BatchError("batch config v2/v3 requires round_name")
     value["claim_eligible"] = value["schema_version"] == 3
     required = {
         "task_contract",
@@ -302,7 +302,7 @@ def validate_confirmatory_schema_binding(
         or controller_protocol.get("schema_version") in {2, 3}
     ):
         raise BatchError(
-            "batch config schema v1 is not claim-eligible for protocol v2/v3 or task contract v3"
+            "legacy batch config is not claim-eligible for protocol v2/v3 or task contract v3"
         )
     return claim_eligible
 

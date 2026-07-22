@@ -269,6 +269,7 @@ class ControllerABFixtureTests(unittest.TestCase):
                 model="test-model",
                 reasoning_effort="medium",
             )
+            self.assertEqual(config["schema_version"], 3)
             self.assertEqual(config["round_name"], "pilot")
             self.assertEqual(len(config["tasks"]), 20)
             self.assertFalse(config["promotion_content_accessed"])
