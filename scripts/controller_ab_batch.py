@@ -136,6 +136,7 @@ def build_preflight_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
             "preflight requires one pilot fixture for every controller mode"
         )
     seed = f"{contract['task_set_id']}-instrumental-preflight-v1"
+    runner_seed = contract["rounds"]["pilot"]["arm_order"]["seed"]
     jobs: list[dict[str, Any]] = []
     sessions: list[dict[str, Any]] = []
     ordinal = 0
@@ -153,7 +154,7 @@ def build_preflight_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
                 "task_id": task_id,
                 "split": "preflight",
                 "seed": seed,
-                "runner_seed": seed,
+                "runner_seed": runner_seed,
                 "repetition": 1,
                 "repetitions": 1,
                 "declared_repetitions": 1,

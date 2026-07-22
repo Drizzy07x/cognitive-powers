@@ -40,6 +40,10 @@ class ControllerAbBatchTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(job["non_scored"] for job in schedule["jobs"]))
+        self.assertEqual(
+            {job["runner_seed"] for job in schedule["jobs"]},
+            {contract["rounds"]["pilot"]["arm_order"]["seed"]},
+        )
 
     def _contract(self) -> dict[str, object]:
         return {
