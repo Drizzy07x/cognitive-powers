@@ -9,6 +9,26 @@ Choose the shortest path that proves the requested outcome. Read no other
 Cognitive Powers skill unless the first focused inspection leaves the boundary
 genuinely unclear.
 
+## Conservative agent control
+
+Obvious one-file work with a nearby check stays with the main agent; do not run
+an orchestration script merely to confirm that. After the first bounded
+discovery for non-trivial work, read the full skill and evaluate an explicit
+planning input with `<plugin-root>/scripts/orchestration_policy.py --agent-plan
+<json-or-stdin> --json`. Follow its `solo`, `parallel-read-only`,
+`parallel-packets`, or `staged-verify` waves and re-evaluate after each wave.
+Use schema v2 for durable work or quality claims. It binds assignments to the
+plan, requires an observed RED cycle before a separate test-writer, and requires
+an executable verification target before scheduling a verifier. Treat v1 worker
+results as compatibility data only; they cannot support a durable completion or
+quality claim.
+
+Use only the host's native agent tools. The main agent retains authorization,
+synthesis, integration, and final claims. Never depend on custom agent TOML
+discovery, a fixed model, a fixed swarm size, or hooks to create agents. A
+semantic planning-input error fails closed to `solo`; it never expands scope or
+grants write authority.
+
 ## Current-source decision
 
 When the checkout provides a decision brief, source policy, and primary-source

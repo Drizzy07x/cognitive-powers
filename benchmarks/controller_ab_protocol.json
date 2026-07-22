@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "protocol_id": "cognitive-powers-controller-ab-v1",
+  "status": "planned",
+  "claim_status": "not-proven",
+  "contains_fixture_definitions": false,
+  "contains_execution_results": false,
+  "contains_provider_evidence": false,
+  "comparison": {
+    "design": "paired-provider-backed",
+    "control_arm": {
+      "id": "forced-solo",
+      "controller_mode": "forced-solo"
+    },
+    "candidate_arm": {
+      "id": "adaptive",
+      "controller_mode": "adaptive"
+    },
+    "only_intended_difference": "controller_mode",
+    "codex_base_role": "exploratory-only",
+    "locked_between_arms": [
+      "source_commit",
+      "plugin_sha256",
+      "codex_cli_identity",
+      "model",
+      "reasoning_effort",
+      "prompt",
+      "tools",
+      "permissions",
+      "available_agent_slots",
+      "instructions",
+      "fixture_id",
+      "fixture_sha256",
+      "evaluator_sha256",
+      "hidden_checks_sha256",
+      "allowed_paths",
+      "seed"
+    ]
+  },
+  "design": {
+    "modes": [
+      "solo",
+      "parallel-read-only",
+      "parallel-packets",
+      "staged-verify"
+    ],
+    "categories": [
+      "bug-fix",
+      "multi-file-implementation",
+      "current-source-research",
+      "delivery-verification",
+      "real-host-interaction"
+    ],
+    "cells": 20,
+    "repetitions_per_fixture_per_arm": 3,
+    "arms_per_fixture": 2,
+    "experimental_unit": "fixture",
+    "execution": {
+      "sessions_run_sequentially": true,
+      "global_schedule_randomized": true,
+      "arm_order_within_pair": "seeded-counterbalanced",
+      "fresh_home_per_session": true,
+      "fresh_cognitive_powers_storage_per_session": true,
+      "development_and_held_out_disjoint": true
+    },
+    "rounds": {
+      "pilot": {
+        "fixture_status": "ready",
+        "held_out": false,
+        "fixtures_per_cell": 1,
+        "declared_fixture_count": 20,
+        "declared_session_count": 120
+      },
+      "promotion": {
+        "fixture_status": "ready",
+        "held_out": true,
+        "fixtures_per_cell": 3,
+        "declared_fixture_count": 60,
+        "declared_session_count": 360,
+        "must_be_new_relative_to_pilot": true
+      }
+    },
+    "declared_total_fixture_count": 80,
+    "declared_total_session_count": 480
+  },
+  "analysis": {
+    "primary": "intention-to-treat",
+    "secondary": "plan-compliant-only",
+    "aggregate_repetitions_within_fixture_first": true,
+    "token_comparisons": "paired-successful-runs-only",
+    "failed_runs_remain_in_success_quality_and_critical_failure_metrics": true,
+    "confidence_intervals": {
+      "level": 0.95,
+      "method": "paired-stratified-bootstrap-by-fixture",
+      "resamples": 10000,
+      "seed": "controller-ab-bootstrap-v1"
+    }
+  },
+  "promotion_gates": [
+    {
+      "id": "candidate-critical-failures",
+      "metric": "candidate_critical_failure_count",
+      "operator": "eq",
+      "threshold": 0
+    },
+    {
+      "id": "strict-success-observed",
+      "metric": "candidate_minus_control_strict_success_rate",
+      "operator": "gte",
+      "threshold": 0.0
+    },
+    {
+      "id": "strict-success-noninferiority",
+      "metric": "candidate_minus_control_strict_success_rate_ci95_lower",
+      "operator": "gt",
+      "threshold": -0.05
+    },
+    {
+      "id": "quality-delta",
+      "metric": "candidate_minus_control_mean_quality_points",
+      "operator": "gte",
+      "threshold": 5.0
+    },
+    {
+      "id": "quality-confidence",
+      "metric": "candidate_minus_control_mean_quality_points_ci95_lower",
+      "operator": "gt",
+      "threshold": 0.0
+    },
+    {
+      "id": "total-token-ratio",
+      "metric": "candidate_over_control_median_total_tokens",
+      "operator": "lte",
+      "threshold": 0.85
+    },
+    {
+      "id": "total-token-confidence",
+      "metric": "candidate_over_control_median_total_tokens_ci95_upper",
+      "operator": "lt",
+      "threshold": 0.85
+    },
+    {
+      "id": "fresh-input-ratio",
+      "metric": "candidate_over_control_median_fresh_input_tokens",
+      "operator": "lte",
+      "threshold": 0.8
+    },
+    {
+      "id": "fresh-input-confidence",
+      "metric": "candidate_over_control_median_fresh_input_tokens_ci95_upper",
+      "operator": "lt",
+      "threshold": 0.8
+    },
+    {
+      "id": "solo-token-overhead",
+      "metric": "candidate_over_control_median_total_tokens_for_solo_tasks",
+      "operator": "lte",
+      "threshold": 1.05
+    },
+    {
+      "id": "mode-precision",
+      "metric": "mode_selection_precision",
+      "operator": "gte",
+      "threshold": 0.9
+    },
+    {
+      "id": "delegation-recall",
+      "metric": "eligible_delegation_recall",
+      "operator": "gte",
+      "threshold": 0.8
+    },
+    {
+      "id": "safety-contract-compliance",
+      "metric": "write_depth_ownership_and_distinct_verifier_compliance",
+      "operator": "eq",
+      "threshold": 1.0
+    },
+    {
+      "id": "failed-pairs-excluded-from-token-analysis",
+      "metric": "failed_pair_count_in_token_comparison",
+      "operator": "eq",
+      "threshold": 0
+    }
+  ],
+  "required_artifacts": [
+    "frozen-manifest.json",
+    "randomized-schedule.json",
+    "session-receipts.jsonl",
+    "agent-events.jsonl",
+    "pre-evaluator-diffs/",
+    "hidden-check-results.jsonl",
+    "quality-check-results.jsonl",
+    "analysis-with-ci95.json",
+    "sha256-index.json",
+    "independent-verdict.json"
+  ],
+  "fail_closed_requirements": {
+    "identity": {
+      "required": [
+        "source_commit",
+        "source_tree_sha256",
+        "plugin_sha256",
+        "codex_cli_identity",
+        "model",
+        "reasoning_effort",
+        "prompt_sha256",
+        "tools_sha256",
+        "permissions_sha256",
+        "instructions_sha256",
+        "fixture_id",
+        "fixture_sha256",
+        "git_identity",
+        "evaluator_sha256",
+        "hidden_checks_sha256",
+        "allowed_paths_sha256",
+        "seed"
+      ],
+      "missing_or_mismatched": "invalid"
+    },
+    "telemetry": {
+      "required": [
+        "agent_plan_input",
+        "agent_plan_output",
+        "observed_agents",
+        "parent_ids",
+        "roles",
+        "waves",
+        "ownership",
+        "permissions",
+        "joins",
+        "retries",
+        "verifier_identity",
+        "per_agent_input_tokens",
+        "per_agent_cached_input_tokens",
+        "per_agent_output_tokens",
+        "aggregate_input_tokens",
+        "aggregate_cached_input_tokens",
+        "aggregate_fresh_input_tokens",
+        "aggregate_output_tokens",
+        "aggregate_total_tokens",
+        "changed_paths_before_evaluation"
+      ],
+      "descendant_tokens_included": true,
+      "hardcoded_observation_counts_forbidden": true,
+      "missing_or_inconsistent": "invalid"
+    },
+    "evaluation_isolation": {
+      "diff_captured_before_evaluators": true,
+      "hidden_and_quality_checks_run_on_independent_clones": true,
+      "evaluators_outside_writable_fixture": true,
+      "violation": "invalid"
+    }
+  },
+  "verdict": {
+    "allowed_values": [
+      "proven",
+      "not-proven",
+      "invalid"
+    ],
+    "all_gates_required_for_proven": true,
+    "missing_required_artifact": "invalid",
+    "missing_identity_or_telemetry": "invalid",
+    "failed_gate": "not-proven",
+    "current": null
+  },
+  "execution_state": {
+    "fixtures_created": 80,
+    "fixture_lock_sha256": "b5dbc2d6bc3f8b0be694f549ef443fec9341e3aa9b7f75fd3deb3fb6fde9b622",
+    "fixture_status": "ready",
+    "sessions_completed": 0,
+    "results_available": false,
+    "provider_evidence_available": false
+  }
+}

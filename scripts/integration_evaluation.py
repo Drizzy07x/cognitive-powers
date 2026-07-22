@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import random
+import statistics
 from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -34,10 +37,635 @@ LOCKED_PAIR_FIELDS = (
     "randomization_seed",
     "arm_order",
 )
+LIVE_IDENTITY_FIELDS = (
+    "fixture_git_sha256",
+    "experiment_sha256",
+    "hidden_check_sha256",
+    "quality_check_sha256",
+    "allowed_changes_sha256",
+    "pre_evaluation_diff_sha256",
+    "controller_protocol_sha256",
+    "agent_slots",
+    "controller_protocol_id",
+)
+CONTROLLER_MODES = {"forced-solo", "adaptive"}
+AGENT_PLAN_MODES = {"solo", "parallel-read-only", "parallel-packets", "staged-verify"}
+TOTAL_TOKEN_RATIO_MAX = 0.85
+FRESH_INPUT_RATIO_MAX = 0.80
+SOLO_TOKEN_RATIO_MAX = 1.05
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+EXPECTED_PROMOTION_GATES = {
+    "candidate-critical-failures": ("candidate_critical_failure_count", "eq", 0),
+    "strict-success-observed": (
+        "candidate_minus_control_strict_success_rate",
+        "gte",
+        0.0,
+    ),
+    "strict-success-noninferiority": (
+        "candidate_minus_control_strict_success_rate_ci95_lower",
+        "gt",
+        -0.05,
+    ),
+    "quality-delta": ("candidate_minus_control_mean_quality_points", "gte", 5.0),
+    "quality-confidence": (
+        "candidate_minus_control_mean_quality_points_ci95_lower",
+        "gt",
+        0.0,
+    ),
+    "total-token-ratio": ("candidate_over_control_median_total_tokens", "lte", 0.85),
+    "total-token-confidence": (
+        "candidate_over_control_median_total_tokens_ci95_upper",
+        "lt",
+        0.85,
+    ),
+    "fresh-input-ratio": (
+        "candidate_over_control_median_fresh_input_tokens",
+        "lte",
+        0.8,
+    ),
+    "fresh-input-confidence": (
+        "candidate_over_control_median_fresh_input_tokens_ci95_upper",
+        "lt",
+        0.8,
+    ),
+    "solo-token-overhead": (
+        "candidate_over_control_median_total_tokens_for_solo_tasks",
+        "lte",
+        1.05,
+    ),
+    "mode-precision": ("mode_selection_precision", "gte", 0.9),
+    "delegation-recall": ("eligible_delegation_recall", "gte", 0.8),
+    "safety-contract-compliance": (
+        "write_depth_ownership_and_distinct_verifier_compliance",
+        "eq",
+        1.0,
+    ),
+    "failed-pairs-excluded-from-token-analysis": (
+        "failed_pair_count_in_token_comparison",
+        "eq",
+        0,
+    ),
+}
+EXPECTED_REQUIRED_ARTIFACTS = {
+    "frozen-manifest.json",
+    "randomized-schedule.json",
+    "session-receipts.jsonl",
+    "agent-events.jsonl",
+    "pre-evaluator-diffs/",
+    "hidden-check-results.jsonl",
+    "quality-check-results.jsonl",
+    "analysis-with-ci95.json",
+    "sha256-index.json",
+    "independent-verdict.json",
+}
+EXPECTED_TELEMETRY_FIELDS = {
+    "agent_plan_input",
+    "agent_plan_output",
+    "observed_agents",
+    "parent_ids",
+    "roles",
+    "waves",
+    "ownership",
+    "permissions",
+    "joins",
+    "retries",
+    "verifier_identity",
+    "per_agent_input_tokens",
+    "per_agent_cached_input_tokens",
+    "per_agent_output_tokens",
+    "aggregate_input_tokens",
+    "aggregate_cached_input_tokens",
+    "aggregate_fresh_input_tokens",
+    "aggregate_output_tokens",
+    "aggregate_total_tokens",
+    "changed_paths_before_evaluation",
+}
+EXPECTED_IDENTITY_FIELDS = {
+    "source_commit",
+    "source_tree_sha256",
+    "plugin_sha256",
+    "codex_cli_identity",
+    "model",
+    "reasoning_effort",
+    "prompt_sha256",
+    "tools_sha256",
+    "permissions_sha256",
+    "instructions_sha256",
+    "fixture_id",
+    "fixture_sha256",
+    "git_identity",
+    "evaluator_sha256",
+    "hidden_checks_sha256",
+    "allowed_paths_sha256",
+    "seed",
+}
 
 
 class EvaluationError(ValueError):
     """Raised when paired evaluation evidence is incomplete or malformed."""
+
+
+def load_controller_protocol(path: Path) -> dict[str, Any]:
+    try:
+        raw = path.resolve().read_bytes()
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvaluationError("controller protocol cannot be loaded") from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise EvaluationError("controller protocol must use schema_version 1")
+    comparison = payload.get("comparison")
+    design = payload.get("design")
+    analysis = payload.get("analysis")
+    confidence = (
+        analysis.get("confidence_intervals") if isinstance(analysis, dict) else None
+    )
+    promotion_gates = payload.get("promotion_gates")
+    if not isinstance(promotion_gates, list) or not all(
+        isinstance(item, dict) for item in promotion_gates
+    ):
+        raise EvaluationError("controller protocol promotion gates are invalid")
+    gate_map = {
+        item.get("id"): (
+            item.get("metric"),
+            item.get("operator"),
+            item.get("threshold"),
+        )
+        for item in promotion_gates
+    }
+    fail_closed = payload.get("fail_closed_requirements")
+    identity_requirements = (
+        fail_closed.get("identity") if isinstance(fail_closed, dict) else None
+    )
+    isolation = (
+        fail_closed.get("evaluation_isolation")
+        if isinstance(fail_closed, dict)
+        else None
+    )
+    telemetry = fail_closed.get("telemetry") if isinstance(fail_closed, dict) else None
+    execution_state = payload.get("execution_state")
+    rounds = design.get("rounds") if isinstance(design, dict) else None
+    execution = design.get("execution") if isinstance(design, dict) else None
+    verdict = payload.get("verdict")
+    if (
+        not isinstance(comparison, dict)
+        or comparison.get("control_arm", {}).get("controller_mode") != "forced-solo"
+        or comparison.get("candidate_arm", {}).get("controller_mode") != "adaptive"
+        or comparison.get("only_intended_difference") != "controller_mode"
+        or not isinstance(confidence, dict)
+        or confidence.get("method") != "paired-stratified-bootstrap-by-fixture"
+        or confidence.get("resamples") != 10000
+        or confidence.get("seed") != "controller-ab-bootstrap-v1"
+        or len(gate_map) != len(promotion_gates)
+        or gate_map != EXPECTED_PROMOTION_GATES
+        or not isinstance(payload.get("required_artifacts"), list)
+        or set(payload["required_artifacts"]) != EXPECTED_REQUIRED_ARTIFACTS
+        or payload.get("status") != "planned"
+        or payload.get("claim_status") != "not-proven"
+        or payload.get("contains_fixture_definitions") is not False
+        or payload.get("contains_execution_results") is not False
+        or payload.get("contains_provider_evidence") is not False
+        or not isinstance(design, dict)
+        or set(design.get("modes", [])) != AGENT_PLAN_MODES
+        or set(design.get("categories", [])) != REQUIRED_CATEGORIES
+        or design.get("cells") != 20
+        or design.get("repetitions_per_fixture_per_arm") != 3
+        or design.get("arms_per_fixture") != 2
+        or design.get("experimental_unit") != "fixture"
+        or design.get("declared_total_fixture_count") != 80
+        or design.get("declared_total_session_count") != 480
+        or not isinstance(rounds, dict)
+        or rounds.get("pilot", {}).get("declared_fixture_count") != 20
+        or rounds.get("pilot", {}).get("declared_session_count") != 120
+        or rounds.get("pilot", {}).get("fixtures_per_cell") != 1
+        or rounds.get("pilot", {}).get("held_out") is not False
+        or rounds.get("pilot", {}).get("fixture_status") != "ready"
+        or rounds.get("promotion", {}).get("declared_fixture_count") != 60
+        or rounds.get("promotion", {}).get("declared_session_count") != 360
+        or rounds.get("promotion", {}).get("fixtures_per_cell") != 3
+        or rounds.get("promotion", {}).get("held_out") is not True
+        or rounds.get("promotion", {}).get("fixture_status") != "ready"
+        or rounds.get("promotion", {}).get("must_be_new_relative_to_pilot") is not True
+        or not isinstance(execution, dict)
+        or not all(
+            execution.get(field) is True
+            for field in (
+                "sessions_run_sequentially",
+                "global_schedule_randomized",
+                "fresh_home_per_session",
+                "fresh_cognitive_powers_storage_per_session",
+                "development_and_held_out_disjoint",
+            )
+        )
+        or not isinstance(execution_state, dict)
+        or execution_state.get("fixtures_created") != 80
+        or execution_state.get("fixture_status") != "ready"
+        or not isinstance(execution_state.get("fixture_lock_sha256"), str)
+        or len(execution_state["fixture_lock_sha256"]) != 64
+        or execution_state.get("sessions_completed") != 0
+        or execution_state.get("results_available") is not False
+        or execution_state.get("provider_evidence_available") is not False
+        or not isinstance(identity_requirements, dict)
+        or set(identity_requirements.get("required", [])) != EXPECTED_IDENTITY_FIELDS
+        or identity_requirements.get("missing_or_mismatched") != "invalid"
+        or not isinstance(telemetry, dict)
+        or set(telemetry.get("required", [])) != EXPECTED_TELEMETRY_FIELDS
+        or telemetry.get("descendant_tokens_included") is not True
+        or telemetry.get("hardcoded_observation_counts_forbidden") is not True
+        or telemetry.get("missing_or_inconsistent") != "invalid"
+        or not isinstance(isolation, dict)
+        or not all(
+            isolation.get(field) is True
+            for field in (
+                "diff_captured_before_evaluators",
+                "hidden_and_quality_checks_run_on_independent_clones",
+                "evaluators_outside_writable_fixture",
+            )
+        )
+        or isolation.get("violation") != "invalid"
+        or not isinstance(verdict, dict)
+        or set(verdict.get("allowed_values", [])) != {"proven", "not-proven", "invalid"}
+        or verdict.get("all_gates_required_for_proven") is not True
+        or verdict.get("missing_required_artifact") != "invalid"
+        or verdict.get("missing_identity_or_telemetry") != "invalid"
+        or verdict.get("failed_gate") != "not-proven"
+        or verdict.get("current") is not None
+        or analysis.get("primary") != "intention-to-treat"
+        or analysis.get("secondary") != "plan-compliant-only"
+        or analysis.get("aggregate_repetitions_within_fixture_first") is not True
+        or analysis.get("token_comparisons") != "paired-successful-runs-only"
+        or analysis.get(
+            "failed_runs_remain_in_success_quality_and_critical_failure_metrics"
+        )
+        is not True
+    ):
+        raise EvaluationError(
+            "controller protocol does not match the confirmatory design"
+        )
+    return {
+        "payload": payload,
+        "protocol_id": _string(payload.get("protocol_id"), "protocol_id"),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "bootstrap_resamples": confidence["resamples"],
+        "bootstrap_seed": confidence["seed"],
+        "gates": {
+            key: {"metric": value[0], "operator": value[1], "threshold": value[2]}
+            for key, value in gate_map.items()
+        },
+    }
+
+
+def _artifact_sha256(path: Path) -> str:
+    if path.is_file():
+        data = path.read_bytes()
+        if not data:
+            raise EvaluationError(f"artifact is empty: {path.name}")
+        return hashlib.sha256(data).hexdigest()
+    if path.is_dir():
+        files: dict[str, str] = {}
+        resolved_root = path.resolve()
+        for item in sorted(path.rglob("*")):
+            if not item.is_file():
+                continue
+            resolved_item = item.resolve()
+            try:
+                resolved_item.relative_to(resolved_root)
+            except ValueError as error:
+                raise EvaluationError(
+                    f"artifact directory entry escapes its root: {item.name}"
+                ) from error
+            if item.is_symlink() or resolved_item != item.absolute():
+                raise EvaluationError(
+                    f"artifact directory contains a link or reparse alias: {item.name}"
+                )
+            files[item.relative_to(path).as_posix()] = hashlib.sha256(
+                item.read_bytes()
+            ).hexdigest()
+        if not files:
+            raise EvaluationError(f"artifact directory is empty: {path.name}")
+        encoded = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(encoded).hexdigest()
+    raise EvaluationError(f"artifact is missing: {path.name}")
+
+
+def load_artifact_bundle(
+    index_path: Path, controller_protocol: Mapping[str, Any]
+) -> dict[str, Any]:
+    resolved = index_path.resolve()
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvaluationError("artifact index cannot be loaded") from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise EvaluationError("artifact index must use schema_version 1")
+    if payload.get("protocol_id") != controller_protocol.get(
+        "protocol_id"
+    ) or payload.get("controller_protocol_sha256") != controller_protocol.get("sha256"):
+        raise EvaluationError("artifact index is not bound to the controller protocol")
+    artifacts = payload.get("artifacts")
+    expected_entries = EXPECTED_REQUIRED_ARTIFACTS - {"sha256-index.json"}
+    if not isinstance(artifacts, dict) or set(artifacts) != expected_entries:
+        raise EvaluationError(
+            "artifact index does not contain the required artifact set"
+        )
+    observed: dict[str, str] = {}
+    root = resolved.parent
+    for name in sorted(expected_entries):
+        entry = artifacts[name]
+        if not isinstance(entry, dict) or entry.get("path") != name:
+            raise EvaluationError(f"artifact index entry is invalid: {name}")
+        target = (root / name).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as error:
+            raise EvaluationError(f"artifact escapes the bundle: {name}") from error
+        observed[name] = _artifact_sha256(target)
+        if entry.get("sha256") != observed[name]:
+            raise EvaluationError(f"artifact hash mismatch: {name}")
+    evidence = {
+        name: digest
+        for name, digest in observed.items()
+        if name != "independent-verdict.json"
+    }
+    evidence_root = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if payload.get("evidence_root_sha256") != evidence_root:
+        raise EvaluationError("artifact evidence root does not match")
+    verdict_path = root / "independent-verdict.json"
+    try:
+        verdict = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvaluationError("independent verdict is not valid JSON") from error
+    executor_ids = verdict.get("executor_ids")
+    verifier_id = verdict.get("verifier_id")
+    if (
+        verdict.get("schema_version") != 1
+        or verdict.get("verdict") != "confirmed"
+        or verdict.get("protocol_id") != controller_protocol.get("protocol_id")
+        or verdict.get("controller_protocol_sha256")
+        != controller_protocol.get("sha256")
+        or verdict.get("evidence_root_sha256") != evidence_root
+        or not isinstance(verifier_id, str)
+        or not verifier_id
+        or not isinstance(executor_ids, list)
+        or not executor_ids
+        or not all(isinstance(item, str) and item for item in executor_ids)
+        or len(executor_ids) != len(set(executor_ids))
+        or verifier_id in executor_ids
+    ):
+        raise EvaluationError("independent verdict is invalid or not independent")
+    return {
+        "index": str(resolved),
+        "index_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        "evidence_root_sha256": evidence_root,
+        "verifier_id": verifier_id,
+        "artifact_count": len(EXPECTED_REQUIRED_ARTIFACTS),
+        "root": str(root),
+    }
+
+
+def _read_jsonl(path: Path, label: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise EvaluationError(f"{label} cannot be read") from error
+    for index, line in enumerate(lines):
+        if not line.strip():
+            raise EvaluationError(f"{label} contains a blank record")
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise EvaluationError(f"{label} record {index} is invalid JSON") from error
+        if not isinstance(value, dict):
+            raise EvaluationError(f"{label} record {index} must be an object")
+        rows.append(value)
+    if not rows:
+        raise EvaluationError(f"{label} is empty")
+    return rows
+
+
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _validate_host_actor_binding(
+    expected_lifecycle: set[tuple[str, str, str, str, str]],
+    agent_rows: Sequence[dict[str, Any]],
+    verdict: Mapping[str, Any],
+) -> int:
+    actual_lifecycle = {
+        (
+            item.get("case_id"),
+            item.get("variant"),
+            item.get("assignment_id"),
+            item.get("actor_id"),
+            item.get("role"),
+        )
+        for item in agent_rows
+        if item.get("type") == "agent.lifecycle"
+        and item.get("provenance") == "host"
+        and item.get("scope") != "experiment"
+    }
+    if expected_lifecycle != actual_lifecycle:
+        raise EvaluationError(
+            "host lifecycle artifacts do not match evaluated telemetry"
+        )
+    experiment_executor_rows = [
+        item
+        for item in agent_rows
+        if item.get("type") == "agent.lifecycle"
+        and item.get("provenance") == "host"
+        and item.get("scope") == "experiment"
+        and item.get("role") == "experiment-runner"
+    ]
+    experiment_verifier_rows = [
+        item
+        for item in agent_rows
+        if item.get("type") == "agent.lifecycle"
+        and item.get("provenance") == "host"
+        and item.get("scope") == "experiment"
+        and item.get("role") == "experiment-verifier"
+    ]
+    experiment_executors = {item.get("actor_id") for item in experiment_executor_rows}
+    experiment_verifiers = {item.get("actor_id") for item in experiment_verifier_rows}
+    if (
+        not experiment_executor_rows
+        or not all(
+            isinstance(item.get("actor_id"), str) and item.get("actor_id")
+            for item in experiment_executor_rows
+        )
+        or len(experiment_executors) != len(experiment_executor_rows)
+        or len(experiment_verifier_rows) != 1
+        or not isinstance(experiment_verifier_rows[0].get("actor_id"), str)
+        or not experiment_verifier_rows[0].get("actor_id")
+        or len(experiment_verifiers) != 1
+        or set(verdict.get("executor_ids", [])) != experiment_executors
+        or verdict.get("verifier_id") not in experiment_verifiers
+        or verdict.get("verifier_id") in experiment_executors
+    ):
+        raise EvaluationError("independent verdict actors lack host-backed identity")
+    return len(actual_lifecycle)
+
+
+def _validate_artifact_semantics(
+    bundle: Mapping[str, Any],
+    receipts: Sequence[dict[str, Any]],
+    analysis_binding: Mapping[str, Any],
+    controller_protocol: Mapping[str, Any],
+) -> dict[str, Any]:
+    root = Path(_string(bundle.get("root"), "artifact_bundle.root"))
+    receipt_rows = _read_jsonl(root / "session-receipts.jsonl", "session receipts")
+    artifact_receipts = [normalize_receipt(row) for row in receipt_rows]
+
+    def receipt_key(item: dict[str, Any]) -> tuple[str, str]:
+        return item["case_id"], item["variant"]
+
+    expected_receipts = sorted(receipts, key=receipt_key)
+    artifact_receipts = sorted(artifact_receipts, key=receipt_key)
+    if artifact_receipts != expected_receipts:
+        raise EvaluationError("artifact receipts do not match evaluated receipts")
+    receipt_set_sha256 = _canonical_sha256(expected_receipts)
+
+    try:
+        manifest = json.loads(
+            (root / "frozen-manifest.json").read_text(encoding="utf-8")
+        )
+        schedule = json.loads(
+            (root / "randomized-schedule.json").read_text(encoding="utf-8")
+        )
+        analysis = json.loads(
+            (root / "analysis-with-ci95.json").read_text(encoding="utf-8")
+        )
+        verdict = json.loads(
+            (root / "independent-verdict.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvaluationError("semantic artifact JSON cannot be loaded") from error
+    task_set_ids = {item.get("task_set_id") for item in expected_receipts}
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("protocol_id") != controller_protocol.get("protocol_id")
+        or manifest.get("controller_protocol_sha256")
+        != controller_protocol.get("sha256")
+        or manifest.get("receipt_set_sha256") != receipt_set_sha256
+        or len(task_set_ids) != 1
+        or manifest.get("task_set_id") != next(iter(task_set_ids))
+    ):
+        raise EvaluationError("frozen manifest does not bind the evaluated receipts")
+
+    schedule_entries: dict[str, dict[str, Any]] = {}
+    for receipt in expected_receipts:
+        schedule_entries.setdefault(
+            receipt["case_id"],
+            {
+                "case_id": receipt["case_id"],
+                "task_id": receipt["task_id"],
+                "repetition": receipt["repetition"],
+                "arm_order": receipt["arm_order"],
+            },
+        )
+    expected_schedule = [schedule_entries[key] for key in sorted(schedule_entries)]
+    if (
+        not isinstance(schedule, dict)
+        or schedule.get("schema_version") != 1
+        or schedule.get("protocol_id") != controller_protocol.get("protocol_id")
+        or schedule.get("entries") != expected_schedule
+    ):
+        raise EvaluationError("randomized schedule does not match evaluated receipts")
+
+    expected_hidden = sorted(
+        (
+            {
+                "case_id": item["case_id"],
+                "variant": item["variant"],
+                "check_sha256": item["hidden_check_sha256"],
+                "passed": item["independent_tests_passed"],
+            }
+            for item in expected_receipts
+        ),
+        key=lambda item: (item["case_id"], item["variant"]),
+    )
+    expected_quality = sorted(
+        (
+            {
+                "case_id": item["case_id"],
+                "variant": item["variant"],
+                "check_sha256": item["quality_check_sha256"],
+                "quality_score": item["quality_score"],
+            }
+            for item in expected_receipts
+        ),
+        key=lambda item: (item["case_id"], item["variant"]),
+    )
+    hidden_rows = sorted(
+        _read_jsonl(root / "hidden-check-results.jsonl", "hidden check results"),
+        key=lambda item: (item.get("case_id"), item.get("variant")),
+    )
+    quality_rows = sorted(
+        _read_jsonl(root / "quality-check-results.jsonl", "quality check results"),
+        key=lambda item: (item.get("case_id"), item.get("variant")),
+    )
+    if hidden_rows != expected_hidden or quality_rows != expected_quality:
+        raise EvaluationError("check artifacts do not match evaluated receipts")
+
+    diff_rows: list[dict[str, Any]] = []
+    for path in sorted((root / "pre-evaluator-diffs").glob("*.json")):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise EvaluationError("pre-evaluator diff metadata is invalid") from error
+        if not isinstance(value, dict):
+            raise EvaluationError("pre-evaluator diff metadata must be an object")
+        diff_rows.append(value)
+    expected_diffs = sorted(
+        (
+            {
+                "case_id": item["case_id"],
+                "variant": item["variant"],
+                "sha256": item["pre_evaluation_diff_sha256"],
+            }
+            for item in expected_receipts
+        ),
+        key=lambda item: (item["case_id"], item["variant"]),
+    )
+    diff_rows.sort(key=lambda item: (item.get("case_id"), item.get("variant")))
+    if diff_rows != expected_diffs:
+        raise EvaluationError("pre-evaluator diffs do not match evaluated receipts")
+
+    agent_rows = _read_jsonl(root / "agent-events.jsonl", "agent events")
+    expected_lifecycle = {
+        (
+            item["case_id"],
+            item["variant"],
+            observation["assignment_id"],
+            observation["actor_id"],
+            observation["role"],
+        )
+        for item in expected_receipts
+        for observation in item["agent_telemetry"]["observed_assignments"]
+    }
+    lifecycle_count = _validate_host_actor_binding(
+        expected_lifecycle, agent_rows, verdict
+    )
+
+    analysis_sha256 = _canonical_sha256(analysis_binding)
+    if (
+        not isinstance(analysis, dict)
+        or analysis.get("schema_version") != 1
+        or analysis.get("receipt_set_sha256") != receipt_set_sha256
+        or analysis.get("analysis_sha256") != analysis_sha256
+    ):
+        raise EvaluationError("analysis artifact does not match calculated metrics")
+    return {
+        "receipt_set_sha256": receipt_set_sha256,
+        "analysis_sha256": analysis_sha256,
+        "host_lifecycle_count": lifecycle_count,
+    }
 
 
 def _number(value: object, field: str, *, minimum: float = 0.0) -> float:
@@ -202,6 +830,12 @@ def validate_task_contract(value: object) -> dict[str, Any]:
             non_empty=True,
         )
         fixture_id = _string(task_value.get("fixture_id"), f"{field}.fixture_id")
+        expected_mode_value = task_value.get("expected_mode")
+        expected_mode = None
+        if expected_mode_value is not None:
+            expected_mode = _string(expected_mode_value, f"{field}.expected_mode")
+            if expected_mode not in AGENT_PLAN_MODES:
+                raise EvaluationError(f"{field}.expected_mode is not recognized")
         budgets = task_value.get("budgets")
         if not isinstance(budgets, dict):
             raise EvaluationError(f"{field}.budgets must be an object")
@@ -228,6 +862,7 @@ def validate_task_contract(value: object) -> dict[str, Any]:
             "independent_tests": independent_tests,
             "critical_failures": critical,
             "fixture_id": fixture_id,
+            "expected_mode": expected_mode,
             "budgets": normalized_budgets,
         }
         split_categories[split].add(category)
@@ -274,6 +909,17 @@ def normalize_receipt(value: object) -> dict[str, Any]:
         raise EvaluationError("quality_score must not exceed 1")
     for field in ("input_tokens", "output_tokens", "elapsed_seconds"):
         result[field] = _number(value.get(field), field)
+    cached = value.get("cached_input_tokens", 0)
+    result["cached_input_tokens"] = _number(cached, "cached_input_tokens")
+    default_fresh = result["input_tokens"] - result["cached_input_tokens"]
+    result["fresh_input_tokens"] = _number(
+        value.get("fresh_input_tokens", default_fresh), "fresh_input_tokens"
+    )
+    if (
+        result["cached_input_tokens"] + result["fresh_input_tokens"]
+        != result["input_tokens"]
+    ):
+        raise EvaluationError("cached and fresh input tokens must sum to input_tokens")
 
     schema_version = value.get("schema_version", 1)
     if schema_version not in {1, 2}:
@@ -313,6 +959,99 @@ def normalize_receipt(value: object) -> dict[str, Any]:
         result["independent_tests_passed"] = value["independent_tests_passed"]
         for field in ("turns", "tool_calls", "retries"):
             result[field] = _integer(value.get(field), field)
+        if "agent_slots" in value:
+            result["agent_slots"] = _integer(
+                value.get("agent_slots"), "agent_slots", minimum=1
+            )
+        for field in LIVE_IDENTITY_FIELDS:
+            if field in {"agent_slots", "controller_protocol_id"}:
+                continue
+            if field in value:
+                result[field] = _sha256(value.get(field), field)
+        if "controller_protocol_id" in value:
+            result["controller_protocol_id"] = _string(
+                value.get("controller_protocol_id"), "controller_protocol_id"
+            )
+        controller_mode = value.get("controller_mode")
+        if controller_mode is not None:
+            result["controller_mode"] = _string(controller_mode, "controller_mode")
+            if result["controller_mode"] not in CONTROLLER_MODES:
+                raise EvaluationError("controller_mode is not recognized")
+        telemetry = value.get("agent_telemetry")
+        if telemetry is not None:
+            if not isinstance(telemetry, dict):
+                raise EvaluationError("agent_telemetry must be an object")
+            telemetry_mode = _string(
+                telemetry.get("controller_mode"), "agent_telemetry.controller_mode"
+            )
+            if telemetry_mode != result.get("controller_mode"):
+                raise EvaluationError("agent telemetry controller mode does not match")
+            spawn_count = _integer(
+                telemetry.get("spawn_count"), "agent_telemetry.spawn_count"
+            )
+            join_count = _integer(
+                telemetry.get("join_count"), "agent_telemetry.join_count"
+            )
+            if not isinstance(telemetry.get("complete"), bool):
+                raise EvaluationError("agent_telemetry.complete must be boolean")
+            actual_mode = telemetry.get("actual_mode")
+            if actual_mode is not None:
+                actual_mode = _string(actual_mode, "agent_telemetry.actual_mode")
+                if actual_mode not in AGENT_PLAN_MODES:
+                    raise EvaluationError(
+                        "agent_telemetry.actual_mode is not recognized"
+                    )
+            result["agent_telemetry"] = {
+                **telemetry,
+                "controller_mode": telemetry_mode,
+                "spawn_count": spawn_count,
+                "join_count": join_count,
+                "complete": telemetry["complete"],
+                "actual_mode": actual_mode,
+            }
+            observations = telemetry.get("observed_assignments", [])
+            if not isinstance(observations, list) or not all(
+                isinstance(item, dict) for item in observations
+            ):
+                raise EvaluationError(
+                    "agent_telemetry.observed_assignments must be a list"
+                )
+            normalized_observations: list[dict[str, str]] = []
+            for index, observation in enumerate(observations):
+                normalized_observations.append(
+                    {
+                        "assignment_id": _string(
+                            observation.get("assignment_id"),
+                            f"agent_telemetry.observed_assignments[{index}].assignment_id",
+                        ),
+                        "actor_id": _string(
+                            observation.get("actor_id"),
+                            f"agent_telemetry.observed_assignments[{index}].actor_id",
+                        ),
+                        "role": _string(
+                            observation.get("role"),
+                            f"agent_telemetry.observed_assignments[{index}].role",
+                        ),
+                    }
+                )
+            result["agent_telemetry"]["observed_assignments"] = normalized_observations
+        if result["live_execution"]:
+            missing = [
+                field
+                for field in (
+                    *LIVE_IDENTITY_FIELDS,
+                    "controller_mode",
+                    "agent_telemetry",
+                )
+                if field not in result
+            ]
+            if missing:
+                raise EvaluationError(
+                    "live schema-v2 receipt lacks frozen identity: "
+                    + ", ".join(missing)
+                )
+            if not result["agent_telemetry"]["complete"]:
+                raise EvaluationError("live agent telemetry is incomplete")
     return result
 
 
@@ -377,16 +1116,231 @@ def _protocol_status(
     return {"complete": complete, "rounds": rounds}
 
 
+def _bootstrap_interval(
+    values: Sequence[float], *, median: bool, seed: str, samples: int = 2000
+) -> list[float] | None:
+    if not values:
+        return None
+    statistic = statistics.median if median else statistics.fmean
+    if len(values) == 1:
+        value = float(values[0])
+        return [value, value]
+    generator = random.Random(seed)
+    estimates = sorted(
+        float(statistic(generator.choices(values, k=len(values))))
+        for _ in range(samples)
+    )
+    return [estimates[int(samples * 0.025)], estimates[int(samples * 0.975) - 1]]
+
+
+def _task_level_values(
+    pairs: Sequence[dict[str, Any]], field: str, *, median: bool
+) -> list[float]:
+    grouped: dict[str, list[float]] = {}
+    for pair in pairs:
+        value = pair.get(field)
+        fixture_id = pair.get("fixture_id") or pair.get("task_id")
+        if isinstance(value, (int, float)) and isinstance(fixture_id, str):
+            grouped.setdefault(fixture_id, []).append(float(value))
+    statistic = statistics.median if median else statistics.fmean
+    return [float(statistic(values)) for _, values in sorted(grouped.items())]
+
+
+def _stratified_fixture_interval(
+    pairs: Sequence[dict[str, Any]],
+    field: str,
+    *,
+    median: bool,
+    seed: str,
+    samples: int,
+) -> list[float] | None:
+    fixtures: dict[str, dict[str, Any]] = {}
+    for pair in pairs:
+        value = pair.get(field)
+        fixture_id = pair.get("fixture_id")
+        category = pair.get("category")
+        expected_mode = pair.get("expected_mode")
+        if not isinstance(value, (int, float)) or not all(
+            isinstance(item, str) and item
+            for item in (fixture_id, category, expected_mode)
+        ):
+            continue
+        fixture = fixtures.setdefault(
+            fixture_id, {"stratum": f"{category}|{expected_mode}", "values": []}
+        )
+        if fixture["stratum"] != f"{category}|{expected_mode}":
+            raise EvaluationError("fixture appears in more than one bootstrap stratum")
+        fixture["values"].append(float(value))
+    statistic = statistics.median if median else statistics.fmean
+    strata: dict[str, list[float]] = {}
+    for fixture in fixtures.values():
+        strata.setdefault(fixture["stratum"], []).append(
+            float(statistic(fixture["values"]))
+        )
+    if not strata:
+        return None
+    all_values = [value for values in strata.values() for value in values]
+    if len(all_values) == 1:
+        return [all_values[0], all_values[0]]
+    generator = random.Random(seed)
+    estimates: list[float] = []
+    for _ in range(samples):
+        sampled: list[float] = []
+        for stratum in sorted(strata):
+            values = strata[stratum]
+            sampled.extend(generator.choices(values, k=len(values)))
+        estimates.append(float(statistic(sampled)))
+    estimates.sort()
+    return [estimates[int(samples * 0.025)], estimates[int(samples * 0.975) - 1]]
+
+
+def _agent_plan_compliant(
+    telemetry: Mapping[str, Any], expected_mode: str | None
+) -> bool:
+    actual_mode = telemetry.get("actual_mode")
+    spawns = telemetry.get("spawn_count")
+    joins = telemetry.get("join_count")
+    if (
+        actual_mode not in AGENT_PLAN_MODES
+        or not isinstance(spawns, int)
+        or telemetry.get("usage_includes_subagents") is not True
+    ):
+        return False
+    if expected_mode is not None and actual_mode != expected_mode:
+        return False
+    minimum_spawns = (
+        0
+        if actual_mode == "solo"
+        else (2 if actual_mode.startswith("parallel-") else 1)
+    )
+    if spawns < minimum_spawns or (
+        spawns and (not isinstance(joins, int) or joins < 1)
+    ):
+        return False
+    plans = telemetry.get("plan_receipts")
+    if not isinstance(plans, list) or len(plans) != 1 or not isinstance(plans[0], dict):
+        return False
+    plan = plans[0]
+    waves = plan.get("waves")
+    if not isinstance(waves, list):
+        return False
+    assignments: list[dict[str, Any]] = []
+    for wave in waves:
+        if not isinstance(wave, dict) or not isinstance(wave.get("assignments"), list):
+            return False
+        if not all(isinstance(item, dict) for item in wave["assignments"]):
+            return False
+        assignments.extend(wave["assignments"])
+    identifiers = [item.get("assignment_id") or item.get("id") for item in assignments]
+    if any(not isinstance(item, str) or not item for item in identifiers):
+        return actual_mode == "solo" and not assignments
+    if len(identifiers) != len(set(identifiers)):
+        return False
+    planned_agents = plan.get("total_planned_agents")
+    if not isinstance(planned_agents, int) or planned_agents != spawns:
+        return False
+    verifier_ids = {
+        identifiers[index]
+        for index, item in enumerate(assignments)
+        if item.get("role") == "verifier"
+    }
+    executor_ids = set(identifiers) - verifier_ids
+    if verifier_ids & executor_ids:
+        return False
+    observed = telemetry.get("observed_assignments")
+    if not isinstance(observed, list):
+        return False
+    observed_by_assignment: dict[str, dict[str, Any]] = {}
+    for item in observed:
+        if not isinstance(item, dict):
+            return False
+        assignment_id = item.get("assignment_id")
+        actor_id = item.get("actor_id")
+        role = item.get("role")
+        if (
+            not isinstance(assignment_id, str)
+            or assignment_id in observed_by_assignment
+            or not isinstance(actor_id, str)
+            or not actor_id
+            or not isinstance(role, str)
+        ):
+            return False
+        observed_by_assignment[assignment_id] = item
+    if set(observed_by_assignment) != set(identifiers):
+        return actual_mode == "solo" and not assignments and not observed
+    verifier_actors = {
+        observed_by_assignment[item]["actor_id"] for item in verifier_ids
+    }
+    executor_actors = {
+        observed_by_assignment[item]["actor_id"] for item in executor_ids
+    }
+    if verifier_actors & executor_actors:
+        return False
+    for identifier, assignment in zip(identifiers, assignments, strict=True):
+        if observed_by_assignment[identifier]["role"] != assignment.get("role"):
+            return False
+    owned: list[tuple[str, str]] = []
+    for identifier, item in zip(identifiers, assignments, strict=True):
+        permissions = item.get("permissions")
+        if permissions not in {"read-only", "write-owned-paths"}:
+            return False
+        can_write = permissions == "write-owned-paths"
+        paths = item.get("ownership", [])
+        if can_write:
+            if not isinstance(paths, list) or not paths:
+                return False
+            for path in paths:
+                if not isinstance(path, str) or not path:
+                    return False
+                normalized = path.replace("\\", "/").strip("/").casefold()
+                for other_id, other in owned:
+                    if identifier != other_id and (
+                        normalized == other
+                        or normalized.startswith(other + "/")
+                        or other.startswith(normalized + "/")
+                    ):
+                        return False
+                owned.append((identifier, normalized))
+        if item.get("role") == "verifier" and can_write:
+            return False
+        depth = item.get("delegation_depth")
+        if not isinstance(depth, int) or depth < 1 or depth > plan.get("max_depth", -1):
+            return False
+        if (
+            item.get("may_spawn") is not False
+            or item.get("may_verify_parent") is not False
+        ):
+            return False
+    return True
+
+
 def compare(
     receipts: Sequence[object],
     *,
     minimum_live_pairs: int = 3,
     task_contract: Mapping[str, Any] | None = None,
+    controller_protocol: Mapping[str, Any] | None = None,
+    artifact_index: Path | None = None,
 ) -> dict[str, Any]:
     if minimum_live_pairs < 1:
         raise EvaluationError("minimum_live_pairs must be >= 1")
     contract = (
         validate_task_contract(task_contract) if task_contract is not None else None
+    )
+    protocol_identity = (
+        dict(controller_protocol) if controller_protocol is not None else None
+    )
+    if protocol_identity is not None and not all(
+        key in protocol_identity
+        for key in ("protocol_id", "sha256", "bootstrap_resamples", "bootstrap_seed")
+    ):
+        raise EvaluationError("controller protocol identity is incomplete")
+    if artifact_index is not None and protocol_identity is None:
+        raise EvaluationError("artifact bundle requires a controller protocol")
+    artifact_bundle = (
+        load_artifact_bundle(artifact_index, protocol_identity)
+        if artifact_index is not None and protocol_identity is not None
+        else None
     )
     normalized = [normalize_receipt(value) for value in receipts]
     if contract is not None:
@@ -420,6 +1374,20 @@ def compare(
             if key in seen_task_repetitions:
                 raise EvaluationError(f"duplicate task repetition {key[0]} #{key[1]}")
             seen_task_repetitions.add(key)
+            if baseline["live_execution"] or candidate["live_execution"]:
+                for field in LIVE_IDENTITY_FIELDS:
+                    if baseline[field] != candidate[field]:
+                        raise EvaluationError(
+                            f"case {case_id} differs in live identity field {field}"
+                        )
+                if baseline["provider"] != candidate["provider"]:
+                    raise EvaluationError(
+                        f"case {case_id} uses different Cognitive Powers builds"
+                    )
+                if baseline["controller_mode"] != "forced-solo":
+                    raise EvaluationError(f"case {case_id} baseline is not forced-solo")
+                if candidate["controller_mode"] != "adaptive":
+                    raise EvaluationError(f"case {case_id} candidate is not adaptive")
 
         baseline_tokens = baseline["input_tokens"] + baseline["output_tokens"]
         candidate_tokens = candidate["input_tokens"] + candidate["output_tokens"]
@@ -448,7 +1416,21 @@ def compare(
             and independent_tests_passed
             and budget_passed
         )
-        token_delta = candidate_tokens - baseline_tokens
+        successful_pair = (
+            baseline["success"] and candidate["success"] and not critical_failure
+        )
+        confirmatory_pair = (
+            protocol_identity is not None
+            and baseline["schema_version"] == 2
+            and baseline["live_execution"]
+            and candidate["live_execution"]
+        )
+        efficiency_eligible = (
+            successful_pair if confirmatory_pair else quality_gate_passed
+        )
+        token_delta = candidate_tokens - baseline_tokens if successful_pair else None
+        baseline_fresh = baseline["fresh_input_tokens"]
+        candidate_fresh = candidate["fresh_input_tokens"]
         elapsed_delta = candidate["elapsed_seconds"] - baseline["elapsed_seconds"]
         pair: dict[str, Any] = {
             "case_id": case_id,
@@ -456,21 +1438,33 @@ def compare(
             "passed": quality_gate_passed,
             "status": "eligible" if quality_gate_passed else "rejected",
             "live": baseline["live_execution"] and candidate["live_execution"],
+            "baseline_success": baseline["success"],
+            "candidate_success": candidate["success"],
+            "success_delta": float(candidate["success"]) - float(baseline["success"]),
             "critical_failure": critical_failure,
+            "candidate_critical_failure": bool(candidate["critical_errors"]),
             "quality_preserved": quality_preserved,
             "baseline_quality_score": baseline["quality_score"],
             "candidate_quality_score": candidate["quality_score"],
             "quality_delta": candidate["quality_score"] - baseline["quality_score"],
             "independent_tests_passed": independent_tests_passed,
             "budget_passed": budget_passed,
-            "efficiency_eligible": quality_gate_passed,
-            # Raw deltas remain for backward-compatible audit output. They are not
-            # treated as improvement unless efficiency_eligible is true.
+            "efficiency_eligible": efficiency_eligible,
             "token_delta": token_delta,
             "token_reduction_ratio": (
                 (baseline_tokens - candidate_tokens) / baseline_tokens
-                if baseline_tokens
-                else 0.0
+                if successful_pair and baseline_tokens
+                else None
+            ),
+            "total_token_ratio": (
+                candidate_tokens / baseline_tokens
+                if successful_pair and baseline_tokens
+                else None
+            ),
+            "fresh_input_ratio": (
+                candidate_fresh / baseline_fresh
+                if successful_pair and baseline_fresh
+                else None
             ),
             "elapsed_delta": elapsed_delta,
             "efficiency": (
@@ -482,7 +1476,7 @@ def compare(
                     and token_delta <= 0
                     and elapsed_delta <= 0,
                 }
-                if quality_gate_passed
+                if efficiency_eligible
                 else None
             ),
         }
@@ -495,6 +1489,20 @@ def compare(
                     "repetition": baseline["repetition"],
                     "arm_order": baseline["arm_order"],
                     "source_sha256": baseline["source_sha256"],
+                    "fixture_id": baseline["fixture_id"],
+                    "category": (
+                        contract["tasks"][baseline["task_id"]]["category"]
+                        if contract is not None
+                        else None
+                    ),
+                    "expected_mode": (
+                        contract["tasks"][baseline["task_id"]]["expected_mode"]
+                        if contract is not None
+                        else None
+                    ),
+                    "actual_mode": candidate.get("agent_telemetry", {}).get(
+                        "actual_mode"
+                    ),
                 }
             )
         pairs.append(pair)
@@ -518,8 +1526,8 @@ def compare(
         evidence_scope = [pair for pair in pairs if pair.get("split") == "promotion"]
         held_out_complete = protocol_status["rounds"]["promotion"]["complete"]
     scope_live = bool(evidence_scope) and all(pair["live"] for pair in evidence_scope)
-    scope_quality = bool(evidence_scope) and all(
-        pair["passed"] for pair in evidence_scope
+    candidate_critical_failure_count = sum(
+        pair["candidate_critical_failure"] for pair in evidence_scope
     )
     baseline_quality_average = (
         sum(pair["baseline_quality_score"] for pair in evidence_scope)
@@ -534,31 +1542,223 @@ def compare(
         else 0.0
     )
     quality_delta = candidate_quality_average - baseline_quality_average
+    gates = protocol_identity.get("gates", {}) if protocol_identity else {}
     minimum_quality_delta = (
-        contract["protocol"]["minimum_average_quality_delta"]
+        float(gates["quality-delta"]["threshold"]) / 100.0
+        if gates
+        else contract["protocol"]["minimum_average_quality_delta"]
         if contract is not None
         else 0.0
     )
     quality_improved = quality_delta >= minimum_quality_delta
-    scope_efficiency = (
-        bool(evidence_scope)
-        and all(
-            pair["efficiency"] is not None and pair["efficiency"]["non_regressed"]
-            for pair in evidence_scope
+    quality_by_task = _task_level_values(evidence_scope, "quality_delta", median=False)
+    total_ratio_by_task = _task_level_values(
+        evidence_scope, "total_token_ratio", median=True
+    )
+    fresh_ratio_by_task = _task_level_values(
+        evidence_scope, "fresh_input_ratio", median=True
+    )
+    solo_scope = [
+        pair for pair in evidence_scope if pair.get("expected_mode") == "solo"
+    ]
+    solo_ratio_by_task = _task_level_values(
+        solo_scope, "total_token_ratio", median=True
+    )
+    bootstrap_samples = (
+        int(protocol_identity["bootstrap_resamples"]) if protocol_identity else 2000
+    )
+    bootstrap_seed = (
+        str(protocol_identity["bootstrap_seed"])
+        if protocol_identity
+        else "legacy-bootstrap"
+    )
+    if protocol_identity:
+        quality_ci = _stratified_fixture_interval(
+            evidence_scope,
+            "quality_delta",
+            median=False,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
         )
-        and any(
-            pair["efficiency"] is not None and pair["efficiency"]["improved"]
-            for pair in evidence_scope
+        total_ci = _stratified_fixture_interval(
+            evidence_scope,
+            "total_token_ratio",
+            median=True,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+        fresh_ci = _stratified_fixture_interval(
+            evidence_scope,
+            "fresh_input_ratio",
+            median=True,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+    else:
+        quality_ci = _bootstrap_interval(
+            quality_by_task,
+            median=False,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+        total_ci = _bootstrap_interval(
+            total_ratio_by_task,
+            median=True,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+        fresh_ci = _bootstrap_interval(
+            fresh_ratio_by_task,
+            median=True,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+    total_ratio = (
+        statistics.median(total_ratio_by_task) if total_ratio_by_task else None
+    )
+    fresh_ratio = (
+        statistics.median(fresh_ratio_by_task) if fresh_ratio_by_task else None
+    )
+    solo_ratio = statistics.median(solo_ratio_by_task) if solo_ratio_by_task else None
+    total_ratio_max = float(
+        gates.get("total-token-ratio", {}).get("threshold", TOTAL_TOKEN_RATIO_MAX)
+    )
+    fresh_ratio_max = float(
+        gates.get("fresh-input-ratio", {}).get("threshold", FRESH_INPUT_RATIO_MAX)
+    )
+    solo_ratio_max = float(
+        gates.get("solo-token-overhead", {}).get("threshold", SOLO_TOKEN_RATIO_MAX)
+    )
+    literal_efficiency_passed = (
+        total_ratio is not None
+        and fresh_ratio is not None
+        and solo_ratio is not None
+        and total_ratio <= total_ratio_max
+        and fresh_ratio <= fresh_ratio_max
+        and solo_ratio <= solo_ratio_max
+        and total_ci is not None
+        and fresh_ci is not None
+        and total_ci[1] < total_ratio_max
+        and fresh_ci[1] < fresh_ratio_max
+    )
+    success_by_task: dict[str, list[float]] = {}
+    for pair in evidence_scope:
+        task_id = pair.get("task_id")
+        if isinstance(task_id, str):
+            success_by_task.setdefault(task_id, []).append(
+                float(pair["candidate_success"]) - float(pair["baseline_success"])
+            )
+    success_deltas = [statistics.fmean(items) for items in success_by_task.values()]
+    success_delta = statistics.fmean(success_deltas) if success_deltas else None
+    success_ci = (
+        _stratified_fixture_interval(
+            evidence_scope,
+            "success_delta",
+            median=False,
+            seed=bootstrap_seed,
+            samples=bootstrap_samples,
+        )
+        if protocol_identity
+        else _bootstrap_interval(
+            success_deltas, median=False, seed=bootstrap_seed, samples=bootstrap_samples
         )
     )
+    success_margin = float(
+        gates.get("strict-success-noninferiority", {}).get("threshold", -0.05)
+    )
+    success_noninferior = (
+        success_delta is not None
+        and success_delta >= 0
+        and success_ci is not None
+        and success_ci[0] > success_margin
+    )
+
+    routing_pairs = [
+        pair for pair in evidence_scope if pair.get("expected_mode") in AGENT_PLAN_MODES
+    ]
+    true_positive = sum(
+        pair["expected_mode"] != "solo" and pair.get("actual_mode") != "solo"
+        for pair in routing_pairs
+    )
+    predicted_positive = sum(
+        pair.get("actual_mode") != "solo" for pair in routing_pairs
+    )
+    eligible_positive = sum(pair["expected_mode"] != "solo" for pair in routing_pairs)
+    routing_precision = (
+        true_positive / predicted_positive if predicted_positive else 0.0
+    )
+    routing_recall = true_positive / eligible_positive if eligible_positive else 0.0
+    candidate_telemetry = {
+        receipt["case_id"]: receipt.get("agent_telemetry")
+        for receipt in normalized
+        if receipt["variant"] == "candidate"
+    }
+    agent_compliance = bool(routing_pairs) and all(
+        isinstance(candidate_telemetry.get(pair["case_id"]), dict)
+        and _agent_plan_compliant(
+            candidate_telemetry[pair["case_id"]], pair["expected_mode"]
+        )
+        for pair in routing_pairs
+    )
+    precision_min = float(gates.get("mode-precision", {}).get("threshold", 0.90))
+    recall_min = float(gates.get("delegation-recall", {}).get("threshold", 0.80))
+    routing_passed = (
+        bool(routing_pairs)
+        and routing_precision >= precision_min
+        and routing_recall >= recall_min
+        and agent_compliance
+    )
+    protocol_bound = bool(protocol_identity) and all(
+        receipt.get("controller_protocol_id") == protocol_identity["protocol_id"]
+        and receipt.get("controller_protocol_sha256") == protocol_identity["sha256"]
+        for receipt in normalized
+        if receipt["live_execution"]
+    )
+    analysis_binding = {
+        "quality": {
+            "baseline_average": baseline_quality_average,
+            "candidate_average": candidate_quality_average,
+            "delta": quality_delta,
+            "ci95": quality_ci,
+        },
+        "success": {"paired_delta": success_delta, "ci95": success_ci},
+        "tokens": {
+            "total_ratio": total_ratio,
+            "total_ci95": total_ci,
+            "fresh_ratio": fresh_ratio,
+            "fresh_ci95": fresh_ci,
+            "solo_ratio": solo_ratio,
+        },
+        "routing": {
+            "precision": routing_precision,
+            "recall": routing_recall,
+            "agent_plan_compliant": agent_compliance,
+        },
+        "protocol_status": protocol_status,
+    }
+    semantic_artifact_binding = (
+        _validate_artifact_semantics(
+            artifact_bundle, normalized, analysis_binding, protocol_identity
+        )
+        if artifact_bundle is not None
+        and protocol_identity is not None
+        and protocol_bound
+        else None
+    )
+    quality_confident = quality_ci is not None and quality_ci[0] > 0
     proven = (
         contract is not None
+        and protocol_bound
+        and semantic_artifact_binding is not None
         and len(evidence_scope) >= minimum_live_pairs
         and held_out_complete
         and scope_live
-        and scope_quality
+        and candidate_critical_failure_count == 0
         and quality_improved
-        and scope_efficiency
+        and quality_confident
+        and success_noninferior
+        and literal_efficiency_passed
+        and routing_passed
     )
     if proven:
         reason = None
@@ -566,20 +1766,30 @@ def compare(
         reason = "requires paired receipts"
     elif contract is None:
         reason = "requires a versioned task contract and schema v2 receipts"
-    elif not all_quality:
-        reason = "success, critical-failure, independent-test, budget, or quality gate failed"
     elif contract is not None and not held_out_complete:
         reason = "requires the complete repeated, balanced, held-out promotion round"
     elif not scope_live or len(evidence_scope) < minimum_live_pairs:
         reason = "requires enough paired live executions"
+    elif not protocol_bound:
+        reason = "requires receipts bound to the frozen controller protocol"
+    elif semantic_artifact_binding is None:
+        reason = (
+            "requires a complete hash-verified artifact bundle and independent verdict"
+        )
+    elif candidate_critical_failure_count:
+        reason = "candidate produced a critical failure"
     elif not quality_improved:
         reason = (
             "average candidate quality did not meet the frozen improvement threshold"
         )
+    elif not success_noninferior:
+        reason = "candidate success did not meet the paired noninferiority gate"
+    elif not literal_efficiency_passed:
+        reason = "successful pairs did not meet the literal token thresholds"
+    elif not routing_passed:
+        reason = "routing precision, recall, or agent-plan compliance failed"
     else:
-        reason = (
-            "quality passed but measured efficiency did not improve without regression"
-        )
+        reason = "quality confidence interval did not exclude zero"
     return {
         "schema_version": 2 if contract is not None else 1,
         "task_set_id": contract["task_set_id"] if contract is not None else None,
@@ -587,17 +1797,50 @@ def compare(
         "minimum_live_pairs": minimum_live_pairs,
         "live_pairs": live_pairs,
         "all_quality_gates_passed": all_quality,
+        "candidate_critical_failure_count": candidate_critical_failure_count,
         "quality": {
             "baseline_average": baseline_quality_average,
             "candidate_average": candidate_quality_average,
             "delta": quality_delta,
             "minimum_delta": minimum_quality_delta,
             "improved": quality_improved,
+            "task_level_ci95": quality_ci,
+        },
+        "success": {
+            "paired_delta": success_delta,
+            "task_level_ci95": success_ci,
+            "noninferior": success_noninferior,
+        },
+        "token_gates": {
+            "successful_pairs_only": True,
+            "total_ratio": total_ratio,
+            "total_ratio_max": total_ratio_max,
+            "total_ratio_ci95": total_ci,
+            "fresh_input_ratio": fresh_ratio,
+            "fresh_input_ratio_max": fresh_ratio_max,
+            "fresh_input_ratio_ci95": fresh_ci,
+            "solo_total_ratio": solo_ratio,
+            "solo_total_ratio_max": solo_ratio_max,
+            "passed": literal_efficiency_passed,
+        },
+        "routing": {
+            "precision": routing_precision,
+            "recall": routing_recall,
+            "agent_plan_compliant": agent_compliance,
+            "passed": routing_passed,
         },
         "protocol": protocol_status,
-        "efficiency_evaluated": all_quality and bool(eligible_efficiency),
+        "controller_protocol": protocol_identity,
+        "artifact_bundle": (
+            {**artifact_bundle, "semantic_binding": semantic_artifact_binding}
+            if artifact_bundle is not None
+            else None
+        ),
+        "efficiency_evaluated": bool(eligible_efficiency),
         "aggregate_efficiency_improved": aggregate_efficiency_improved,
+        "confirmatory_efficiency_passed": literal_efficiency_passed,
         "end_to_end_improvement_proven": proven,
+        "verdict": "proven" if proven else "not-proven",
         "reason": reason,
     }
 
@@ -611,6 +1854,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="optional frozen schema-v2 task contract for experimental receipts",
     )
     parser.add_argument("--minimum-live-pairs", type=int, default=3)
+    parser.add_argument(
+        "--controller-protocol", type=Path, default=DEFAULT_CONTROLLER_PROTOCOL
+    )
+    parser.add_argument(
+        "--artifact-index",
+        type=Path,
+        help="hash index for the complete confirmatory artifact bundle",
+    )
     args = parser.parse_args(argv)
     try:
         value = json.loads(args.receipts.read_text(encoding="utf-8"))
@@ -621,16 +1872,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.tasks is not None
             else None
         )
+        controller_protocol = load_controller_protocol(args.controller_protocol)
         report = compare(
             value,
             minimum_live_pairs=args.minimum_live_pairs,
             task_contract=task_contract,
+            controller_protocol=controller_protocol,
+            artifact_index=args.artifact_index,
         )
     except (OSError, json.JSONDecodeError, EvaluationError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2
     print(json.dumps(report, indent=2, ensure_ascii=False))
-    return 0 if report["all_quality_gates_passed"] else 1
+    return (
+        0
+        if (
+            report["all_quality_gates_passed"]
+            or report["end_to_end_improvement_proven"]
+        )
+        else 1
+    )
 
 
 if __name__ == "__main__":

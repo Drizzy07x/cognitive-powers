@@ -62,6 +62,7 @@ class PluginContractTests(unittest.TestCase):
             "skills/solve-efficiently/scripts/semantic_provider.py",
             "skills/solve-efficiently/scripts/memory_context.py",
             "skills/solve-efficiently/scripts/context_pipeline.py",
+            "skills/solve-efficiently/scripts/orchestration_policy.py",
             "skills/audit-capabilities/SKILL.md",
             "skills/audit-capabilities/agents/openai.yaml",
             "skills/audit-capabilities/references/evidence-contract.md",
@@ -147,6 +148,7 @@ class PluginContractTests(unittest.TestCase):
             "scripts/run_design_benchmarks.py",
             "scripts/run_capability_benchmarks.py",
             "scripts/run_coordination_benchmarks.py",
+            "scripts/orchestration_policy.py",
             "scripts/run_extension_benchmarks.py",
             "scripts/run_skill_routing_benchmarks.py",
             "scripts/run_memory_benchmarks.py",
@@ -167,6 +169,8 @@ class PluginContractTests(unittest.TestCase):
             "benchmarks/design_cases.json",
             "benchmarks/capability_cases.json",
             "benchmarks/coordination_cases.json",
+            "benchmarks/agent_plan_cases.json",
+            "benchmarks/controller_ab_protocol.json",
             "benchmarks/extension_cases.json",
             "benchmarks/skill_routing_cases.json",
             "benchmarks/memory_cases.json",
@@ -244,7 +248,7 @@ class PluginContractTests(unittest.TestCase):
     def test_private_github_installer_is_fail_closed_and_version_pinned(self) -> None:
         installer = (PLUGIN_ROOT / "install.ps1").read_text(encoding="utf-8")
         required_fragments = [
-            'Set-StrictMode -Version Latest',
+            "Set-StrictMode -Version Latest",
             '$ErrorActionPreference = "Stop"',
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',

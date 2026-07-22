@@ -47,12 +47,18 @@ Use `scripts/run_skill_routing_benchmarks.py` after changing a skill name or des
 
 ## 3. Match effort to complexity
 
-- Select `focused`, `standard`, or `durable` with `scripts/orchestration_policy.py` when intensity is not obvious. Preserve its reasons and abstentions; do not infer permission to retrieve memory or delegate from intensity alone.
+- Select `focused`, `standard`, or `durable` with `<plugin-root>/scripts/orchestration_policy.py` when intensity is not obvious. Preserve its reasons and abstentions; do not infer permission to retrieve memory or delegate from intensity alone. The v1 intensity result remains separate from agent planning.
 - Focused task: inspect the target and its nearest tests, then execute without durable state, receipts, memory retrieval, or coordination overhead.
 - Standard task: use progressive context and nearby verification without durable state unless a durable signal appears.
 - Durable task: use external state and evidence receipts when work spans turns, risks compaction, must be resumable, or explicitly requires durable evidence.
-- Independent investigations: delegate or batch them only when the expected information gain exceeds the coordination cost.
-- Coupled edits: keep one owner to avoid conflicting patches and duplicated context.
+- After bounded discovery establishes non-trivial boundaries, submit explicit units to `<plugin-root>/scripts/orchestration_policy.py --agent-plan <json-or-stdin> --json`. Do not run the planner for an obvious focused edit.
+- Use the v2 planning and result contracts for durable work or quality claims. Preserve `plan_id` and `assignment_id`, provide an executable `verification_check`, and validate every worker or verifier result against its originating plan. A v1 result is compatibility-only evidence and cannot complete a durable criterion.
+- Execute the returned mode exactly: `solo`, `parallel-read-only`, `parallel-packets`, or `staged-verify`. Re-evaluate after every wave; interrupt duplicate or out-of-scope work as soon as it is observable.
+- Use at most `min(available slots - 1, 3, independent ready units)` workers. The main agent always keeps one host slot and launches a required fresh verifier only after implementation workers release a slot.
+- Permit parallel writes only for an authorized change with a validated packet plan, satisfied dependencies, and non-overlapping owned paths. Keep coupled edits under one owner.
+- Depth one is the default. The main agent may create depth-two read-only subdivisions, but workers never spawn descendants, write from depth two, or verify their parent.
+- Allow one classified retry per assignment. After a second failure, the main agent absorbs the work or reports a genuine blocker.
+- Persist decision JSON only for a benchmark or durable execution. Focused and standard decisions remain ephemeral and must not create external state.
 
 Request mode and intensity are independent. A diagnosis remains investigation-only at every intensity; implement a fix only when the user authorized a change.
 

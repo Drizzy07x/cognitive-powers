@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "corpus_id": "cognitive-powers-controller-ab-2026-07-v1",
+  "contains_run_results": false,
+  "end_to_end_improvement_proven": false,
+  "repetitions_per_arm": 3,
+  "arms": {
+    "baseline": "forced-solo",
+    "candidate": "adaptive"
+  },
+  "dimensions": {
+    "modes": [
+      "solo",
+      "parallel-read-only",
+      "parallel-packets",
+      "staged-verify"
+    ],
+    "categories": [
+      "bug-fix",
+      "multi-file-implementation",
+      "current-source-research",
+      "delivery-verification",
+      "real-host-interaction"
+    ]
+  },
+  "splits": {
+    "pilot": {
+      "held_out": false,
+      "fixtures_per_cell": 1,
+      "actor_root": "actor/pilot",
+      "evaluator_root": "evaluators/pilot"
+    },
+    "promotion": {
+      "held_out": true,
+      "fixtures_per_cell": 3,
+      "actor_root": "actor/promotion",
+      "evaluator_root": "evaluators/promotion",
+      "definition_sealed": true,
+      "definition_seal_sha256": "b091c7ca8ecea85a908cfffc188218ae0b9fb6205403dbca856a20fafb8c6262"
+    }
+  },
+  "recipe": {
+    "format": "controller-ab-mini-repo-v1",
+    "git_default_branch": "main",
+    "git_author_name": "Cognitive Powers Fixtures",
+    "git_author_email": "fixtures@cognitive-powers.invalid",
+    "git_timestamp": "2026-07-21T12:00:00+00:00",
+    "actor_files": [
+      "README.md",
+      "task.json",
+      "src/scenario.txt",
+      "packets/a/state.txt",
+      "packets/b/state.txt",
+      "tests/test_public.py"
+    ],
+    "evaluator_checks": [
+      "hidden_check.py",
+      "quality_check.py"
+    ],
+    "git_identity_required": true,
+    "clean_checkout_required": true
+  },
+  "category_prompts": {
+    "bug-fix": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.",
+    "multi-file-implementation": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.",
+    "current-source-research": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.",
+    "delivery-verification": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.",
+    "real-host-interaction": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence."
+  },
+  "mode_recipes": {
+    "solo": {
+      "allowed_paths": ["src/scenario.txt"],
+      "work_units": 1
+    },
+    "parallel-read-only": {
+      "allowed_paths": [],
+      "work_units": 2
+    },
+    "parallel-packets": {
+      "allowed_paths": ["packets/a/**", "packets/b/**", "tests/**"],
+      "work_units": 2
+    },
+    "staged-verify": {
+      "allowed_paths": ["src/**", "tests/**"],
+      "work_units": 2
+    }
+  },
+  "promotion_content_sealed": false,
+  "promotion_content_seal_sha256": null
+}

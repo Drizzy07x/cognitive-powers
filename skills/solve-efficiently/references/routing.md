@@ -33,7 +33,32 @@ Use when behavior crosses modules, tools, data sources, or external state. Creat
 
 ## Decide whether to delegate
 
-Delegate only a bounded subproblem that can run independently while useful local work continues. Good candidates include separate source audits, independent reproduction, documentation lookup, and a clean-room verification pass.
+After bounded discovery, represent candidate work as explicit units and call the
+canonical orchestration runtime. Each unit names its role, objective, minimum
+context, owned paths, dependencies, permissions, expected output, check, stop
+conditions, RED eligibility, readiness, distinct output, and delegation depth.
+
+The automatic conservative controller applies these gates:
+
+- `solo`: fewer than two independent ready units, unclear boundaries, a cheaper
+  local discriminator, no worker slot, invalid signals, exhausted retry, or a
+  write plan without authority and validated disjoint ownership.
+- `parallel-read-only`: two or more independent investigation, research, or
+  review outputs, capped at three workers and the host's available slots.
+- `parallel-packets`: authorized executors own disjoint ready packets. The main
+  agent integrates them and a fresh verifier runs afterward.
+- `staged-verify`: test writer before executor when a real RED target and
+  separate ownership exist, or a fresh read-only verification wave after a
+  delegated, durable, release-critical, or quality-claiming result.
+
+Depth two is descriptive: the main agent creates all assignments. Every
+assignment sets `may_spawn=false`; depth-two work is read-only, and no worker
+may verify its parent. A failed assignment gets at most one retry after the
+failure is classified. Then the main agent takes ownership or reports a blocker.
+
+Validate worker responses with the runtime's worker-result contract. Require
+status, changed paths, actual argv and exit codes, blockers, and remaining
+risks; an omitted or invented check is not evidence.
 
 Do not delegate tightly coupled edits, trivial lookups, or work whose result cannot be integrated without rereading the same context. Give each worker the raw task and minimum needed context; do not leak the expected conclusion into an independent validation.
 

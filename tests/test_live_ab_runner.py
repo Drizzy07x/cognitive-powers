@@ -16,6 +16,24 @@ SPEC.loader.exec_module(runner)
 
 
 class LiveAbRunnerTests(unittest.TestCase):
+    def test_controller_protocol_is_bound_and_fails_closed_when_changed(self) -> None:
+        canonical = runner.load_controller_protocol(
+            PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+        )
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v1")
+        self.assertEqual(len(canonical["sha256"]), 64)
+        with tempfile.TemporaryDirectory() as temporary:
+            altered = Path(temporary) / "protocol.json"
+            payload = json.loads(
+                (PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            payload["comparison"]["control_arm"]["controller_mode"] = "adaptive"
+            altered.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(runner.LiveEvaluationError):
+                runner.load_controller_protocol(altered)
+
     def test_arm_order_is_deterministic_and_balanced(self) -> None:
         first = runner.arm_order(5, "stable-seed")
         second = runner.arm_order(5, "stable-seed")
@@ -41,29 +59,40 @@ class LiveAbRunnerTests(unittest.TestCase):
 
     def test_task_binding_requires_the_frozen_schedule(self) -> None:
         contract_path = PLUGIN_ROOT / "benchmarks" / "evaluation_tasks.json"
-        prompt = (
-            "Diagnose and fix the reproduced defect in the supplied checkout. "
-            "Preserve unrelated behavior and return the exact verification evidence."
-        )
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        task = contract["tasks"][0]
+        prompt = task["prompt"]
+        seed = contract["rounds"]["pilot"]["arm_order"]["seed"]
 
         binding = runner.load_task_binding(
             contract_path,
-            task_id="pilot-bug-fix",
+            task_id=task["task_id"],
             prompt=prompt,
-            repetitions=4,
-            seed="cp-pilot-2026-07-v1",
+            repetitions=3,
+            seed=seed,
         )
 
         self.assertEqual(binding["split"], "pilot")
-        self.assertEqual(binding["fixture_id"], "fixture-bug-fix-pilot-v1")
+        self.assertEqual(binding["fixture_id"], task["fixture_id"])
         with self.assertRaisesRegex(runner.LiveEvaluationError, "prompt"):
             runner.load_task_binding(
                 contract_path,
-                task_id="pilot-bug-fix",
+                task_id=task["task_id"],
                 prompt="changed prompt",
-                repetitions=4,
-                seed="cp-pilot-2026-07-v1",
+                repetitions=3,
+                seed=seed,
             )
+
+        batched = runner.load_task_binding(
+            contract_path,
+            task_id=task["task_id"],
+            prompt=prompt,
+            repetitions=1,
+            seed=seed,
+            batch_repetition=2,
+        )
+        self.assertEqual(batched["batch_repetition"], 2)
+        self.assertEqual(len(batched["batch_arm_order"]), 2)
 
     def test_aggregate_results_reports_medians_and_worst_pair(self) -> None:
         results = []
@@ -94,6 +123,106 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["total_tokens"]["candidate_median"], 80)
         self.assertEqual(report["metrics"]["total_tokens"]["delta_percent"], -20.0)
         self.assertEqual(report["worst_pair_total_token_delta_percent"], 5.0)
+
+    def test_aggregate_results_excludes_failed_pairs_from_token_metrics(self) -> None:
+        results = []
+        for repetition, success, baseline, candidate in (
+            (1, True, 100, 80),
+            (2, False, 10_000, 1),
+        ):
+            for variant, total in (("baseline", baseline), ("candidate", candidate)):
+                results.append(
+                    {
+                        "repetition": repetition,
+                        "variant": variant,
+                        "success": success,
+                        "total_tokens": total,
+                        "fresh_input_tokens": total - 10,
+                        "output_tokens": 10,
+                        "tool_calls": 1,
+                        "elapsed_seconds": 1.0,
+                    }
+                )
+
+        report = runner.aggregate_results(results)
+        self.assertEqual(report["successful_pair_count"], 1)
+        self.assertEqual(report["failed_pair_count"], 1)
+        self.assertEqual(report["metrics"]["total_tokens"]["candidate_median"], 80)
+
+    def test_parse_events_extracts_observed_agent_plan_and_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            rows = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "function_call",
+                        "name": "spawn_agent",
+                        "output": json.dumps(
+                            {
+                                "agent_plan": {
+                                    "schema_version": 2,
+                                    "mode": "parallel-read-only",
+                                    "waves": [],
+                                }
+                            }
+                        ),
+                    },
+                },
+                {
+                    "type": "agent.lifecycle",
+                    "provenance": "host",
+                    "assignment_id": "assignment-1",
+                    "actor_id": "worker-1",
+                    "role": "researcher",
+                },
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                    },
+                },
+            ]
+            events.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+            parsed = runner.parse_events(events)
+            self.assertEqual(parsed["agent_spawns"], 1)
+            self.assertEqual(parsed["agent_plans"][0]["mode"], "parallel-read-only")
+            self.assertEqual(parsed["observed_assignments"][0]["actor_id"], "worker-1")
+
+    def test_parse_events_rejects_self_reported_actor_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            rows = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "agent_message",
+                        "output": json.dumps(
+                            {
+                                "assignment_id": "fake-assignment",
+                                "actor_id": "fake-actor",
+                                "role": "verifier",
+                            }
+                        ),
+                    },
+                },
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                    },
+                },
+            ]
+            events.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+            self.assertEqual(runner.parse_events(events)["observed_assignments"], [])
 
     def test_tree_identity_and_scope_detect_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -159,9 +288,7 @@ class LiveAbRunnerTests(unittest.TestCase):
 
             self.assertEqual(len(receipts), 1)
             self.assertTrue(receipts[0]["stable"])
-            self.assertEqual(
-                receipts[0]["before_sha256"], receipts[0]["after_sha256"]
-            )
+            self.assertEqual(receipts[0]["before_sha256"], receipts[0]["after_sha256"])
 
     def test_candidate_identity_rejects_stale_installation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

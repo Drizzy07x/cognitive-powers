@@ -139,7 +139,16 @@ class BenchmarkIntegrationTests(unittest.TestCase):
         report = json.loads(completed.stdout)
         self.assertTrue(report["passed"])
         self.assertFalse(report["end_to_end_improvement_proven"])
-        self.assertEqual(len(report["cases"]), 6)
+        self.assertEqual(len(report["cases"]), 10)
+        agent_modes = {
+            case["actual"]["mode"]
+            for case in report["cases"]
+            if isinstance(case["actual"], dict) and "mode" in case["actual"]
+        }
+        self.assertEqual(
+            agent_modes,
+            {"solo", "parallel-read-only", "parallel-packets", "staged-verify"},
+        )
 
     def test_qcu_contract_passes_without_claiming_live_desktop_validation(self) -> None:
         completed = subprocess.run(

@@ -322,8 +322,106 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
             "name": "ci-workflow",
             "passed": validation["components"]["ciWorkflow"],
         },
+        {
+            "name": "orchestration-runtime",
+            "passed": (staged / "scripts" / "orchestration_policy.py").is_file(),
+        },
+        {
+            "name": "orchestration-wrapper",
+            "passed": (
+                staged
+                / "skills"
+                / "solve-efficiently"
+                / "scripts"
+                / "orchestration_policy.py"
+            ).is_file(),
+        },
+        {
+            "name": "controller-ab-protocol",
+            "passed": (staged / "benchmarks" / "controller_ab_protocol.json").is_file(),
+        },
+        {
+            "name": "controller-ab-corpus",
+            "passed": (
+                staged / "benchmarks" / "confirmatory" / "controller_ab_corpus.json"
+            ).is_file(),
+        },
+        {
+            "name": "controller-ab-fixture-runtime",
+            "passed": (staged / "scripts" / "controller_ab_fixtures.py").is_file(),
+        },
+        {
+            "name": "controller-ab-batch-runtime",
+            "passed": (staged / "scripts" / "controller_ab_batch.py").is_file(),
+        },
+        {
+            "name": "controller-ab-home-runtime",
+            "passed": (staged / "scripts" / "prepare_controller_ab_homes.py").is_file(),
+        },
     ]
     checks.extend(_interface_asset_checks(staged, manifest))
+    orchestration_path = staged / "scripts" / "orchestration_policy.py"
+    if orchestration_path.is_file():
+        smoke_input = {
+            "schema_version": 1,
+            "request_mode": "change",
+            "phase": "verify",
+            "authorization": "read-only",
+            "boundaries_clear": True,
+            "cheap_local_step_available": False,
+            "symptom_reproduced": True,
+            "durable_or_release_critical": False,
+            "quality_claim": False,
+            "delegated_change": True,
+            "packet_plan_valid": False,
+            "previous_worker_failed": False,
+            "failure_classified": False,
+            "available_agent_slots": 2,
+            "current_depth": 0,
+            "retry_attempts": 0,
+            "completed_unit_ids": [],
+            "units": [],
+        }
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(orchestration_path),
+                    "--agent-plan",
+                    "-",
+                    "--json",
+                ],
+                cwd=staged,
+                input=json.dumps(smoke_input),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=30,
+            )
+            planned = json.loads(completed.stdout) if completed.returncode == 0 else {}
+            executed = (
+                isinstance(planned, dict)
+                and planned.get("valid_input") is True
+                and planned.get("mode") == "staged-verify"
+                and planned.get("total_planned_agents") == 1
+                and planned.get("receipt_policy", {}).get(
+                    "end_to_end_improvement_proven"
+                )
+                is False
+            )
+            detail = None if executed else (completed.stderr or completed.stdout)[-500:]
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+            executed = False
+            detail = str(error)
+        orchestration_check: dict[str, Any] = {
+            "name": "orchestration-execution",
+            "passed": executed,
+        }
+        if detail:
+            orchestration_check["detail"] = detail
+        checks.append(orchestration_check)
     doctor_path = staged / "scripts" / "doctor.py"
     if doctor_path.is_file():
         try:

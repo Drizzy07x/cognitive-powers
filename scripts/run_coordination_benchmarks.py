@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run deterministic diagnostic, review-routing, and work-packet benchmarks."""
+"""Run deterministic diagnostic, review, packet, and agent-plan benchmarks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from types import ModuleType
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CASES = PLUGIN_ROOT / "benchmarks" / "coordination_cases.json"
+DEFAULT_AGENT_CASES = PLUGIN_ROOT / "benchmarks" / "agent_plan_cases.json"
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -25,7 +26,10 @@ def load_module(name: str, path: Path) -> ModuleType:
     return module
 
 
-def run(cases_path: Path = DEFAULT_CASES) -> dict[str, object]:
+def run(
+    cases_path: Path = DEFAULT_CASES,
+    agent_cases_path: Path = DEFAULT_AGENT_CASES,
+) -> dict[str, object]:
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     diagnostic = load_module(
         "benchmark_investigation_protocol",
@@ -42,6 +46,10 @@ def run(cases_path: Path = DEFAULT_CASES) -> dict[str, object]:
     work_state = load_module(
         "benchmark_work_state_packets",
         PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_state.py",
+    )
+    orchestration = load_module(
+        "benchmark_orchestration_policy",
+        PLUGIN_ROOT / "scripts" / "orchestration_policy.py",
     )
     results: list[dict[str, object]] = []
     for case in cases["diagnostic_routes"]:
@@ -78,6 +86,31 @@ def run(cases_path: Path = DEFAULT_CASES) -> dict[str, object]:
                 "expected": case["expected_valid"],
             }
         )
+    agent_report = orchestration.evaluate_agent_cases(agent_cases_path)
+    expected_agent_cases = {
+        case["id"]: case
+        for case in json.loads(agent_cases_path.read_text(encoding="utf-8"))["cases"]
+    }
+    for case in agent_report["cases"]:
+        actual = case["actual"]
+        fixture = expected_agent_cases[case["id"]]
+        expected = {
+            "mode": fixture["expected_mode"],
+            "spawn_count": fixture["expected_spawn_count"],
+        }
+        observed = {
+            "mode": actual["mode"],
+            "spawn_count": actual["spawn_count"],
+            "checks": case["checks"],
+        }
+        results.append(
+            {
+                "id": case["id"],
+                "passed": case["passed"],
+                "actual": observed,
+                "expected": expected,
+            }
+        )
     return {
         "schema_version": 1,
         "suite": "adaptive-coordination-contract",
@@ -102,9 +135,10 @@ def format_report(report: dict[str, object]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--agent-cases", type=Path, default=DEFAULT_AGENT_CASES)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    report = run(args.cases.resolve())
+    report = run(args.cases.resolve(), args.agent_cases.resolve())
     print(json.dumps(report, indent=2) if args.json else format_report(report))
     return 0 if report["passed"] else 1
 

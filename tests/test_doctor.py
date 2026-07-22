@@ -20,8 +20,11 @@ def make_installable_fixture(parent: Path) -> Path:
     root = parent / "plugin"
     (root / ".codex-plugin").mkdir(parents=True)
     (root / "skills" / "focused").mkdir(parents=True)
+    (root / "skills" / "solve-efficiently" / "scripts").mkdir(parents=True)
     (root / "hooks").mkdir()
     (root / "scripts").mkdir()
+    (root / "benchmarks").mkdir()
+    (root / "benchmarks" / "confirmatory").mkdir()
     (root / "integrations").mkdir()
     (root / "assets").mkdir()
     (root / ".github" / "workflows").mkdir(parents=True)
@@ -53,8 +56,35 @@ def make_installable_fixture(parent: Path) -> Path:
     (root / "scripts" / "doctor.py").write_text(
         MODULE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    canonical_orchestration = PLUGIN_ROOT / "scripts" / "orchestration_policy.py"
+    wrapper_orchestration = (
+        PLUGIN_ROOT
+        / "skills"
+        / "solve-efficiently"
+        / "scripts"
+        / "orchestration_policy.py"
+    )
+    (root / "scripts" / "orchestration_policy.py").write_text(
+        canonical_orchestration.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (
+        root / "skills" / "solve-efficiently" / "scripts" / "orchestration_policy.py"
+    ).write_text(wrapper_orchestration.read_text(encoding="utf-8"), encoding="utf-8")
     (root / "scripts" / "validate_all.py").write_text("", encoding="utf-8")
     (root / "scripts" / "release_witness.py").write_text("", encoding="utf-8")
+    for name in (
+        "controller_ab_fixtures.py",
+        "controller_ab_batch.py",
+        "prepare_controller_ab_homes.py",
+    ):
+        (root / "scripts" / name).write_text("", encoding="utf-8")
+    (root / "benchmarks" / "controller_ab_protocol.json").write_text(
+        json.dumps({"schema_version": 1, "claim_status": "not-proven"}),
+        encoding="utf-8",
+    )
+    (root / "benchmarks" / "confirmatory" / "controller_ab_corpus.json").write_text(
+        json.dumps({"schema_version": 1}), encoding="utf-8"
+    )
     (root / ".github" / "workflows" / "validate.yml").write_text(
         "name: Validate\n", encoding="utf-8"
     )
@@ -147,6 +177,18 @@ class DoctorTests(unittest.TestCase):
             ),
             "release-witness": ("scripts/release_witness.py", "release-witness"),
             "ci-workflow": (".github/workflows/validate.yml", "ci-workflow"),
+            "orchestration-runtime": (
+                "scripts/orchestration_policy.py",
+                "orchestration-runtime",
+            ),
+            "orchestration-wrapper": (
+                "skills/solve-efficiently/scripts/orchestration_policy.py",
+                "orchestration-wrapper",
+            ),
+            "controller-ab-protocol": (
+                "benchmarks/controller_ab_protocol.json",
+                "controller-ab-protocol",
+            ),
         }
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)

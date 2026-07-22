@@ -51,6 +51,10 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
     ValidationCommand(
         "coordination-benchmarks", ("scripts/run_coordination_benchmarks.py",)
     ),
+    ValidationCommand(
+        "controller-ab-fixture-contract",
+        ("scripts/controller_ab_fixtures.py", "validate"),
+    ),
     ValidationCommand("qcu-benchmarks", ("scripts/run_qcu_benchmarks.py",)),
     ValidationCommand("skyvern-benchmarks", ("scripts/run_skyvern_benchmarks.py",)),
     ValidationCommand("extension-benchmarks", ("scripts/run_extension_benchmarks.py",)),

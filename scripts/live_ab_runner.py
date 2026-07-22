@@ -22,10 +22,53 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
 
 
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+CONTROLLER_MODES = {"forced-solo", "adaptive"}
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
 
 
 class LiveEvaluationError(ValueError):
     """Raised when a live evaluation cannot produce trustworthy receipts."""
+
+
+def load_controller_protocol(path: Path) -> dict[str, str]:
+    """Validate and fingerprint the frozen controller-specific experiment contract."""
+    resolved = _resolved(path)
+    if not resolved.is_file():
+        raise LiveEvaluationError(f"controller protocol is missing: {resolved}")
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise LiveEvaluationError("controller protocol is not valid JSON") from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise LiveEvaluationError("controller protocol must use schema_version 1")
+    comparison = payload.get("comparison")
+    design = payload.get("design")
+    rounds = design.get("rounds") if isinstance(design, dict) else None
+    expected = (
+        isinstance(comparison, dict)
+        and comparison.get("control_arm", {}).get("controller_mode") == "forced-solo"
+        and comparison.get("candidate_arm", {}).get("controller_mode") == "adaptive"
+        and comparison.get("only_intended_difference") == "controller_mode"
+        and isinstance(rounds, dict)
+        and design.get("repetitions_per_fixture_per_arm") == 3
+        and rounds.get("pilot", {}).get("declared_fixture_count") == 20
+        and rounds.get("promotion", {}).get("declared_fixture_count") == 60
+        and payload.get("contains_execution_results") is False
+        and payload.get("contains_provider_evidence") is False
+        and payload.get("claim_status") == "not-proven"
+    )
+    protocol_id = payload.get("protocol_id")
+    if not expected or not isinstance(protocol_id, str) or not protocol_id:
+        raise LiveEvaluationError(
+            "controller protocol does not match the confirmatory design"
+        )
+    return {
+        "protocol_id": protocol_id,
+        "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        "path": str(resolved),
+        "claim_status": "not-proven",
+    }
 
 
 def _resolved(path: Path) -> Path:
@@ -91,6 +134,40 @@ def source_sha256(hashes: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
+def git_identity(root: Path, *, required: bool = True) -> dict[str, Any] | None:
+    """Bind a fixture to Git metadata excluded from the normal tree hash."""
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    lines = completed.stdout.splitlines()
+    if completed.returncode != 0 or len(lines) != 2:
+        if required:
+            raise LiveEvaluationError("contract-bound fixture must be a Git checkout")
+        return None
+    top_level = _resolved(Path(lines[0]))
+    if top_level != _resolved(root):
+        raise LiveEvaluationError("fixture must be the root of its Git checkout")
+    status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if status.returncode != 0:
+        raise LiveEvaluationError("cannot read fixture Git status")
+    payload = {
+        "head": lines[1].strip().lower(),
+        "status_sha256": hashlib.sha256(status.stdout.encode("utf-8")).hexdigest(),
+    }
+    payload["sha256"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
 def protected_roots(
     explicit: Sequence[Path], fixture: Path, plugin_identity: dict[str, Any]
 ) -> list[Path]:
@@ -98,7 +175,16 @@ def protected_roots(
         *explicit,
         fixture,
         Path(plugin_identity["source_root"]),
-        Path(plugin_identity["installed_root"]),
+        Path(
+            plugin_identity.get(
+                "baseline_installed_root", plugin_identity["installed_root"]
+            )
+        ),
+        Path(
+            plugin_identity.get(
+                "candidate_installed_root", plugin_identity["installed_root"]
+            )
+        ),
     ]
     result: list[Path] = []
     seen: set[str] = set()
@@ -222,9 +308,83 @@ def parse_events(path: Path) -> dict[str, Any]:
         item_type not in {None, "agent_message", "reasoning"}
         for item_type in item_types
     )
+    tool_names: list[str] = []
+    agent_events: list[dict[str, str]] = []
+    for row in rows:
+        item = row.get("item")
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("tool_name")
+        if isinstance(name, str) and name:
+            tool_names.append(name)
+            if name in {
+                "spawn_agent",
+                "wait_agent",
+                "send_message",
+                "followup_task",
+                "interrupt_agent",
+            }:
+                agent_events.append(
+                    {"event": name, "item_type": str(item.get("type", "unknown"))}
+                )
+    plan_receipts: list[dict[str, Any]] = []
+    observed_assignments: list[dict[str, str]] = []
+    for row in rows:
+        if row.get("type") != "agent.lifecycle" or row.get("provenance") != "host":
+            continue
+        if all(
+            isinstance(row.get(field), str) and row.get(field)
+            for field in ("assignment_id", "actor_id", "role")
+        ):
+            observation = {
+                "assignment_id": row["assignment_id"],
+                "actor_id": row["actor_id"],
+                "role": row["role"],
+            }
+            if observation not in observed_assignments:
+                observed_assignments.append(observation)
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            candidate = value.get("agent_plan", value)
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("mode")
+                in {"solo", "parallel-read-only", "parallel-packets", "staged-verify"}
+                and isinstance(candidate.get("waves"), list)
+            ):
+                encoded = json.dumps(candidate, sort_keys=True, default=str)
+                if all(
+                    json.dumps(item, sort_keys=True, default=str) != encoded
+                    for item in plan_receipts
+                ):
+                    plan_receipts.append(candidate)
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+        elif isinstance(value, str) and value.lstrip().startswith("{"):
+            try:
+                visit(json.loads(value))
+            except json.JSONDecodeError:
+                pass
+
+    visit(rows)
     return {
         "usage": dict(usage),
         "tool_calls": tool_calls,
+        "turns": len(completed),
+        "tool_names": tool_names,
+        "agent_events": agent_events,
+        "agent_spawns": sum(item["event"] == "spawn_agent" for item in agent_events),
+        "agent_joins": sum(item["event"] == "wait_agent" for item in agent_events),
+        "agent_plans": plan_receipts,
+        "observed_assignments": observed_assignments,
+        "usage_includes_subagents": (
+            usage.get("includes_subagents") is True
+            or usage.get("scope") in {"task-tree", "all-agents", "aggregate"}
+        ),
         "invalid_json_lines": invalid_lines,
     }
 
@@ -301,28 +461,43 @@ def validate_arm_plugins(
 ) -> dict[str, Any]:
     baseline = _plugin_list(codex, baseline_home)
     candidate = _plugin_list(codex, candidate_home)
-    if any(item.get("pluginId") == "cognitive-powers@personal" for item in baseline):
-        raise LiveEvaluationError("baseline CODEX_HOME contains Cognitive Powers")
-    cognitive = [
-        item
-        for item in candidate
-        if item.get("pluginId") == "cognitive-powers@personal"
-        and item.get("installed") is True
-        and item.get("enabled") is True
-    ]
-    if len(cognitive) != 1:
-        raise LiveEvaluationError(
-            "candidate CODEX_HOME must contain one enabled Cognitive Powers"
-        )
-    baseline_other = sorted(item.get("pluginId") for item in baseline)
-    candidate_other = sorted(
-        item.get("pluginId")
-        for item in candidate
-        if item.get("pluginId") != "cognitive-powers@personal"
-    )
-    if baseline_other != candidate_other:
-        raise LiveEvaluationError("arms contain different non-candidate plugin sets")
-    return _candidate_identity(cognitive[0], candidate_home)
+
+    def cognitive(items: list[dict[str, Any]], label: str) -> dict[str, Any]:
+        matches = [
+            item
+            for item in items
+            if item.get("pluginId") == "cognitive-powers@personal"
+            and item.get("installed") is True
+            and item.get("enabled") is True
+        ]
+        if len(matches) != 1:
+            raise LiveEvaluationError(
+                f"{label} CODEX_HOME must contain one enabled Cognitive Powers"
+            )
+        return matches[0]
+
+    baseline_cognitive = cognitive(baseline, "baseline")
+    candidate_cognitive = cognitive(candidate, "candidate")
+    baseline_ids = sorted(item.get("pluginId") for item in baseline)
+    candidate_ids = sorted(item.get("pluginId") for item in candidate)
+    if baseline_ids != candidate_ids:
+        raise LiveEvaluationError("arms contain different plugin sets")
+    baseline_identity = _candidate_identity(baseline_cognitive, baseline_home)
+    candidate_identity = _candidate_identity(candidate_cognitive, candidate_home)
+    comparable = {
+        key: baseline_identity[key]
+        for key in ("version", "source_sha256", "installed_sha256", "file_count")
+    }
+    if comparable != {
+        key: candidate_identity[key]
+        for key in ("version", "source_sha256", "installed_sha256", "file_count")
+    }:
+        raise LiveEvaluationError("Cognitive Powers differs between experiment arms")
+    return {
+        **candidate_identity,
+        "baseline_installed_root": baseline_identity["installed_root"],
+        "candidate_installed_root": candidate_identity["installed_root"],
+    }
 
 
 def load_task_binding(
@@ -332,6 +507,7 @@ def load_task_binding(
     prompt: str,
     repetitions: int,
     seed: str,
+    batch_repetition: int | None = None,
 ) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -351,18 +527,38 @@ def load_task_binding(
         "seed": round_value["arm_order"]["seed"],
     }
     actual = {"prompt": prompt, "repetitions": repetitions, "seed": seed}
-    mismatches = [field for field in expected if expected[field] != actual[field]]
+    if batch_repetition is None:
+        mismatches = [field for field in expected if expected[field] != actual[field]]
+    else:
+        mismatches = [
+            field for field in ("prompt", "seed") if expected[field] != actual[field]
+        ]
+        if repetitions != 1:
+            mismatches.append("repetitions")
+        if batch_repetition < 1 or batch_repetition > expected["repetitions"]:
+            mismatches.append("batch_repetition")
     if mismatches:
         raise LiveEvaluationError(
             "task run does not match frozen contract: " + ", ".join(mismatches)
         )
-    return {
+    result = {
         "task_set_id": contract["task_set_id"],
         "task_version": task["version"],
         "split": task["split"],
         "fixture_id": task["fixture_id"],
         "randomization_seed": expected["seed"],
     }
+    if batch_repetition is not None:
+        result.update(
+            {
+                "batch_repetition": batch_repetition,
+                "declared_repetitions": expected["repetitions"],
+                "batch_arm_order": arm_order(
+                    expected["repetitions"], f"{expected['seed']}\0{task_id}"
+                )[batch_repetition - 1],
+            }
+        )
+    return result
 
 
 def _replace_fixture(argv: Sequence[str], fixture: Path) -> list[str]:
@@ -399,6 +595,16 @@ def normalize_quality_payload(value: object) -> dict[str, Any]:
 
 
 def aggregate_results(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    def metric_value(result: dict[str, Any], field: str) -> float:
+        if field == "cached_input_tokens" and field not in result:
+            return max(
+                0,
+                result["total_tokens"]
+                - result["output_tokens"]
+                - result["fresh_input_tokens"],
+            )
+        return result[field]
+
     by_repetition: dict[int, dict[str, dict[str, Any]]] = {}
     for result in results:
         repetition = result.get("repetition")
@@ -417,27 +623,43 @@ def aggregate_results(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
     ):
         raise LiveEvaluationError("results must contain complete paired arms")
 
+    successful = {
+        repetition: variants
+        for repetition, variants in by_repetition.items()
+        if variants["baseline"].get("success") is True
+        and variants["candidate"].get("success") is True
+    }
     metrics: dict[str, Any] = {}
     for field in (
         "total_tokens",
+        "cached_input_tokens",
         "fresh_input_tokens",
         "output_tokens",
         "tool_calls",
         "elapsed_seconds",
     ):
-        baseline = statistics.median(
-            variants["baseline"][field] for variants in by_repetition.values()
-        )
-        candidate = statistics.median(
-            variants["candidate"][field] for variants in by_repetition.values()
-        )
-        metrics[field] = {
-            "baseline_median": baseline,
-            "candidate_median": candidate,
-            "delta_percent": round(((candidate - baseline) / baseline) * 100, 3)
-            if baseline
-            else None,
-        }
+        if successful:
+            baseline = statistics.median(
+                metric_value(variants["baseline"], field)
+                for variants in successful.values()
+            )
+            candidate = statistics.median(
+                metric_value(variants["candidate"], field)
+                for variants in successful.values()
+            )
+            metrics[field] = {
+                "baseline_median": baseline,
+                "candidate_median": candidate,
+                "delta_percent": round(((candidate - baseline) / baseline) * 100, 3)
+                if baseline
+                else None,
+            }
+        else:
+            metrics[field] = {
+                "baseline_median": None,
+                "candidate_median": None,
+                "delta_percent": None,
+            }
     pair_total_deltas = [
         round(
             (
@@ -448,10 +670,13 @@ def aggregate_results(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
             * 100,
             3,
         )
-        for variants in by_repetition.values()
+        for variants in successful.values()
+        if variants["baseline"]["total_tokens"]
     ]
     return {
         "pair_count": len(by_repetition),
+        "successful_pair_count": len(successful),
+        "failed_pair_count": len(by_repetition) - len(successful),
         "all_pairs_successful": all(
             variants[arm]["success"]
             for variants in by_repetition.values()
@@ -459,7 +684,9 @@ def aggregate_results(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
         ),
         "metrics": metrics,
         "pair_total_token_delta_percent": pair_total_deltas,
-        "worst_pair_total_token_delta_percent": max(pair_total_deltas),
+        "worst_pair_total_token_delta_percent": (
+            max(pair_total_deltas) if pair_total_deltas else None
+        ),
     }
 
 
@@ -472,17 +699,25 @@ def _run_one(
     prompt: str,
     model: str,
     reasoning_effort: str,
+    controller_mode: str,
+    storage_dir: Path,
+    agent_slots: int,
     hidden_check: Sequence[str],
     quality_check: Sequence[str] | None,
     allowed_changes: Sequence[str],
     bypass_sandbox: bool,
     session_timeout_seconds: int,
 ) -> dict[str, Any]:
+    if controller_mode not in CONTROLLER_MODES:
+        raise LiveEvaluationError(f"invalid controller mode: {controller_mode}")
     events = Path(f"{artifact_prefix}-events.jsonl")
     stderr = Path(f"{artifact_prefix}-stderr.log")
     message = Path(f"{artifact_prefix}-message.txt")
     environment = dict(os.environ)
     environment["CODEX_HOME"] = str(home)
+    environment["COGNITIVE_POWERS_CONTROLLER_MODE"] = controller_mode
+    environment["COGNITIVE_POWERS_DATA"] = str(storage_dir)
+    environment["COGNITIVE_POWERS_AVAILABLE_AGENT_SLOTS"] = str(agent_slots)
     command = [
         codex,
         "exec",
@@ -529,23 +764,36 @@ def _run_one(
     parsed = parse_events(events)
     if not message.is_file() or not message.read_text(encoding="utf-8").strip():
         raise LiveEvaluationError(f"missing final message for {artifact_prefix.name}")
+    before_path = Path(f"{artifact_prefix}-initial-hashes.json")
+    initial = json.loads(before_path.read_text(encoding="utf-8"))
+    changed = changed_paths(initial, tree_hashes(fixture))
+    out_of_scope = unexpected_changes(changed, allowed_changes)
+
+    hidden_fixture = Path(f"{artifact_prefix}-hidden-fixture")
+    quality_fixture = Path(f"{artifact_prefix}-quality-fixture")
+    shutil.copytree(fixture, hidden_fixture)
+    shutil.copytree(fixture, quality_fixture)
+    measured_hashes = tree_hashes(fixture)
+    if (
+        tree_hashes(hidden_fixture) != measured_hashes
+        or tree_hashes(quality_fixture) != measured_hashes
+    ):
+        raise LiveEvaluationError(
+            "evaluator fixture clone differs from measured result"
+        )
     try:
         hidden = subprocess.run(
-            _replace_fixture(hidden_check, fixture),
+            _replace_fixture(hidden_check, hidden_fixture),
             check=False,
             capture_output=True,
             text=True,
-            cwd=fixture,
+            cwd=hidden_fixture,
             timeout=session_timeout_seconds,
         )
     except subprocess.TimeoutExpired as error:
         raise LiveEvaluationError(
             f"hidden check exceeded {session_timeout_seconds} seconds"
         ) from error
-    before_path = Path(f"{artifact_prefix}-initial-hashes.json")
-    initial = json.loads(before_path.read_text(encoding="utf-8"))
-    changed = changed_paths(initial, tree_hashes(fixture))
-    out_of_scope = unexpected_changes(changed, allowed_changes)
     quality = {
         "score": 100.0 if hidden.returncode == 0 and not out_of_scope else 0.0,
         "evidence": ["default binary hidden-check and scope rubric"],
@@ -553,7 +801,7 @@ def _run_one(
     }
     if quality_check is not None:
         replacements = {
-            "{fixture}": str(fixture),
+            "{fixture}": str(quality_fixture),
             "{events}": str(events),
             "{message}": str(message),
             "{stderr}": str(stderr),
@@ -570,7 +818,7 @@ def _run_one(
                 check=False,
                 capture_output=True,
                 text=True,
-                cwd=fixture,
+                cwd=quality_fixture,
                 timeout=session_timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
@@ -596,6 +844,8 @@ def _run_one(
         critical.append("out-of-scope changes: " + ", ".join(out_of_scope))
     critical.extend(quality["critical_errors"])
     usage = parsed["usage"]
+    observed_plan = parsed["agent_plans"][-1] if parsed["agent_plans"] else None
+    actual_mode = observed_plan.get("mode") if observed_plan else None
     return {
         "success": not critical,
         "critical_errors": critical,
@@ -613,6 +863,40 @@ def _run_one(
         "output_tokens": usage["output_tokens"],
         "total_tokens": usage["input_tokens"] + usage["output_tokens"],
         "tool_calls": parsed["tool_calls"],
+        "turns": parsed["turns"],
+        "retries": sum(
+            name in {"followup_task", "send_message"} for name in parsed["tool_names"]
+        ),
+        "controller_mode": controller_mode,
+        "agent_telemetry": {
+            "source": "provider-event-stream",
+            "controller_mode": controller_mode,
+            "tool_names": parsed["tool_names"],
+            "events": parsed["agent_events"],
+            "spawn_count": parsed["agent_spawns"],
+            "join_count": parsed["agent_joins"],
+            "plan_receipts": parsed["agent_plans"],
+            "observed_assignments": parsed["observed_assignments"],
+            "actual_mode": actual_mode,
+            "usage_includes_subagents": (
+                parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"]
+            ),
+            "complete": (
+                parsed["agent_spawns"] == 0 and (actual_mode in {None, "solo"})
+                if controller_mode == "forced-solo"
+                else observed_plan is not None
+                and parsed["agent_joins"] <= parsed["agent_spawns"]
+                and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
+                and (parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"])
+            ),
+        },
+        "pre_evaluation_diff_sha256": source_sha256(
+            {path: measured_hashes.get(path, "<deleted>") for path in changed}
+        ),
+        "evaluation_fixtures": {
+            "hidden": str(hidden_fixture),
+            "quality": str(quality_fixture),
+        },
         "elapsed_seconds": round(elapsed, 3),
         "events": str(events),
         "stderr": str(stderr),
@@ -629,12 +913,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--task-contract", type=Path)
+    parser.add_argument(
+        "--controller-protocol", type=Path, default=DEFAULT_CONTROLLER_PROTOCOL
+    )
     parser.add_argument("--model", required=True)
     parser.add_argument("--reasoning-effort", required=True)
+    parser.add_argument(
+        "--baseline-controller-mode",
+        default="forced-solo",
+        choices=sorted(CONTROLLER_MODES),
+    )
+    parser.add_argument(
+        "--candidate-controller-mode",
+        default="adaptive",
+        choices=sorted(CONTROLLER_MODES),
+    )
     parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument(
+        "--batch-repetition",
+        type=int,
+        help="execute one frozen repetition while retaining the full task contract",
+    )
     parser.add_argument("--seed", required=True)
     parser.add_argument("--hidden-check-json", required=True)
     parser.add_argument("--quality-check-json")
+    parser.add_argument("--available-tool", action="append", default=[])
+    parser.add_argument("--agent-slots", type=int, default=4)
     parser.add_argument("--allow-change", action="append", default=[])
     parser.add_argument("--guard-root", type=Path, action="append", default=[])
     parser.add_argument("--codex", default="codex")
@@ -649,6 +953,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixture, output, baseline_home, candidate_home = validate_layout(
             args.fixture, args.output, args.baseline_home, args.candidate_home
         )
+        controller_protocol = load_controller_protocol(args.controller_protocol)
+        if args.baseline_controller_mode != "forced-solo":
+            raise LiveEvaluationError("baseline controller mode must be forced-solo")
+        if args.candidate_controller_mode != "adaptive":
+            raise LiveEvaluationError("candidate controller mode must be adaptive")
         try:
             hidden_check = json.loads(args.hidden_check_json)
         except json.JSONDecodeError as error:
@@ -667,6 +976,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise LiveEvaluationError("at least one --allow-change pattern is required")
         if args.session_timeout_seconds < 1:
             raise LiveEvaluationError("session timeout must be positive")
+        if args.agent_slots < 1:
+            raise LiveEvaluationError("agent slots must be positive")
         binding = (
             load_task_binding(
                 args.task_contract,
@@ -674,6 +985,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prompt=args.prompt,
                 repetitions=args.repetitions,
                 seed=args.seed,
+                batch_repetition=args.batch_repetition,
             )
             if args.task_contract is not None
             else None
@@ -698,6 +1010,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise LiveEvaluationError(
                 "contract-bound runs require an external quality check"
             )
+        if binding is not None and not args.available_tool:
+            raise LiveEvaluationError(
+                "contract-bound runs require declared --available-tool values"
+            )
         hidden_identity = command_identity(hidden_check)
         quality_identity = (
             command_identity(quality_check) if quality_check is not None else None
@@ -712,15 +1028,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         plugin_version = plugin_identity["version"]
         fixture_hashes = tree_hashes(fixture)
         fixture_sha = source_sha256(fixture_hashes)
+        fixture_git = git_identity(fixture, required=binding is not None)
+        allowed_changes_sha256 = hashlib.sha256(
+            json.dumps(sorted(args.allow_change), separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        experiment_identity = {
+            "fixture_sha256": fixture_sha,
+            "fixture_git_sha256": fixture_git["sha256"] if fixture_git else None,
+            "plugin_sha256": plugin_identity["source_sha256"],
+            "hidden_check_sha256": hidden_identity["sha256"],
+            "quality_check_sha256": quality_identity["sha256"]
+            if quality_identity
+            else None,
+            "allowed_changes_sha256": allowed_changes_sha256,
+            "model": args.model,
+            "reasoning_effort": args.reasoning_effort,
+            "available_tools": sorted(set(args.available_tool)),
+            "agent_slots": args.agent_slots,
+            "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
+        }
+        experiment_sha256 = hashlib.sha256(
+            json.dumps(
+                experiment_identity, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
         output.mkdir(parents=True)
         artifacts = output / "artifacts"
         runs_root = output / "runs"
+        homes_root = output / "homes"
+        storage_root = output / "storage"
         artifacts.mkdir()
         runs_root.mkdir()
+        homes_root.mkdir()
+        storage_root.mkdir()
         results: list[dict[str, Any]] = []
-        orders = arm_order(args.repetitions, args.seed)
-        homes = {"baseline": baseline_home, "candidate": candidate_home}
-        for repetition, order in enumerate(orders, start=1):
+        scheduled_repetitions = (
+            [(binding["batch_repetition"], binding["batch_arm_order"])]
+            if binding is not None and "batch_repetition" in binding
+            else list(enumerate(arm_order(args.repetitions, args.seed), start=1))
+        )
+        source_homes = {"baseline": baseline_home, "candidate": candidate_home}
+        controller_modes = {
+            "baseline": args.baseline_controller_mode,
+            "candidate": args.candidate_controller_mode,
+        }
+        for repetition, order in scheduled_repetitions:
+            homes: dict[str, Path] = {}
+            for arm in ("baseline", "candidate"):
+                run_home = homes_root / f"rep{repetition}-{arm}"
+                shutil.copytree(source_homes[arm], run_home)
+                homes[arm] = run_home
+            run_plugin_identity = validate_arm_plugins(
+                args.codex, homes["baseline"], homes["candidate"]
+            )
+            for field in ("version", "source_sha256", "installed_sha256", "file_count"):
+                if run_plugin_identity[field] != plugin_identity[field]:
+                    raise LiveEvaluationError(
+                        f"fresh home plugin identity differs for repetition {repetition}"
+                    )
             for arm in order:
                 run_root = runs_root / f"rep{repetition}-{arm}"
                 shutil.copytree(fixture, run_root)
@@ -741,6 +1106,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     prompt=args.prompt,
                     model=args.model,
                     reasoning_effort=args.reasoning_effort,
+                    controller_mode=controller_modes[arm],
+                    storage_dir=storage_root / f"rep{repetition}-{arm}",
+                    agent_slots=args.agent_slots,
                     hidden_check=hidden_check,
                     quality_check=quality_check,
                     allowed_changes=args.allow_change,
@@ -755,12 +1123,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "variant": arm,
                         "arm_order": order,
                         "source_sha256": fixture_sha,
-                        "plugin_version": plugin_version
-                        if arm == "candidate"
+                        "plugin_version": plugin_version,
+                        "fixture_git_sha256": fixture_git["sha256"]
+                        if fixture_git
                         else None,
+                        "experiment_sha256": experiment_sha256,
                     }
                 )
                 results.append(result)
+            post_run_identity = validate_arm_plugins(
+                args.codex, homes["baseline"], homes["candidate"]
+            )
+            if any(
+                post_run_identity[field] != plugin_identity[field]
+                for field in (
+                    "version",
+                    "source_sha256",
+                    "installed_sha256",
+                    "file_count",
+                )
+            ):
+                raise LiveEvaluationError(
+                    f"plugin identity changed during repetition {repetition}"
+                )
         postflight_plugin_identity = validate_arm_plugins(
             args.codex, baseline_home, candidate_home
         )
@@ -775,16 +1160,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "schema_version": 2 if binding is not None else 1,
                 "case_id": result["case_id"],
                 "variant": result["variant"],
-                "provider": (
-                    f"cognitive-powers-{plugin_version}"
-                    if result["variant"] == "candidate"
-                    else "codex-base"
-                ),
+                "controller_protocol_id": controller_protocol["protocol_id"],
+                "controller_protocol_sha256": controller_protocol["sha256"],
+                "provider": (f"cognitive-powers-{plugin_version}"),
                 "task": args.task_id,
                 "success": result["success"],
                 "critical_errors": result["critical_errors"],
                 "quality_score": result["quality_score"],
                 "input_tokens": result["input_tokens"],
+                "cached_input_tokens": result["cached_input_tokens"],
+                "fresh_input_tokens": result["fresh_input_tokens"],
                 "output_tokens": result["output_tokens"],
                 "elapsed_seconds": result["elapsed_seconds"],
                 "evidence": [
@@ -804,7 +1189,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "prompt": args.prompt,
                         "repetition": result["repetition"],
                         "source_sha256": result["source_sha256"],
-                        "tools": ["shell_tool"],
+                        "fixture_git_sha256": result["fixture_git_sha256"],
+                        "experiment_sha256": result["experiment_sha256"],
+                        "pre_evaluation_diff_sha256": result[
+                            "pre_evaluation_diff_sha256"
+                        ],
+                        "controller_mode": result["controller_mode"],
+                        "tools": sorted(set(args.available_tool)),
+                        "agent_slots": args.agent_slots,
                         "permissions": [
                             "dangerously-bypass-approvals-and-sandbox"
                             if args.bypass_sandbox
@@ -812,11 +1204,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ],
                         "arm_order": result["arm_order"],
                         "independent_tests_passed": result["hidden_exit"] == 0,
-                        "turns": 1,
+                        "turns": result["turns"],
                         "tool_calls": result["tool_calls"],
-                        "retries": 0,
+                        "retries": result["retries"],
+                        "agent_telemetry": result["agent_telemetry"],
                         "hidden_check_sha256": hidden_identity["sha256"],
                         "quality_check_sha256": quality_identity["sha256"],
+                        "allowed_changes_sha256": allowed_changes_sha256,
                     }
                 )
             receipts.append(receipt)
@@ -834,7 +1228,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reasoning_effort": args.reasoning_effort,
             "seed": args.seed,
             "repetitions": args.repetitions,
+            "batch_repetition": args.batch_repetition,
             "source_sha256": fixture_sha,
+            "fixture_git": fixture_git,
+            "experiment_identity": experiment_identity,
+            "experiment_sha256": experiment_sha256,
+            "controller_modes": controller_modes,
+            "controller_protocol": controller_protocol,
             "plugin_version": plugin_version,
             "candidate_plugin": plugin_identity,
             "candidate_plugin_postflight": postflight_plugin_identity,

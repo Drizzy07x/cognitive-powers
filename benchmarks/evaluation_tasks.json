@@ -1,12 +1,19 @@
 {
   "schema_version": 2,
-  "task_set_id": "cognitive-powers-paired-evaluation-2026-07-v2",
+  "task_set_id": "controller-ab-confirmatory-80-v1",
   "contains_run_results": false,
+  "controller_confirmatory_corpus": {
+    "manifest": "benchmarks/confirmatory/controller_ab_corpus.json",
+    "fixture_count": 80,
+    "pilot_fixture_count": 20,
+    "promotion_fixture_count": 60,
+    "session_count": 480,
+    "repetitions_per_arm": 3,
+    "contains_run_results": false,
+    "end_to_end_improvement_proven": false,
+    "definition_seal_sha256": "b091c7ca8ecea85a908cfffc188218ae0b9fb6205403dbca856a20fafb8c6262"
+  },
   "protocol": {
-    "comparison": "paired-baseline-vs-candidate",
-    "baseline_arm": "Codex without Cognitive Powers",
-    "candidate_arm": "Codex with Cognitive Powers",
-    "configuration_binding": "recorded in each receipt pair",
     "locked_between_arms": [
       "model",
       "reasoning_effort",
@@ -17,271 +24,2029 @@
       "source_sha256"
     ],
     "quality_before_efficiency": true,
-    "minimum_average_quality_delta": 0.05,
     "reject_critical_failures": true,
-    "live_evidence_required_for_improvement_claim": true,
-    "notes": "These are frozen task definitions and schedules, not execution results."
+    "minimum_average_quality_delta": 0.05
   },
   "rounds": {
     "pilot": {
       "held_out": false,
       "task_ids": [
-        "pilot-bug-fix",
-        "pilot-multi-file",
-        "pilot-research",
-        "pilot-delivery",
-        "pilot-real-host"
+        "controller-pilot-solo-bug-fix-01",
+        "controller-pilot-solo-multi-file-implementation-01",
+        "controller-pilot-solo-current-source-research-01",
+        "controller-pilot-solo-delivery-verification-01",
+        "controller-pilot-solo-real-host-interaction-01",
+        "controller-pilot-parallel-read-only-bug-fix-01",
+        "controller-pilot-parallel-read-only-multi-file-implementation-01",
+        "controller-pilot-parallel-read-only-current-source-research-01",
+        "controller-pilot-parallel-read-only-delivery-verification-01",
+        "controller-pilot-parallel-read-only-real-host-interaction-01",
+        "controller-pilot-parallel-packets-bug-fix-01",
+        "controller-pilot-parallel-packets-multi-file-implementation-01",
+        "controller-pilot-parallel-packets-current-source-research-01",
+        "controller-pilot-parallel-packets-delivery-verification-01",
+        "controller-pilot-parallel-packets-real-host-interaction-01",
+        "controller-pilot-staged-verify-bug-fix-01",
+        "controller-pilot-staged-verify-multi-file-implementation-01",
+        "controller-pilot-staged-verify-current-source-research-01",
+        "controller-pilot-staged-verify-delivery-verification-01",
+        "controller-pilot-staged-verify-real-host-interaction-01"
       ],
-      "repetitions_per_task": 4,
+      "repetitions_per_task": 3,
       "arm_order": {
         "method": "seeded-balanced",
-        "seed": "cp-pilot-2026-07-v1"
+        "seed": "cp-controller-pilot-2026-07-v1"
       }
     },
     "promotion": {
       "held_out": true,
       "task_ids": [
-        "promotion-bug-fix",
-        "promotion-multi-file",
-        "promotion-research",
-        "promotion-delivery",
-        "promotion-real-host"
+        "controller-promotion-solo-bug-fix-01",
+        "controller-promotion-solo-bug-fix-02",
+        "controller-promotion-solo-bug-fix-03",
+        "controller-promotion-solo-multi-file-implementation-01",
+        "controller-promotion-solo-multi-file-implementation-02",
+        "controller-promotion-solo-multi-file-implementation-03",
+        "controller-promotion-solo-current-source-research-01",
+        "controller-promotion-solo-current-source-research-02",
+        "controller-promotion-solo-current-source-research-03",
+        "controller-promotion-solo-delivery-verification-01",
+        "controller-promotion-solo-delivery-verification-02",
+        "controller-promotion-solo-delivery-verification-03",
+        "controller-promotion-solo-real-host-interaction-01",
+        "controller-promotion-solo-real-host-interaction-02",
+        "controller-promotion-solo-real-host-interaction-03",
+        "controller-promotion-parallel-read-only-bug-fix-01",
+        "controller-promotion-parallel-read-only-bug-fix-02",
+        "controller-promotion-parallel-read-only-bug-fix-03",
+        "controller-promotion-parallel-read-only-multi-file-implementation-01",
+        "controller-promotion-parallel-read-only-multi-file-implementation-02",
+        "controller-promotion-parallel-read-only-multi-file-implementation-03",
+        "controller-promotion-parallel-read-only-current-source-research-01",
+        "controller-promotion-parallel-read-only-current-source-research-02",
+        "controller-promotion-parallel-read-only-current-source-research-03",
+        "controller-promotion-parallel-read-only-delivery-verification-01",
+        "controller-promotion-parallel-read-only-delivery-verification-02",
+        "controller-promotion-parallel-read-only-delivery-verification-03",
+        "controller-promotion-parallel-read-only-real-host-interaction-01",
+        "controller-promotion-parallel-read-only-real-host-interaction-02",
+        "controller-promotion-parallel-read-only-real-host-interaction-03",
+        "controller-promotion-parallel-packets-bug-fix-01",
+        "controller-promotion-parallel-packets-bug-fix-02",
+        "controller-promotion-parallel-packets-bug-fix-03",
+        "controller-promotion-parallel-packets-multi-file-implementation-01",
+        "controller-promotion-parallel-packets-multi-file-implementation-02",
+        "controller-promotion-parallel-packets-multi-file-implementation-03",
+        "controller-promotion-parallel-packets-current-source-research-01",
+        "controller-promotion-parallel-packets-current-source-research-02",
+        "controller-promotion-parallel-packets-current-source-research-03",
+        "controller-promotion-parallel-packets-delivery-verification-01",
+        "controller-promotion-parallel-packets-delivery-verification-02",
+        "controller-promotion-parallel-packets-delivery-verification-03",
+        "controller-promotion-parallel-packets-real-host-interaction-01",
+        "controller-promotion-parallel-packets-real-host-interaction-02",
+        "controller-promotion-parallel-packets-real-host-interaction-03",
+        "controller-promotion-staged-verify-bug-fix-01",
+        "controller-promotion-staged-verify-bug-fix-02",
+        "controller-promotion-staged-verify-bug-fix-03",
+        "controller-promotion-staged-verify-multi-file-implementation-01",
+        "controller-promotion-staged-verify-multi-file-implementation-02",
+        "controller-promotion-staged-verify-multi-file-implementation-03",
+        "controller-promotion-staged-verify-current-source-research-01",
+        "controller-promotion-staged-verify-current-source-research-02",
+        "controller-promotion-staged-verify-current-source-research-03",
+        "controller-promotion-staged-verify-delivery-verification-01",
+        "controller-promotion-staged-verify-delivery-verification-02",
+        "controller-promotion-staged-verify-delivery-verification-03",
+        "controller-promotion-staged-verify-real-host-interaction-01",
+        "controller-promotion-staged-verify-real-host-interaction-02",
+        "controller-promotion-staged-verify-real-host-interaction-03"
       ],
-      "repetitions_per_task": 10,
+      "repetitions_per_task": 3,
       "arm_order": {
         "method": "seeded-balanced",
-        "seed": "cp-promotion-2026-07-v1"
+        "seed": "cp-controller-promotion-2026-07-v1"
       }
     }
   },
   "tasks": [
     {
-      "task_id": "pilot-bug-fix",
-      "version": 2,
+      "task_id": "controller-pilot-solo-bug-fix-01",
+      "version": 1,
       "split": "pilot",
       "category": "bug-fix",
-      "fixture_id": "fixture-bug-fix-pilot-v1",
-      "prompt": "Diagnose and fix the reproduced defect in the supplied checkout. Preserve unrelated behavior and return the exact verification evidence.",
-      "initial_state": "A versioned checkout with one reproducible behavioral defect and a failing independent regression test withheld from the acting arm.",
-      "expected_outcome": "The reproduction and independent regression test pass without unrelated test regressions.",
+      "fixture_id": "controller-pilot-solo-bug-fix-01",
+      "expected_mode": "solo",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-bug-fix-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-bug-fix-01.",
       "independent_tests": [
-        "Run the withheld symptom-specific regression test.",
-        "Run the affected module test suite from a clean fixture copy."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "The original symptom remains reproducible.",
-        "The fix disables, skips, or edits the independent test.",
-        "Files outside the authorized fixture are changed."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 300000,
+        "max_total_tokens": 120000,
         "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "pilot-multi-file",
-      "version": 2,
+      "task_id": "controller-pilot-solo-multi-file-implementation-01",
+      "version": 1,
       "split": "pilot",
       "category": "multi-file-implementation",
-      "fixture_id": "fixture-multi-file-pilot-v1",
-      "prompt": "Implement the requested cross-file feature in the supplied checkout, preserving its public contract and proving the behavior with focused tests.",
-      "initial_state": "A versioned small application with a documented feature gap spanning implementation, serialization, and CLI layers.",
-      "expected_outcome": "The feature works through the public CLI and all independent compatibility checks pass.",
+      "fixture_id": "controller-pilot-solo-multi-file-implementation-01",
+      "expected_mode": "solo",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-multi-file-implementation-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-multi-file-implementation-01.",
       "independent_tests": [
-        "Exercise the feature through the public entrypoint.",
-        "Run independent serialization and backward-compatibility checks."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "The public CLI or existing serialized format is broken.",
-        "Only a mocked internal path is tested.",
-        "The requested end-to-end behavior is incomplete."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 400000,
-        "max_elapsed_seconds": 2400
-      }
-    },
-    {
-      "task_id": "pilot-research",
-      "version": 2,
-      "split": "pilot",
-      "category": "current-source-research",
-      "fixture_id": "fixture-research-pilot-v1",
-      "prompt": "Answer the technical decision question using current primary sources. Separate verified facts, inferences, and unresolved uncertainty.",
-      "initial_state": "A versioned decision brief containing the question, product version, constraints, and a frozen source-access policy but no answer.",
-      "expected_outcome": "The recommendation is supported by current version-matched primary sources and survives independent citation checking.",
-      "independent_tests": [
-        "Verify each material claim against the cited primary source.",
-        "Check that cited versions match the decision brief."
-      ],
-      "critical_failures": [
-        "A material claim is unsupported or contradicted by its source.",
-        "The answer relies on a stale or version-mismatched source.",
-        "Inference is presented as directly verified fact."
-      ],
-      "budgets": {
-        "max_total_tokens": 240000,
-        "max_elapsed_seconds": 1500
-      }
-    },
-    {
-      "task_id": "pilot-delivery",
-      "version": 2,
-      "split": "pilot",
-      "category": "delivery-verification",
-      "fixture_id": "fixture-delivery-pilot-v1",
-      "prompt": "Audit whether the supplied delivery claim is complete. Check source state, relevant artifacts, tests, and Git identity; report unsupported claims explicitly.",
-      "initial_state": "A versioned repository fixture with tracked and relevant untracked state plus a delivery claim that may be incomplete.",
-      "expected_outcome": "The verdict matches the independently known repository, test, artifact, and revision state.",
-      "independent_tests": [
-        "Compare the verdict with the fixture manifest and expected revision.",
-        "Re-run the declared delivery checks and inspect relevant untracked files."
-      ],
-      "critical_failures": [
-        "Completion is claimed while a required check fails.",
-        "Relevant untracked or stale evidence is ignored.",
-        "A local or remote revision is reported incorrectly."
-      ],
-      "budgets": {
-        "max_total_tokens": 180000,
-        "max_elapsed_seconds": 900
-      }
-    },
-    {
-      "task_id": "pilot-real-host",
-      "version": 2,
-      "split": "pilot",
-      "category": "real-host-interaction",
-      "fixture_id": "fixture-real-host-pilot-v1",
-      "prompt": "Complete and verify the specified workflow through the authorized real host using only the supplied tools and permissions. Return objective-level evidence.",
-      "initial_state": "A versioned local host fixture with a real browser or desktop surface, deterministic seed data, and no pre-completed workflow.",
-      "expected_outcome": "The public interaction surface reaches the required final state and independent observation confirms it.",
-      "independent_tests": [
-        "Observe the final state through the public host surface.",
-        "Validate the host receipt and artifact hashes independently."
-      ],
-      "critical_failures": [
-        "A mock or private bridge substitutes for the real host.",
-        "Input is sent to the wrong or stale surface.",
-        "Primitive success is reported without objective completion."
-      ],
-      "budgets": {
-        "max_total_tokens": 300000,
+        "max_total_tokens": 120000,
         "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "promotion-bug-fix",
-      "version": 2,
+      "task_id": "controller-pilot-solo-current-source-research-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "current-source-research",
+      "fixture_id": "controller-pilot-solo-current-source-research-01",
+      "expected_mode": "solo",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-current-source-research-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-current-source-research-01.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-solo-delivery-verification-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "delivery-verification",
+      "fixture_id": "controller-pilot-solo-delivery-verification-01",
+      "expected_mode": "solo",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-delivery-verification-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-delivery-verification-01.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-solo-real-host-interaction-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-pilot-solo-real-host-interaction-01",
+      "expected_mode": "solo",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-pilot-solo-real-host-interaction-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-pilot-solo-real-host-interaction-01.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-read-only-bug-fix-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "bug-fix",
+      "fixture_id": "controller-pilot-parallel-read-only-bug-fix-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-read-only-multi-file-implementation-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-pilot-parallel-read-only-multi-file-implementation-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-read-only-current-source-research-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "current-source-research",
+      "fixture_id": "controller-pilot-parallel-read-only-current-source-research-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-read-only-delivery-verification-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "delivery-verification",
+      "fixture_id": "controller-pilot-parallel-read-only-delivery-verification-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-read-only-real-host-interaction-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-pilot-parallel-read-only-real-host-interaction-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-packets-bug-fix-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "bug-fix",
+      "fixture_id": "controller-pilot-parallel-packets-bug-fix-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-bug-fix-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-packets-multi-file-implementation-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-pilot-parallel-packets-multi-file-implementation-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-multi-file-implementation-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-packets-current-source-research-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "current-source-research",
+      "fixture_id": "controller-pilot-parallel-packets-current-source-research-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-current-source-research-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-packets-delivery-verification-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "delivery-verification",
+      "fixture_id": "controller-pilot-parallel-packets-delivery-verification-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-delivery-verification-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-parallel-packets-real-host-interaction-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-pilot-parallel-packets-real-host-interaction-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-pilot-parallel-packets-real-host-interaction-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-staged-verify-bug-fix-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "bug-fix",
+      "fixture_id": "controller-pilot-staged-verify-bug-fix-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-bug-fix-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-bug-fix-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-staged-verify-multi-file-implementation-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-pilot-staged-verify-multi-file-implementation-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-staged-verify-current-source-research-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "current-source-research",
+      "fixture_id": "controller-pilot-staged-verify-current-source-research-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-current-source-research-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-current-source-research-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-staged-verify-delivery-verification-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "delivery-verification",
+      "fixture_id": "controller-pilot-staged-verify-delivery-verification-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-delivery-verification-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-delivery-verification-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-pilot-staged-verify-real-host-interaction-01",
+      "version": 1,
+      "split": "pilot",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-pilot-staged-verify-real-host-interaction-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-pilot-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-pilot-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-bug-fix-01",
+      "version": 1,
       "split": "promotion",
       "category": "bug-fix",
-      "fixture_id": "fixture-bug-fix-promotion-v1",
-      "prompt": "Diagnose and fix the reproduced defect in the supplied held-out checkout. Preserve unrelated behavior and return the exact verification evidence.",
-      "initial_state": "A held-out versioned checkout with a reproducible state-dependent defect and independent tests unavailable to either acting arm.",
-      "expected_outcome": "The reproduction and held-out regression pass, with no regression in the affected suite.",
+      "fixture_id": "controller-promotion-solo-bug-fix-01",
+      "expected_mode": "solo",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-01.",
       "independent_tests": [
-        "Run the held-out state-transition regression.",
-        "Run the full affected package suite from a clean copy."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "The reproduced state-dependent symptom remains.",
-        "The implementation bypasses the failing path.",
-        "An unrelated public behavior regresses."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 320000,
+        "max_total_tokens": 120000,
         "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "promotion-multi-file",
-      "version": 2,
+      "task_id": "controller-promotion-solo-bug-fix-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-solo-bug-fix-02",
+      "expected_mode": "solo",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-02.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-02.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-bug-fix-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-solo-bug-fix-03",
+      "expected_mode": "solo",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-03.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-bug-fix-03.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-multi-file-implementation-01",
+      "version": 1,
       "split": "promotion",
       "category": "multi-file-implementation",
-      "fixture_id": "fixture-multi-file-promotion-v1",
-      "prompt": "Implement the requested held-out cross-file feature through the public interface, preserving compatibility and proving the completed behavior.",
-      "initial_state": "A held-out versioned service with a feature gap crossing validation, persistence, and user-facing command layers.",
-      "expected_outcome": "The public workflow, persistence round trip, and compatibility suite all pass.",
+      "fixture_id": "controller-promotion-solo-multi-file-implementation-01",
+      "expected_mode": "solo",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-01.",
       "independent_tests": [
-        "Exercise a full public-interface persistence round trip.",
-        "Run held-out invalid-input and compatibility cases."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "Only part of the cross-file behavior is implemented.",
-        "Stored data becomes incompatible.",
-        "Invalid input corrupts state or reports success."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 420000,
-        "max_elapsed_seconds": 2400
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "promotion-research",
-      "version": 2,
+      "task_id": "controller-promotion-solo-multi-file-implementation-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-solo-multi-file-implementation-02",
+      "expected_mode": "solo",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-02.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-02.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-multi-file-implementation-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-solo-multi-file-implementation-03",
+      "expected_mode": "solo",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-03.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-multi-file-implementation-03.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-current-source-research-01",
+      "version": 1,
       "split": "promotion",
       "category": "current-source-research",
-      "fixture_id": "fixture-research-promotion-v1",
-      "prompt": "Resolve the held-out technical decision using current primary sources, with version matching, claim-level citations, and explicit uncertainty.",
-      "initial_state": "A held-out decision brief for a changing external API with constraints and evaluation questions but no selected sources.",
-      "expected_outcome": "Independent reviewers can trace every decision-critical claim to a current authoritative source.",
+      "fixture_id": "controller-promotion-solo-current-source-research-01",
+      "expected_mode": "solo",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-01.",
       "independent_tests": [
-        "Check every decision-critical claim against its linked primary source.",
-        "Confirm source dates and versions satisfy the brief."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "A source does not support the associated claim.",
-        "A secondary source substitutes for available primary documentation.",
-        "Material uncertainty is omitted."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 260000,
-        "max_elapsed_seconds": 1500
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "promotion-delivery",
-      "version": 2,
+      "task_id": "controller-promotion-solo-current-source-research-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-solo-current-source-research-02",
+      "expected_mode": "solo",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-02.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-02.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-current-source-research-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-solo-current-source-research-03",
+      "expected_mode": "solo",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-03.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-current-source-research-03.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-delivery-verification-01",
+      "version": 1,
       "split": "promotion",
       "category": "delivery-verification",
-      "fixture_id": "fixture-delivery-promotion-v1",
-      "prompt": "Independently verify the held-out release claim against the checkout, required artifacts, executable checks, and local/remote Git identity.",
-      "initial_state": "A held-out repository snapshot with a release claim, mixed tracked/untracked artifacts, and independently recorded expected state.",
-      "expected_outcome": "The delivery verdict, limitations, and cited evidence match the independently recorded state exactly.",
+      "fixture_id": "controller-promotion-solo-delivery-verification-01",
+      "expected_mode": "solo",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-01.",
       "independent_tests": [
-        "Recompute artifact hashes and execute release checks.",
-        "Compare local, remote, tracked, and relevant untracked state with the manifest."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "A failed or stale check is described as current success.",
-        "Git identity is asserted without matching evidence.",
-        "A required artifact is absent or hash-mismatched."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 200000,
-        "max_elapsed_seconds": 900
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
       }
     },
     {
-      "task_id": "promotion-real-host",
-      "version": 2,
+      "task_id": "controller-promotion-solo-delivery-verification-02",
+      "version": 1,
       "split": "promotion",
-      "category": "real-host-interaction",
-      "fixture_id": "fixture-real-host-promotion-v1",
-      "prompt": "Complete the held-out workflow through the authorized real browser or desktop host and prove the final user-visible state with independent evidence.",
-      "initial_state": "A held-out versioned host workflow with deterministic seed data, explicit focus requirements, and an independent final-state observer.",
-      "expected_outcome": "The real host reaches the exact user-visible target and evidence remains current, complete, and independently verifiable.",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-solo-delivery-verification-02",
+      "expected_mode": "solo",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-02.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-02.",
       "independent_tests": [
-        "Confirm the final state using a fresh public-surface observation.",
-        "Validate focus, ordered actions, finish state, and evidence hashes."
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
       ],
       "critical_failures": [
-        "The workflow runs on a mock, wrong host, or stale capture.",
-        "Required actions are skipped or reordered.",
-        "The declared final state is not independently observable."
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
       ],
       "budgets": {
-        "max_total_tokens": 320000,
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-delivery-verification-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-solo-delivery-verification-03",
+      "expected_mode": "solo",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-03.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-delivery-verification-03.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-real-host-interaction-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-solo-real-host-interaction-01",
+      "expected_mode": "solo",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-01.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-01.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-real-host-interaction-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-solo-real-host-interaction-02",
+      "expected_mode": "solo",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-02.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-02.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-solo-real-host-interaction-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-solo-real-host-interaction-03",
+      "expected_mode": "solo",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-03.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to resolved:controller-promotion-solo-real-host-interaction-03.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-bug-fix-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-read-only-bug-fix-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-bug-fix-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-read-only-bug-fix-02",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-bug-fix-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-read-only-bug-fix-03",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-02",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-multi-file-implementation-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-read-only-multi-file-implementation-03",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-current-source-research-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-read-only-current-source-research-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-current-source-research-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-read-only-current-source-research-02",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-current-source-research-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-read-only-current-source-research-03",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-delivery-verification-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-delivery-verification-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-02",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-delivery-verification-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-read-only-delivery-verification-03",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-real-host-interaction-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-01",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-real-host-interaction-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-02",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-read-only-real-host-interaction-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-read-only-real-host-interaction-03",
+      "expected_mode": "parallel-read-only",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Report both immutable evidence markers without changing the checkout.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Report both immutable evidence markers without changing the checkout.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-bug-fix-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-packets-bug-fix-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-bug-fix-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-packets-bug-fix-02",
+      "expected_mode": "parallel-packets",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-02:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-bug-fix-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-parallel-packets-bug-fix-03",
+      "expected_mode": "parallel-packets",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-bug-fix-03:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-multi-file-implementation-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-multi-file-implementation-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-02",
+      "expected_mode": "parallel-packets",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-02:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-multi-file-implementation-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-parallel-packets-multi-file-implementation-03",
+      "expected_mode": "parallel-packets",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-multi-file-implementation-03:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-current-source-research-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-packets-current-source-research-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-current-source-research-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-packets-current-source-research-02",
+      "expected_mode": "parallel-packets",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-02:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-current-source-research-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-parallel-packets-current-source-research-03",
+      "expected_mode": "parallel-packets",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-current-source-research-03:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-delivery-verification-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-packets-delivery-verification-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-delivery-verification-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-packets-delivery-verification-02",
+      "expected_mode": "parallel-packets",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-02:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-delivery-verification-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-parallel-packets-delivery-verification-03",
+      "expected_mode": "parallel-packets",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-delivery-verification-03:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-real-host-interaction-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-01",
+      "expected_mode": "parallel-packets",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-01:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-real-host-interaction-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-02",
+      "expected_mode": "parallel-packets",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-02:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-parallel-packets-real-host-interaction-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-parallel-packets-real-host-interaction-03",
+      "expected_mode": "parallel-packets",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:b.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set packets/a/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:a and packets/b/state.txt to completed:controller-promotion-parallel-packets-real-host-interaction-03:b.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-bug-fix-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-staged-verify-bug-fix-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-bug-fix-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-staged-verify-bug-fix-02",
+      "expected_mode": "staged-verify",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-02 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-02 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-bug-fix-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "bug-fix",
+      "fixture_id": "controller-promotion-staged-verify-bug-fix-03",
+      "expected_mode": "staged-verify",
+      "prompt": "Diagnose the reproduced defect described by the fixture and produce the smallest evidence-backed correction permitted by the task contract.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-03 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-bug-fix-03 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-multi-file-implementation-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-multi-file-implementation-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-02",
+      "expected_mode": "staged-verify",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-02 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-02 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-multi-file-implementation-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "multi-file-implementation",
+      "fixture_id": "controller-promotion-staged-verify-multi-file-implementation-03",
+      "expected_mode": "staged-verify",
+      "prompt": "Implement the requested behavior across the declared fixture boundaries while preserving the public contract and unrelated state.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-03 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-multi-file-implementation-03 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-current-source-research-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-staged-verify-current-source-research-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-current-source-research-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-staged-verify-current-source-research-02",
+      "expected_mode": "staged-verify",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-02 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-02 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-current-source-research-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "current-source-research",
+      "fixture_id": "controller-promotion-staged-verify-current-source-research-03",
+      "expected_mode": "staged-verify",
+      "prompt": "Resolve the fixture's technical decision using its frozen primary-source packets and separate verified facts from inference.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-03 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-current-source-research-03 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-delivery-verification-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-staged-verify-delivery-verification-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-delivery-verification-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-staged-verify-delivery-verification-02",
+      "expected_mode": "staged-verify",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-02 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-02 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-delivery-verification-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "delivery-verification",
+      "fixture_id": "controller-promotion-staged-verify-delivery-verification-03",
+      "expected_mode": "staged-verify",
+      "prompt": "Audit the fixture's delivery claim against its checkout, declared artifacts, checks, and Git identity without overstating completion.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-03 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-delivery-verification-03 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-real-host-interaction-01",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-staged-verify-real-host-interaction-01",
+      "expected_mode": "staged-verify",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-01 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-real-host-interaction-02",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-staged-verify-real-host-interaction-02",
+      "expected_mode": "staged-verify",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-02 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-02 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
+        "max_elapsed_seconds": 1800
+      }
+    },
+    {
+      "task_id": "controller-promotion-staged-verify-real-host-interaction-03",
+      "version": 1,
+      "split": "promotion",
+      "category": "real-host-interaction",
+      "fixture_id": "controller-promotion-staged-verify-real-host-interaction-03",
+      "expected_mode": "staged-verify",
+      "prompt": "Complete the deterministic host workflow represented by the fixture using only the declared public surface and return objective evidence.\n\nObjective: Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-03 and prove it with tests.",
+      "initial_state": "A clean, versioned, deterministic fixture with evaluator files held outside the acting checkout.",
+      "expected_outcome": "Set src/scenario.txt to verified:controller-promotion-staged-verify-real-host-interaction-03 and prove it with tests.",
+      "independent_tests": [
+        "Run the fixture public test inside the acting checkout.",
+        "Run the external hidden and quality checks on independent clones."
+      ],
+      "critical_failures": [
+        "The objective is incomplete or contradicted by the hidden check.",
+        "The acting arm changes a path outside the declared ownership.",
+        "The acting arm reads or modifies evaluator-only content."
+      ],
+      "budgets": {
+        "max_total_tokens": 120000,
         "max_elapsed_seconds": 1800
       }
     }

@@ -10,11 +10,28 @@ Cognitive Powers is a Codex plugin for executing non-trivial work with focused c
 
 Use the smallest flow that fits the work:
 
-1. **Focused solve** — ask Codex to use `$solve-efficiently` for a bounded implementation, diagnosis, or research task. It selects only the context and checks justified by the request.
+1. **Focused solve** — ask Codex to use `$solve-efficiently` for a bounded implementation, diagnosis, or research task. It selects only the context and checks justified by the request, and its conservative controller activates host-native agents only after bounded discovery proves that independent work justifies the coordination cost.
 2. **Durable execution** — ask Codex to use `$execute-durably` when work spans several steps, agents, or compactions. Criteria, command exits, source fingerprints, and independent verification remain external to the target repository.
 3. **Delivery verification** — ask Codex to use `$verify-delivery` with the original claim and relevant checkout. It reports Contract and Quality separately and does not turn missing or stale evidence into success.
 
 These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
+
+For non-trivial work, `solve-efficiently` can evaluate an explicit planning
+packet through the packaged runtime:
+
+```powershell
+& $python scripts/orchestration_policy.py --agent-plan <plan.json> --json
+```
+
+The versioned `agent_plan` contract reports its mode, content-bound plan and
+assignment IDs, ordered dependency waves, permissions, abstentions, retry
+record, stop conditions, and receipt policy. Version 2 requires executable RED
+and verification evidence for delegated writes and supports plan-bound worker
+and verifier results. Invalid semantic signals return an observable `solo`
+plan. The existing v1 `--input`/`--cases` intensity interface and
+`select_intensity()` remain compatible. Parallel modes require at least two
+workers after reserving the main-agent slot; a fresh verifier runs only after
+implementation workers finish.
 
 Codex initially sees only these three core entries. The other eleven specialized workflows remain installed and are loaded from the core router only when the task directly matches them. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
 
@@ -40,7 +57,7 @@ The broader Cognitive Powers surface includes:
 - Passive adapters for Context Mode, Graphify, memU, Ruflo, Nacos, LobeHub exchange, and Obsidian that never install providers and always retain a native fallback.
 - Durable coordination reports, a hash-bound release witness, and a paired evaluation gate that refuses unsupported improvement claims.
 
-- Adaptive routing that avoids heavy process for simple requests.
+- Adaptive routing that avoids heavy process for simple requests and emits deterministic `solo`, `parallel-read-only`, `parallel-packets`, or `staged-verify` agent plans for non-trivial work.
 - Intentional interface design from audience, brand, references, preservation boundaries, and context-sensitive variance, motion, and density controls.
 - Greenfield and redesign workflows that reuse existing systems by default and never fabricate customers, metrics, screenshots, or product state.
 - Typed visual-review receipts that bind design intent, Playwright evidence, mobile and desktop PNG renders, reviewer checks, and artifact hashes without pretending taste is objective.
@@ -66,7 +83,7 @@ The broader Cognitive Powers surface includes:
 - Durable external work state with atomic writes, an append-only ledger, source fingerprints, and resumable criteria.
 - Dependency-aware work packets with exclusive path ownership, immutable argv checks, owned-path fingerprints, and an integration gate that remains separate from completion.
 - A strict Markdown-to-work-packet compiler that rejects incomplete sections, shell-string checks, unsafe paths, ownership overlap, unknown dependencies, and cycles before state changes.
-- Narrow executor, test-writer, and read-only verifier role contracts without fixed model versions; repository TOML agents improve development while installed-plugin workflows retain the same roles through skill instructions.
+- Narrow executor, test-writer, and read-only verifier role contracts without fixed model versions; assignments carry objective, context, ownership, permissions, checks, and stop conditions, while worker results require actual command exits, blockers, and risks. Repository TOML agents improve development while installed-plugin workflows retain the same roles through skill instructions.
 - Version-neutral prompt contracts with deterministic structural validation and an explicit semantic review for outcomes, success criteria, boundaries, permissions, tools, evidence, and stop conditions.
 - Selective, cross-platform plugin hooks that record edit provenance outside the repository, chain ledger hashes, and warn when the latest edit lacks a current validation receipt.
 - A bounded React and Next.js static performance review that reports detected framework versions and review candidates without claiming measured runtime improvement.
@@ -81,7 +98,7 @@ The broader Cognitive Powers surface includes:
 - Deterministic validation, context-selection, and capability-audit benchmarks.
 - A deterministic communication-contract benchmark that detects lossy compression without claiming end-to-end model improvement.
 
-The current tests validate plugin structure, context selection, state transitions, real exit-code capture, evidence integrity, and completion gates. A three-pair live bounded-coding A/B also preserved all hidden-test outcomes while reducing median total tokens by 13.8% versus Codex base; that result is fixture-specific and does not prove a broad model-quality or token advantage.
+The current tests validate plugin structure, context selection, state transitions, real exit-code capture, evidence integrity, and completion gates. Historical bounded-run measurements are not claim-eligible unless their immutable provider receipts, evaluator identities, and source fingerprints are available with the checkout. No broad model-quality or token advantage is currently claimed.
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
 
@@ -138,15 +155,43 @@ The temporary package is deleted after inspection. This validates installation s
 
 ## Evaluation protocol
 
-Claims that Cognitive Powers improves Codex require paired baseline-versus-candidate runs, not manifest checks or synthetic benchmark scores. The versioned protocol freezes model, reasoning effort, prompt, tools, permissions, fixture, source identity, task version, and balanced arm order. It uses five categories: bug fixing, multi-file implementation, current-source research, delivery verification, and real-host interaction.
+Claims about the adaptive controller require paired runs of the same Cognitive Powers build with `controller_mode=forced-solo` and `controller_mode=adaptive`; Codex base is an exploratory comparison, not the causal control. The versioned protocol freezes model, reasoning effort, prompt, tools, permissions, slots, fixture and Git identity, task version, evaluator identities, and balanced arm order. It uses four expected modes across five categories: bug fixing, multi-file implementation, current-source research, delivery verification, and real-host interaction.
 
-- Pilot: 20 paired runs across the five categories.
-- Promotion: 50 held-out paired runs across disjoint task fixtures.
+- Pilot: 20 unique fixtures, three repetitions per arm, for 120 provider sessions.
+- Promotion: 60 new held-out fixtures, three repetitions per arm, for 360 provider sessions.
 - Score correctness and independent tests before efficiency; report every failure and reject critical failures.
 - Compare token efficiency only among paired successful runs. Keep input, cached input, fresh input, output, and total tokens separate.
-- A combined “better quality and fewer tokens” claim requires zero critical failures, success no lower than baseline, mean quality at least five points higher, median total tokens at least 15% lower, median fresh input at least 20% lower, and at most 5% overhead on tasks where the plugin should abstain.
+- A combined “better quality and fewer tokens” claim requires zero critical failures, non-inferior success, mean quality at least five points higher with a paired 95% confidence interval excluding zero, median total tokens at least 15% lower, median fresh input at least 20% lower, and at most 5% overhead on `solo` tasks. Token ratios use successful pairs only and must pass their fixture-level bootstrap confidence bounds.
 
-`benchmarks/evaluation_tasks.json` contains frozen task definitions and schedules, not run results. The offline integration fixture keeps end-to-end improvement false.
+`benchmarks/evaluation_tasks.json` contains 80 distinct task definitions and the frozen 20/60 schedule, not run results. Repeated executions of one fixture do not count as independent fixtures. `controller_ab_fixtures.py` materializes the actor checkouts and evaluator-only checks outside the plugin repository, initializes each actor checkout as a clean Git repository, and refuses a ready status until all identities and seals match. The offline integration fixture keeps end-to-end improvement false.
+
+`benchmarks/controller_ab_protocol.json` freezes the controller-specific design,
+promotion gates, required artifacts, and current `not-proven` state. It contains
+neither fixture definitions nor provider results; those must be supplied and
+hashed before a live run.
+
+Prepare the private fixture bundle and validate it before any provider call:
+
+```powershell
+& $python scripts/controller_ab_fixtures.py validate
+& $python scripts/controller_ab_fixtures.py materialize --output-root <empty-absolute-private-root>
+& $python scripts/controller_ab_fixtures.py validate --materialized-root <private-root>
+```
+
+After committing a clean experimental source snapshot, create two minimal and
+byte-equivalent authenticated homes, generate the private batch configuration,
+and run the resumable schedule:
+
+```powershell
+& $python scripts/prepare_controller_ab_homes.py --source-home <codex-home> --plugin-source . --output-root <private-homes-root> --model <model> --reasoning-effort <effort>
+& $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-fixture-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --output <private-batch-config.json>
+& $python scripts/controller_ab_batch.py --config <private-batch-config.json> --output <private-evidence-root>
+```
+
+The batch journal never automatically retries an interrupted provider job;
+the operator must inspect it first to avoid duplicate calls. Full receipts and
+events remain private, while a public report may contain only sanitized metrics
+and their immutable hashes.
 
 ## Live evidence limitations
 
@@ -178,6 +223,7 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python scripts/run_design_benchmarks.py
 & $python scripts/run_capability_benchmarks.py
 & $python scripts/run_coordination_benchmarks.py
+& $python scripts/controller_ab_fixtures.py validate
 & $python scripts/run_qcu_benchmarks.py
 & $python scripts/run_skyvern_benchmarks.py
 & $python scripts/run_extension_benchmarks.py

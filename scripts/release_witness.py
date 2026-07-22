@@ -30,6 +30,10 @@ EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("design-benchmarks", ("scripts/run_design_benchmarks.py",)),
     ("capability-benchmarks", ("scripts/run_capability_benchmarks.py",)),
     ("coordination-benchmarks", ("scripts/run_coordination_benchmarks.py",)),
+    (
+        "controller-ab-fixture-contract",
+        ("scripts/controller_ab_fixtures.py", "validate"),
+    ),
     ("qcu-benchmarks", ("scripts/run_qcu_benchmarks.py",)),
     ("skyvern-benchmarks", ("scripts/run_skyvern_benchmarks.py",)),
     ("extension-benchmarks", ("scripts/run_extension_benchmarks.py",)),

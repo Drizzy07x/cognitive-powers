@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added the 80-fixture controller corpus, deterministic external materializer, promotion seals, and fail-closed corpus validation.
+- Added minimal equivalent experiment homes and a resumable 240-pair/480-session batch coordinator with globally randomized pairs and immutable journals.
+- Kept provider results, causal improvement, publication, installation, and a 1.5.0 version claim pending; no live result is included in this checkout.
+
 ## 1.4.2 - 2026-07-21
 
 - Reduced passive plugin and exposed-skill context for short and already-bounded tasks.
@@ -10,10 +16,10 @@
 
 - Added a focused code-and-test fast path that avoids repeated discovery, unchanged-file reads, redundant green checks, and unrelated cleanup.
 - Stopped loading `communicate-efficiently` for routine progress and completion handoffs.
-- Preserved full behavioral quality in a three-pair live coding pilot while reducing Cognitive Powers median total tokens by 52.6%, tool calls by 56.3%, and elapsed time by 39.9% relative to 1.4.0 on the same fixture.
+- Recorded a historical three-pair live coding pilot against 1.4.0. Its measurements are not reproducible from this checkout without the original immutable provider receipts and therefore are not claim-eligible.
 - Reduced the host-visible catalog from fourteen specialized entries to three core workflows while retaining all specialized instructions as demand-loaded internal workflows.
 - Added a fail-closed paired live A/B runner with isolated homes and fixture copies, seeded arm order, provider usage receipts, hidden checks, allowed-path enforcement, and guarded-source mutation detection.
-- On a three-pair bounded-task abstention test, the core catalog preserved 6/6 successes and reduced median total tokens by 13.8%, fresh input by 59.3%, tool calls by 20.0%, and elapsed time by 7.1% versus Codex base. The worst individual pair added 4.5% total tokens.
+- Recorded a historical three-pair bounded-task abstention comparison against Codex base. Its measurements are not used as evidence for the adaptive controller because the receipts are not packaged here and the comparison does not isolate controller behavior.
 
 These measurements cover one bounded coding fixture. Broad end-to-end superiority remains unclaimed until the multi-category pilot and held-out promotion gates pass.
 
