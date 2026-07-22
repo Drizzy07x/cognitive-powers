@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -978,9 +979,18 @@ class LiveAbRunnerTests(unittest.TestCase):
             source = root / "source"
             home = root / "home"
             installed = home / "plugins" / "cache" / "personal" / "demo" / "1.0"
-            source.mkdir()
-            installed.mkdir(parents=True)
+            for relative in runner.INSTALLED_SURFACE_DIRECTORIES:
+                (source / relative).mkdir(parents=True)
+                (source / relative / "runtime.txt").write_text(
+                    relative, encoding="utf-8"
+                )
+            for relative in runner.INSTALLED_SURFACE_FILES:
+                target = source / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(relative, encoding="utf-8")
             (source / "plugin.txt").write_text("current\n", encoding="utf-8")
+            installed.parent.mkdir(parents=True)
+            shutil.copytree(source, installed)
             (installed / "plugin.txt").write_text("stale\n", encoding="utf-8")
             item = {
                 "version": "1.0",
@@ -990,13 +1000,57 @@ class LiveAbRunnerTests(unittest.TestCase):
             }
 
             with self.assertRaisesRegex(
-                runner.LiveEvaluationError, "differs from source"
+                runner.LiveEvaluationError, "canonical runtime surface"
             ):
                 runner._candidate_identity(item, home)
 
             (installed / "plugin.txt").write_text("current\n", encoding="utf-8")
             identity = runner._candidate_identity(item, home)
             self.assertEqual(identity["source_sha256"], identity["installed_sha256"])
+
+    def test_candidate_identity_accepts_only_exact_canonical_runtime_projection(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            home = root / "home"
+            installed = home / "plugins" / "cache" / "personal" / "demo" / "1.0"
+            for relative in runner.INSTALLED_SURFACE_DIRECTORIES:
+                (source / relative).mkdir(parents=True)
+                (source / relative / "runtime.txt").write_text(
+                    relative, encoding="utf-8"
+                )
+            for relative in runner.INSTALLED_SURFACE_FILES:
+                target = source / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(relative, encoding="utf-8")
+            (source / "benchmarks").mkdir()
+            (source / "benchmarks" / "evaluation_tasks.json").write_text(
+                "sensitive", encoding="utf-8"
+            )
+            installed.parent.mkdir(parents=True)
+            shutil.copytree(
+                source,
+                installed,
+                ignore=shutil.ignore_patterns("benchmarks"),
+            )
+            item = {
+                "version": "1.0",
+                "name": "demo",
+                "marketplaceName": "personal",
+                "source": {"path": str(source)},
+            }
+
+            identity = runner._candidate_identity(item, home)
+
+            self.assertNotEqual(identity["source_sha256"], identity["installed_sha256"])
+            self.assertGreater(identity["source_file_count"], identity["file_count"])
+            (installed / "skills" / "runtime.txt").unlink()
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "canonical runtime surface"
+            ):
+                runner._candidate_identity(item, home)
 
     def test_parse_events_requires_provider_usage_and_counts_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

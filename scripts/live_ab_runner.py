@@ -23,6 +23,18 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
 
 
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+INSTALLED_SURFACE_DIRECTORIES = (
+    ".codex-plugin",
+    "assets",
+    "hooks",
+    "skills",
+    "skills-core",
+)
+INSTALLED_SURFACE_FILES = (
+    "scripts/orchestration_policy.py",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+)
 CONTROLLER_MODES = {"forced-solo", "adaptive"}
 AGENT_PLAN_MODES = {
     "solo",
@@ -1271,19 +1283,42 @@ def _candidate_identity(item: dict[str, Any], candidate_home: Path) -> dict[str,
         )
     source_hashes = tree_hashes(source_root)
     installed_hashes = tree_hashes(installed_root)
-    if source_hashes != installed_hashes:
-        changed = changed_paths(source_hashes, installed_hashes)
-        raise LiveEvaluationError(
-            "candidate installation differs from source: " + ", ".join(changed[:20])
+    canonical_surface = {
+        path: digest
+        for path, digest in source_hashes.items()
+        if path in INSTALLED_SURFACE_FILES
+        or any(
+            path == directory or path.startswith(f"{directory}/")
+            for directory in INSTALLED_SURFACE_DIRECTORIES
         )
-    identity = source_sha256(source_hashes)
+    }
+    missing_roots = [
+        root
+        for root in (*INSTALLED_SURFACE_DIRECTORIES, *INSTALLED_SURFACE_FILES)
+        if root not in canonical_surface
+        and not any(path.startswith(f"{root}/") for path in canonical_surface)
+    ]
+    if missing_roots:
+        raise LiveEvaluationError(
+            "candidate source lacks canonical runtime surface: "
+            + ", ".join(missing_roots)
+        )
+    if installed_hashes not in (source_hashes, canonical_surface):
+        changed = changed_paths(canonical_surface, installed_hashes)
+        raise LiveEvaluationError(
+            "candidate installation differs from canonical runtime surface: "
+            + ", ".join(changed[:20])
+        )
+    source_identity = source_sha256(source_hashes)
+    installed_identity = source_sha256(installed_hashes)
     return {
         "version": version,
         "source_root": str(source_root),
         "installed_root": str(installed_root),
-        "source_sha256": identity,
-        "installed_sha256": identity,
-        "file_count": len(source_hashes),
+        "source_sha256": source_identity,
+        "installed_sha256": installed_identity,
+        "source_file_count": len(source_hashes),
+        "file_count": len(installed_hashes),
     }
 
 

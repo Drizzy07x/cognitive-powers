@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from live_ab_runner import (
+    INSTALLED_SURFACE_DIRECTORIES,
+    INSTALLED_SURFACE_FILES,
     codex_host_identity,
     source_sha256,
     tree_hashes,
@@ -24,18 +26,6 @@ class HomePreparationError(ValueError):
     """Raised when clean, equivalent experiment homes cannot be produced."""
 
 
-INSTALLED_SURFACE_DIRECTORIES = (
-    ".codex-plugin",
-    "assets",
-    "hooks",
-    "skills",
-    "skills-core",
-)
-INSTALLED_SURFACE_FILES = (
-    "scripts/orchestration_policy.py",
-    "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
-)
 SENSITIVE_DEVELOPMENT_PATHS = (
     "benchmarks",
     "tests",
