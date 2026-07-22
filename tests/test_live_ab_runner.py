@@ -221,6 +221,24 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertEqual(decision["decision_observation"], "missing")
         self.assertFalse(decision["complete"])
 
+    def test_parallel_plan_without_observed_agents_is_incomplete(self) -> None:
+        parsed = {
+            "agent_plans": [
+                {
+                    "mode": "parallel-packets",
+                    "waves": [{"assignments": [{"assignment_id": "worker-1"}]}],
+                }
+            ],
+            "agent_spawns": 0,
+            "agent_joins": 0,
+            "observed_assignments": [],
+            "usage_includes_subagents": False,
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertEqual(decision["planned_assignment_count"], 1)
+        self.assertEqual(decision["actual_mode"], "parallel-packets")
+        self.assertFalse(decision["complete"])
+
     def test_parse_events_rejects_self_reported_actor_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             events = Path(temporary) / "events.jsonl"

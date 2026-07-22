@@ -400,14 +400,30 @@ def classify_agent_decision(
         if observed_plan
         else ("solo" if implicit_solo else None)
     )
+    planned_assignments = (
+        sum(
+            len(wave.get("assignments", []))
+            for wave in observed_plan.get("waves", [])
+            if isinstance(wave, dict) and isinstance(wave.get("assignments", []), list)
+        )
+        if observed_plan is not None
+        else 0
+    )
+    explicit_plan_complete = observed_plan is not None and (
+        actual_mode == "solo"
+        and planned_assignments == 0
+        and parsed["agent_spawns"] == 0
+        or actual_mode != "solo"
+        and planned_assignments > 0
+        and parsed["agent_spawns"] == planned_assignments
+        and parsed["agent_joins"] == parsed["agent_spawns"]
+        and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
+        and parsed["usage_includes_subagents"]
+    )
     complete = (
         parsed["agent_spawns"] == 0 and actual_mode == "solo"
         if controller_mode == "forced-solo"
-        else implicit_solo
-        or observed_plan is not None
-        and parsed["agent_joins"] <= parsed["agent_spawns"]
-        and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
-        and (parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"])
+        else implicit_solo or explicit_plan_complete
     )
     return {
         "observed_plan": observed_plan,
@@ -419,6 +435,7 @@ def classify_agent_decision(
             if implicit_solo
             else "missing"
         ),
+        "planned_assignment_count": planned_assignments,
         "complete": complete,
     }
 
@@ -912,6 +929,7 @@ def _run_one(
             "observed_assignments": parsed["observed_assignments"],
             "actual_mode": decision["actual_mode"],
             "decision_observation": decision["decision_observation"],
+            "planned_assignment_count": decision["planned_assignment_count"],
             "usage_includes_subagents": (
                 parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"]
             ),
