@@ -193,6 +193,34 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(parsed["agent_plans"][0]["mode"], "parallel-read-only")
             self.assertEqual(parsed["observed_assignments"][0]["actor_id"], "worker-1")
 
+    def test_no_agent_fast_path_is_observed_as_solo(self) -> None:
+        parsed = {
+            "agent_plans": [],
+            "agent_spawns": 0,
+            "agent_joins": 0,
+            "observed_assignments": [],
+            "usage_includes_subagents": False,
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertEqual(decision["actual_mode"], "solo")
+        self.assertEqual(
+            decision["decision_observation"], "implicit-solo-no-agent-events"
+        )
+        self.assertTrue(decision["complete"])
+
+    def test_spawn_without_plan_remains_incomplete(self) -> None:
+        parsed = {
+            "agent_plans": [],
+            "agent_spawns": 1,
+            "agent_joins": 0,
+            "observed_assignments": [],
+            "usage_includes_subagents": False,
+        }
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertIsNone(decision["actual_mode"])
+        self.assertEqual(decision["decision_observation"], "missing")
+        self.assertFalse(decision["complete"])
+
     def test_parse_events_rejects_self_reported_actor_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             events = Path(temporary) / "events.jsonl"

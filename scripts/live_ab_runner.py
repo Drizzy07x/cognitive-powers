@@ -389,6 +389,40 @@ def parse_events(path: Path) -> dict[str, Any]:
     }
 
 
+def classify_agent_decision(
+    parsed: dict[str, Any], controller_mode: str
+) -> dict[str, Any]:
+    """Classify an explicit plan or the focused no-agent fast path."""
+    observed_plan = parsed["agent_plans"][-1] if parsed["agent_plans"] else None
+    implicit_solo = observed_plan is None and parsed["agent_spawns"] == 0
+    actual_mode = (
+        observed_plan.get("mode")
+        if observed_plan
+        else ("solo" if implicit_solo else None)
+    )
+    complete = (
+        parsed["agent_spawns"] == 0 and actual_mode == "solo"
+        if controller_mode == "forced-solo"
+        else implicit_solo
+        or observed_plan is not None
+        and parsed["agent_joins"] <= parsed["agent_spawns"]
+        and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
+        and (parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"])
+    )
+    return {
+        "observed_plan": observed_plan,
+        "actual_mode": actual_mode,
+        "decision_observation": (
+            "explicit-agent-plan"
+            if observed_plan is not None
+            else "implicit-solo-no-agent-events"
+            if implicit_solo
+            else "missing"
+        ),
+        "complete": complete,
+    }
+
+
 def _plugin_list(codex: str, home: Path) -> list[dict[str, Any]]:
     environment = dict(os.environ)
     environment["CODEX_HOME"] = str(home)
@@ -844,8 +878,7 @@ def _run_one(
         critical.append("out-of-scope changes: " + ", ".join(out_of_scope))
     critical.extend(quality["critical_errors"])
     usage = parsed["usage"]
-    observed_plan = parsed["agent_plans"][-1] if parsed["agent_plans"] else None
-    actual_mode = observed_plan.get("mode") if observed_plan else None
+    decision = classify_agent_decision(parsed, controller_mode)
     return {
         "success": not critical,
         "critical_errors": critical,
@@ -877,18 +910,12 @@ def _run_one(
             "join_count": parsed["agent_joins"],
             "plan_receipts": parsed["agent_plans"],
             "observed_assignments": parsed["observed_assignments"],
-            "actual_mode": actual_mode,
+            "actual_mode": decision["actual_mode"],
+            "decision_observation": decision["decision_observation"],
             "usage_includes_subagents": (
                 parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"]
             ),
-            "complete": (
-                parsed["agent_spawns"] == 0 and (actual_mode in {None, "solo"})
-                if controller_mode == "forced-solo"
-                else observed_plan is not None
-                and parsed["agent_joins"] <= parsed["agent_spawns"]
-                and len(parsed["observed_assignments"]) == parsed["agent_spawns"]
-                and (parsed["agent_spawns"] == 0 or parsed["usage_includes_subagents"])
-            ),
+            "complete": decision["complete"],
         },
         "pre_evaluation_diff_sha256": source_sha256(
             {path: measured_hashes.get(path, "<deleted>") for path in changed}
