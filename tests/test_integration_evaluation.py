@@ -319,6 +319,11 @@ class IntegrationEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(report["controller_protocol"]["sha256"], identity["sha256"])
         self.assertFalse(report["host_execution_receipts_eligible"])
+        pair[1]["pre_evaluation_diff_sha256"] = "2" * 64
+        report = evaluation.compare(
+            pair, task_contract=self.contract, controller_protocol=identity
+        )
+        self.assertEqual(len(report["pairs"]), 1)
         pair[1]["quality_score"] = 0.8
         report = evaluation.compare(
             pair, task_contract=self.contract, controller_protocol=identity

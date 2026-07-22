@@ -18,14 +18,14 @@ try:
         load_controller_protocol,
         validate_task_contract,
     )
-    from scripts.live_ab_runner import arm_order
+    from scripts.live_ab_runner import arm_order, source_sha256
 except ModuleNotFoundError:
     from integration_evaluation import (
         compare,
         load_controller_protocol,
         validate_task_contract,
     )
-    from live_ab_runner import arm_order
+    from live_ab_runner import arm_order, source_sha256
 
 
 class BatchError(ValueError):
@@ -40,6 +40,17 @@ def canonical_sha256(value: object) -> str:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def valid_diff_path(path: object) -> bool:
+    return (
+        isinstance(path, str)
+        and bool(path)
+        and "\\" not in path
+        and not path.startswith("/")
+        and ":" not in path.split("/", 1)[0]
+        and all(part not in {"", ".", ".."} for part in path.split("/"))
+    )
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -553,6 +564,7 @@ def validate_job_output(
     }
     if len(keys) != expected:
         raise BatchError(f"runner receipts contain duplicates for {job['job_id']}")
+    receipt_by_key = {(item["case_id"], item["variant"]): item for item in receipts}
     frozen_host = summary.get("host_identity")
     if not isinstance(frozen_host, dict):
         raise BatchError(f"runner summary lacks host identity for {job['job_id']}")
@@ -642,6 +654,49 @@ def validate_job_output(
         ):
             raise BatchError(f"read-only delegation changed files for {job['job_id']}")
         _validate_execution_semantics(execution)
+    result_keys: set[tuple[str, str]] = set()
+    for result in results:
+        if not isinstance(result, dict):
+            raise BatchError(f"runner result is malformed for {job['job_id']}")
+        key = (result.get("case_id"), result.get("variant"))
+        manifest = result.get("pre_evaluation_diff")
+        changed = result.get("changed_paths")
+        digest = result.get("pre_evaluation_diff_sha256")
+        receipt = receipt_by_key.get(key)
+        workspace = (
+            receipt.get("agent_telemetry", {}).get("workspace_change_check", {})
+            if isinstance(receipt, dict)
+            else {}
+        )
+        valid_manifest = (
+            isinstance(manifest, dict)
+            and all(valid_diff_path(path) for path in manifest)
+            and all(
+                value == "<deleted>"
+                or (
+                    isinstance(value, str)
+                    and len(value) == 64
+                    and all(char in "0123456789abcdef" for char in value.lower())
+                )
+                for value in manifest.values()
+            )
+        )
+        if (
+            key in result_keys
+            or receipt is None
+            or not valid_manifest
+            or not isinstance(changed, list)
+            or sorted(changed) != sorted(manifest)
+            or workspace.get("changed_paths") != changed
+            or source_sha256(manifest) != digest
+            or receipt.get("pre_evaluation_diff_sha256") != digest
+        ):
+            raise BatchError(
+                f"runner pre-evaluator diff is not bound for {job['job_id']}"
+            )
+        result_keys.add(key)
+    if result_keys != keys:
+        raise BatchError(f"runner results do not match receipts for {job['job_id']}")
     hashes = {
         name: file_sha256(path / name)
         for name in ("summary.json", "receipts.json", "results.json")
@@ -706,9 +761,8 @@ def materialize(
                     "case_id": result["case_id"],
                     "variant": result["variant"],
                     "changed_paths": result.get("changed_paths"),
-                    "pre_evaluation_diff_sha256": result.get(
-                        "pre_evaluation_diff_sha256"
-                    ),
+                    "manifest": result.get("pre_evaluation_diff"),
+                    "sha256": result.get("pre_evaluation_diff_sha256"),
                 },
             )
     _write_jsonl(output / "session-receipts.jsonl", receipts)

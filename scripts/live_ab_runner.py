@@ -405,6 +405,13 @@ def source_sha256(hashes: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
+def require_measured_fixture_unchanged(
+    fixture: Path, measured_hashes: Mapping[str, str]
+) -> None:
+    if tree_hashes(fixture) != dict(measured_hashes):
+        raise LiveEvaluationError("evaluators modified the measured result fixture")
+
+
 def git_identity(root: Path, *, required: bool = True) -> dict[str, Any] | None:
     """Bind a fixture to Git metadata excluded from the normal tree hash."""
     completed = subprocess.run(
@@ -1760,6 +1767,9 @@ def _run_one(
     shutil.copytree(fixture, hidden_fixture)
     shutil.copytree(fixture, quality_fixture)
     measured_hashes = tree_hashes(fixture)
+    pre_evaluation_diff = {
+        path: measured_hashes.get(path, "<deleted>") for path in changed
+    }
     if (
         tree_hashes(hidden_fixture) != measured_hashes
         or tree_hashes(quality_fixture) != measured_hashes
@@ -1821,6 +1831,7 @@ def _run_one(
         except json.JSONDecodeError as error:
             raise LiveEvaluationError("quality check returned invalid JSON") from error
         quality = normalize_quality_payload(quality_raw)
+    require_measured_fixture_unchanged(fixture, measured_hashes)
     critical: list[str] = []
     if completed.returncode != 0:
         critical.append(f"codex exit {completed.returncode}")
@@ -1845,6 +1856,7 @@ def _run_one(
         "hidden_stdout_tail": hidden.stdout[-1000:],
         "hidden_stderr_tail": hidden.stderr[-1000:],
         "changed_paths": changed,
+        "pre_evaluation_diff": pre_evaluation_diff,
         "out_of_scope_changes": out_of_scope,
         "quality_score": quality["score"] / 100.0,
         "quality_evidence": quality["evidence"],
@@ -1912,9 +1924,7 @@ def _run_one(
             },
             "complete": decision["complete"],
         },
-        "pre_evaluation_diff_sha256": source_sha256(
-            {path: measured_hashes.get(path, "<deleted>") for path in changed}
-        ),
+        "pre_evaluation_diff_sha256": source_sha256(pre_evaluation_diff),
         "evaluation_fixtures": {
             "hidden": str(hidden_fixture),
             "quality": str(quality_fixture),

@@ -43,7 +43,6 @@ LIVE_IDENTITY_FIELDS = (
     "hidden_check_sha256",
     "quality_check_sha256",
     "allowed_changes_sha256",
-    "pre_evaluation_diff_sha256",
     "controller_protocol_sha256",
     "agent_slots",
     "controller_protocol_id",
@@ -370,6 +369,27 @@ def _artifact_sha256(path: Path) -> str:
     raise EvaluationError(f"artifact is missing: {path.name}")
 
 
+def _diff_manifest_sha256(manifest: Mapping[str, str]) -> str:
+    digest = hashlib.sha256()
+    for path, value in sorted(manifest.items()):
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(value.encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _valid_diff_path(path: object) -> bool:
+    return (
+        isinstance(path, str)
+        and bool(path)
+        and "\\" not in path
+        and not path.startswith("/")
+        and ":" not in path.split("/", 1)[0]
+        and all(part not in {"", ".", ".."} for part in path.split("/"))
+    )
+
+
 def load_artifact_bundle(
     index_path: Path, controller_protocol: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -644,19 +664,51 @@ def _validate_artifact_semantics(
         if not isinstance(value, dict):
             raise EvaluationError("pre-evaluator diff metadata must be an object")
         diff_rows.append(value)
-    expected_diffs = sorted(
-        (
-            {
-                "case_id": item["case_id"],
-                "variant": item["variant"],
-                "sha256": item["pre_evaluation_diff_sha256"],
-            }
-            for item in expected_receipts
-        ),
-        key=lambda item: (item["case_id"], item["variant"]),
-    )
-    diff_rows.sort(key=lambda item: (item.get("case_id"), item.get("variant")))
-    if diff_rows != expected_diffs:
+    expected_diffs = {
+        (item["case_id"], item["variant"]): item for item in expected_receipts
+    }
+    observed_diff_keys: set[tuple[str, str]] = set()
+    for row in diff_rows:
+        if set(row) != {
+            "case_id",
+            "variant",
+            "changed_paths",
+            "manifest",
+            "sha256",
+        }:
+            raise EvaluationError("pre-evaluator diff metadata schema is invalid")
+        key = (row.get("case_id"), row.get("variant"))
+        receipt = expected_diffs.get(key)
+        manifest = row.get("manifest")
+        changed_paths = row.get("changed_paths")
+        if key in observed_diff_keys or receipt is None:
+            raise EvaluationError("pre-evaluator diffs do not match evaluated receipts")
+        if (
+            not isinstance(manifest, dict)
+            or not all(_valid_diff_path(path) for path in manifest)
+            or not all(
+                value == "<deleted>"
+                or (
+                    isinstance(value, str)
+                    and len(value) == 64
+                    and all(char in "0123456789abcdef" for char in value.lower())
+                )
+                for value in manifest.values()
+            )
+            or not isinstance(changed_paths, list)
+            or changed_paths != sorted(manifest)
+        ):
+            raise EvaluationError("pre-evaluator diff manifest is invalid")
+        digest = _sha256(row.get("sha256"), "pre-evaluator diff sha256")
+        workspace = receipt["agent_telemetry"].get("workspace_change_check", {})
+        if (
+            _diff_manifest_sha256(manifest) != digest
+            or receipt["pre_evaluation_diff_sha256"] != digest
+            or workspace.get("changed_paths") != changed_paths
+        ):
+            raise EvaluationError("pre-evaluator diffs do not match evaluated receipts")
+        observed_diff_keys.add(key)
+    if observed_diff_keys != set(expected_diffs):
         raise EvaluationError("pre-evaluator diffs do not match evaluated receipts")
 
     agent_rows = _read_jsonl(root / "agent-events.jsonl", "agent events")

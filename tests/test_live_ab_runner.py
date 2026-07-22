@@ -375,7 +375,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v15")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v16")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -1120,6 +1120,19 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(
                 runner.unexpected_changes(changes, ["src/*.py"]), ["notes.txt"]
             )
+
+    def test_post_evaluator_check_rejects_measured_fixture_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "result.txt"
+            target.write_text("measured\n", encoding="utf-8")
+            measured = runner.tree_hashes(root)
+            runner.require_measured_fixture_unchanged(root, measured)
+            target.write_text("contaminated\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "evaluators modified"
+            ):
+                runner.require_measured_fixture_unchanged(root, measured)
 
     def test_command_identity_changes_with_evaluator_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

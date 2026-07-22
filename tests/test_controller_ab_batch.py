@@ -291,6 +291,7 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "host_identity": {"version": "codex-test"},
                         "source_commit": source_commit,
                         "source_git_sha256": source_git_sha256,
+                        "pre_evaluation_diff_sha256": batch.source_sha256({}),
                         "agent_telemetry": telemetry,
                     }
                 )
@@ -303,8 +304,9 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "quality_score": 1.0,
                         "quality_evidence": ["ok"],
                         "critical_errors": [],
-                        "changed_paths": ["src/a.py"],
-                        "pre_evaluation_diff_sha256": "c" * 64,
+                        "changed_paths": [],
+                        "pre_evaluation_diff": {},
+                        "pre_evaluation_diff_sha256": batch.source_sha256({}),
                     }
                 )
         (destination / "summary.json").write_text(
@@ -360,6 +362,27 @@ class ControllerAbBatchTests(unittest.TestCase):
             (root / "receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
             with self.assertRaisesRegex(batch.BatchError, "identity or telemetry"):
                 batch.validate_job_output(root, job, source_git)
+
+    def test_job_output_rejects_unbound_pre_evaluator_diff_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            command = [
+                "python",
+                "runner.py",
+                "--output",
+                str(root),
+                "--task-id",
+                "task-a",
+                "--repetitions",
+                "1",
+            ]
+            self._fake_runner_output(command)
+            job = {"job_id": "job-a", "task_id": "task-a", "repetitions": 1}
+            results = json.loads((root / "results.json").read_text(encoding="utf-8"))
+            results[0]["pre_evaluation_diff"] = {"src/a.py": "d" * 64}
+            (root / "results.json").write_text(json.dumps(results), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "diff is not bound"):
+                batch.validate_job_output(root, job)
 
     def test_schedule_is_deterministic_complete_and_counterbalanced(self) -> None:
         first = batch.build_schedule(self._contract())

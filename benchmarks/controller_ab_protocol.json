@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v15",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v14",
+  "protocol_id": "cognitive-powers-controller-ab-v16",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v15",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -146,6 +146,17 @@
       "failure": "the clean validation receipt represented live validation only as live.validated and omitted the required explicit top-level liveValidated=false field; independent verification rejected the durable gate before any provider-backed session ran",
       "validation_receipt_sha256": "d8066c936b05c5c3f6d66d90b4603b91caae91e32493aeb2eaba482c94a7d400",
       "reusable_for_v15_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v15",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 8,
+      "preflight_sessions_required": 8,
+      "pilot_sessions_completed": 120,
+      "pilot_sessions_required": 120,
+      "failure": "the evaluator incorrectly treated the per-arm pre-evaluation diff hash as shared frozen identity, invalidating legitimate outcome differences; the coordinator diff metadata schema also differed from the independent semantic validator schema",
+      "sha256_index": "6295120cdf1d51510fcb0a682d133922c63c5563c2b12ee71219302cbcc07ec1",
+      "reusable_for_v16_claims": false
     }
   ],
   "comparison": {
@@ -411,7 +422,10 @@
     },
     "evaluation_isolation": {
       "diff_captured_before_evaluators": true,
+      "diff_manifest_recomputed_per_arm": true,
+      "diff_manifest_paths_match_workspace_change_receipt": true,
       "hidden_and_quality_checks_run_on_independent_clones": true,
+      "measured_fixture_unchanged_after_evaluators": true,
       "evaluators_outside_writable_fixture": true,
       "violation": "invalid"
     }
