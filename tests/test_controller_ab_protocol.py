@@ -15,7 +15,7 @@ class ControllerAbProtocolTests(unittest.TestCase):
     def test_design_cardinality_is_consistent(self) -> None:
         self.assertEqual(self.protocol["schema_version"], 3)
         self.assertEqual(
-            self.protocol["protocol_id"], "cognitive-powers-controller-ab-v13"
+            self.protocol["protocol_id"], "cognitive-powers-controller-ab-v14"
         )
         design = self.protocol["design"]
         self.assertEqual(len(design["modes"]), 4)
@@ -145,9 +145,16 @@ class ControllerAbProtocolTests(unittest.TestCase):
         previous = self.protocol["previous_protocol_evidence"]
         self.assertEqual(
             [item["verdict"] for item in previous],
-            ["invalid"] * 12,
+            ["invalid"] * 13,
         )
-        self.assertTrue(all(not item["reusable_for_v13_claims"] for item in previous))
+        self.assertTrue(
+            all(
+                not item.get(
+                    "reusable_for_v14_claims", item.get("reusable_for_v13_claims")
+                )
+                for item in previous
+            )
+        )
 
         state = self.protocol["execution_state"]
         self.assertEqual(state["fixtures_created"], 0)

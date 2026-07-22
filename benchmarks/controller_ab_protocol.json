@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v13",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v12",
+  "protocol_id": "cognitive-powers-controller-ab-v14",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v13",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -127,6 +127,16 @@
       "preflight_coordinator_index_sha256": "b127aec3eda11178ed5367eea32faba80ebdc8d10cfaf6419841d8124a4fbe15",
       "pilot_sha256_index": "e2bcc3451adb55674b24a018bb412909cb3445033a8dfb5f99345740ec65fd49",
       "reusable_for_v13_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v13",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 6,
+      "preflight_sessions_attempted": 8,
+      "preflight_sessions_required": 8,
+      "failure": "the planner applied the two-executable-worker abstention before the explicit single executor plus synthetic verifier staged-verify exception; the candidate therefore executed the required verification as a local process instead of a distinct native agent",
+      "sha256_index": "3c8ece25f19bc3e2b21b90c543d1f94a7cdb385a80331ee676a0a0d9a077fdcf",
+      "reusable_for_v14_claims": false
     }
   ],
   "comparison": {

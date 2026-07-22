@@ -426,6 +426,40 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(result["total_planned_agents"], 1)
         self.assertEqual(result["waves"][0]["kind"], "verification")
 
+    def test_single_executor_can_stage_a_distinct_verifier_without_parallel_packet_plan(
+        self,
+    ) -> None:
+        result = policy.select_agent_plan(
+            agent_signals_v2(
+                request_mode="change",
+                phase="implement",
+                authorization="change",
+                durable_or_release_critical=True,
+                quality_claim=True,
+                packet_plan_valid=False,
+                units=[
+                    unit(
+                        "executor",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=["src/target.txt"],
+                    )
+                ],
+                verification_check=["python", "verification/verify.py"],
+            )
+        )
+
+        self.assertEqual(result["mode"], "staged-verify")
+        self.assertEqual(
+            [wave["kind"] for wave in result["waves"]],
+            ["implementation", "verification"],
+        )
+        executor = result["waves"][0]["assignments"][0]
+        verifier = result["waves"][1]["assignments"][0]
+        self.assertEqual(verifier["dependencies"], ["executor"])
+        self.assertEqual(verifier["permissions"], "read-only")
+        self.assertIn(executor["id"], verifier["must_be_distinct_from"])
+
     def test_workers_cannot_delegate_and_depth_two_is_read_only(self) -> None:
         child_call = policy.select_agent_plan(agent_signals(current_depth=1))
         depth_two = policy.select_agent_plan(

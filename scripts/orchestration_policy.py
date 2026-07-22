@@ -678,7 +678,19 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
         ]
         layers = [[unit] for unit in selected]
 
-    if phase != "verify" and len(selected) < 2 and not retry_record:
+    single_worker_staged_verify = (
+        phase != "verify"
+        and len(selected) == 1
+        and verifier_required
+        and schema_version == 2
+        and not retry_record
+    )
+    if (
+        phase != "verify"
+        and len(selected) < 2
+        and not retry_record
+        and not single_worker_staged_verify
+    ):
         return _solo_plan(
             "fewer than two executable workers do not justify coordination",
             valid_input=True,
@@ -695,7 +707,7 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
                 durable=durable,
                 schema_version=schema_version,
             )
-        if not packet_plan_valid:
+        if not packet_plan_valid and not single_worker_staged_verify:
             return _solo_plan(
                 "parallel writes require a validated packet plan",
                 valid_input=True,
@@ -834,6 +846,8 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
     if not selected:
         mode = "staged-verify"
     elif retry_record and schema_version == 2:
+        mode = "staged-verify"
+    elif single_worker_staged_verify:
         mode = "staged-verify"
     elif writes and len(layers) > 1:
         mode = "staged-verify"
