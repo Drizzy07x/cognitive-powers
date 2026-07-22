@@ -33,7 +33,7 @@ fixtures = load_module()
 
 
 class ControllerABFixtureTests(unittest.TestCase):
-    def test_v14_protocol_does_not_reuse_invalid_evidence(self) -> None:
+    def test_v15_protocol_does_not_reuse_invalid_evidence(self) -> None:
         manifest = fixtures.load_manifest(MANIFEST_PATH)
         protocol = json.loads(
             (PLUGIN_ROOT / "benchmarks/controller_ab_protocol.json").read_text(
@@ -43,16 +43,19 @@ class ControllerABFixtureTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], 2)
         self.assertTrue(manifest["corpus_id"].endswith("-v2"))
-        self.assertTrue(protocol["protocol_id"].endswith("-v14"))
+        self.assertTrue(protocol["protocol_id"].endswith("-v15"))
         previous = protocol["previous_protocol_evidence"]
         self.assertEqual(
             [item["verdict"] for item in previous],
-            ["invalid"] * 13,
+            ["invalid"] * 14,
         )
         self.assertTrue(
             all(
                 not item.get(
-                    "reusable_for_v14_claims", item.get("reusable_for_v13_claims")
+                    "reusable_for_v15_claims",
+                    item.get(
+                        "reusable_for_v14_claims", item.get("reusable_for_v13_claims")
+                    ),
                 )
                 for item in previous
             )

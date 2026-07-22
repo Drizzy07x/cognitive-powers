@@ -98,6 +98,8 @@ class ValidateAllTests(unittest.TestCase):
         self.assertTrue(receipt["offline"]["complete"])
         self.assertTrue(receipt["offline"]["passed"])
         self.assertFalse(receipt["live"]["validated"])
+        self.assertTrue(receipt["offlinePassed"])
+        self.assertFalse(receipt["liveValidated"])
         self.assertEqual(receipt["git"]["sha"], "a" * 40)
         self.assertEqual(receipt["source"]["sha256"], "b" * 64)
         self.assertEqual(len(receipt["commands"]), len(validator.OFFLINE_COMMANDS))

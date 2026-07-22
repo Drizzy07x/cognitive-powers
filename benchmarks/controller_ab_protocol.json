@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "protocol_id": "cognitive-powers-controller-ab-v14",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v13",
+  "protocol_id": "cognitive-powers-controller-ab-v15",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v14",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
@@ -137,6 +137,15 @@
       "failure": "the planner applied the two-executable-worker abstention before the explicit single executor plus synthetic verifier staged-verify exception; the candidate therefore executed the required verification as a local process instead of a distinct native agent",
       "sha256_index": "3c8ece25f19bc3e2b21b90c543d1f94a7cdb385a80331ee676a0a0d9a077fdcf",
       "reusable_for_v14_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v14",
+      "verdict": "invalid",
+      "preflight_sessions_completed": 0,
+      "pilot_sessions_completed": 0,
+      "failure": "the clean validation receipt represented live validation only as live.validated and omitted the required explicit top-level liveValidated=false field; independent verification rejected the durable gate before any provider-backed session ran",
+      "validation_receipt_sha256": "d8066c936b05c5c3f6d66d90b4603b91caae91e32493aeb2eaba482c94a7d400",
+      "reusable_for_v15_claims": false
     }
   ],
   "comparison": {

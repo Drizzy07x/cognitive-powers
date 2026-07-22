@@ -322,6 +322,8 @@ def build_receipt(
             "expectedCommands": len(live_commands) if run_live else 0,
             "executedCommands": len(live_records),
         },
+        "offlinePassed": offline_passed,
+        "liveValidated": live_validated,
         "passed": passed,
     }
 
