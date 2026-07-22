@@ -442,7 +442,6 @@ def _validate_execution_semantics(execution: Mapping[str, Any]) -> None:
                 or not isinstance(actor_id, str)
                 or not actor_id
                 or (permissions == "write-owned-paths" and not ownership)
-                or (permissions == "read-only" and bool(ownership))
             ):
                 raise BatchError("runner assignment semantic binding is invalid")
             actor_ids.append(actor_id)

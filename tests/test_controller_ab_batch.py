@@ -18,6 +18,46 @@ SPEC.loader.exec_module(batch)
 
 
 class ControllerAbBatchTests(unittest.TestCase):
+    def test_read_only_assignments_may_declare_read_scope(self) -> None:
+        planned = []
+        bindings = []
+        for index, unit_id in enumerate(("unit-a", "unit-b"), start=1):
+            assignment_id = f"assignment-{index}"
+            planned.append(
+                {
+                    "assignment_id": assignment_id,
+                    "unit_id": unit_id,
+                    "role": "investigator",
+                    "wave_index": 0,
+                    "wave_kind": "read-only-investigation",
+                    "wave_parallel": True,
+                    "dependencies": [],
+                    "ownership": [f"evidence/{unit_id}.txt"],
+                    "permissions": "read-only",
+                    "delegation_depth": 1,
+                    "may_spawn": False,
+                    "may_verify_parent": False,
+                    "must_be_distinct_from": [],
+                }
+            )
+            bindings.append(
+                {
+                    "assignment_id": assignment_id,
+                    "actor_id": f"actor-{index}",
+                    "role_observed": None,
+                    "parent_id": "parent",
+                    "delegation_depth": 1,
+                }
+            )
+        batch._validate_execution_semantics(
+            {
+                "semantic_binding": True,
+                "selected_mode": "parallel-read-only",
+                "planned_assignments": planned,
+                "lifecycle_bindings": bindings,
+            }
+        )
+
     def test_preflight_schedule_has_one_pair_per_mode_and_is_non_scored(self) -> None:
         contract = batch.validate_task_contract(
             json.loads(

@@ -27,7 +27,7 @@ class LiveAbRunnerTests(unittest.TestCase):
                 "role": "investigator",
                 "objective": f"Investigate {unit_id}",
                 "context": ["bounded context"],
-                "ownership": [],
+                "ownership": [f"evidence/{unit_id}.txt"],
                 "permissions": "read-only",
                 "expected_output": "Evidence-backed finding",
                 "check": ["python", "-m", "unittest"],
@@ -304,7 +304,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v5")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v6")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"

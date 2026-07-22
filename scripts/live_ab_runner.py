@@ -970,7 +970,6 @@ def _execution_semantics(
                 or assignment.get("may_verify_parent") is not False
                 or not set(dependencies).issubset(prior_unit_ids)
                 or (permissions == "write-owned-paths" and not ownership)
-                or (permissions == "read-only" and bool(ownership))
             ):
                 valid = False
             wave_unit_ids.add(unit_id) if isinstance(unit_id, str) else None
