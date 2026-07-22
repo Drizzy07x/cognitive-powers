@@ -8,12 +8,13 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import statistics
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 try:
     from scripts.integration_evaluation import validate_task_contract
@@ -31,6 +32,12 @@ AGENT_PLAN_MODES = {
 }
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+CONTROLLER_DIRECTIVE_VERSION = 3
+CONTROLLER_DIRECTIVE_TEMPLATE = """[Cognitive Powers controller directive v{version}; mode={mode}]
+This directive is the controller_mode treatment and the only intentional A/B difference.
+{behavior}
+For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Emit the selected agent_plan as JSON before spawning. Never claim an agent ran unless the native host tool ran and was joined.
+"""
 SUPPORTED_EVENT_TYPES = {
     "thread.started",
     "turn.started",
@@ -47,6 +54,240 @@ class LiveEvaluationError(ValueError):
     """Raised when a live evaluation cannot produce trustworthy receipts."""
 
 
+def controller_directive(mode: str) -> dict[str, str]:
+    if mode not in CONTROLLER_MODES:
+        raise LiveEvaluationError(f"invalid controller mode: {mode}")
+    behavior = (
+        "Do not spawn, delegate, or call any agent tool. Complete the task in the parent."
+        if mode == "forced-solo"
+        else "For non-trivial work, consult and execute the Cognitive Powers orchestration policy; obey its solo/delegation decision and use native agent tools when it delegates."
+    )
+    text = CONTROLLER_DIRECTIVE_TEMPLATE.format(
+        version=CONTROLLER_DIRECTIVE_VERSION, mode=mode, behavior=behavior
+    )
+    return {
+        "version": str(CONTROLLER_DIRECTIVE_VERSION),
+        "mode": mode,
+        "text": text,
+        "template_sha256": hashlib.sha256(
+            CONTROLLER_DIRECTIVE_TEMPLATE.encode("utf-8")
+        ).hexdigest(),
+        "mode_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
+def compose_controller_prompt(
+    base_prompt: str, mode: str
+) -> tuple[str, dict[str, str]]:
+    directive = controller_directive(mode)
+    return base_prompt.rstrip() + "\n\n" + directive["text"], directive
+
+
+def rollout_snapshot(home: Path) -> dict[str, str]:
+    sessions = home / "sessions"
+    if not sessions.exists():
+        return {}
+    return {
+        str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sessions.rglob("*.jsonl")
+        if path.is_file()
+    }
+
+
+def _rollout_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="strict").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise LiveEvaluationError(f"rollout is not valid JSONL: {path}") from error
+        if not isinstance(row, dict):
+            raise LiveEvaluationError(f"rollout row is not an object: {path}")
+        rows.append(row)
+    return rows
+
+
+def _final_rollout_usage(rows: Sequence[dict[str, Any]], path: Path) -> dict[str, int]:
+    usages = [
+        row.get("payload", {}).get("info", {}).get("total_token_usage")
+        for row in rows
+        if row.get("type") == "event_msg"
+        and row.get("payload", {}).get("type") == "token_count"
+    ]
+    usage = usages[-1] if usages else None
+    if not isinstance(usage, dict) or any(
+        not isinstance(usage.get(field), int) or usage[field] < 0
+        for field in ("input_tokens", "cached_input_tokens", "output_tokens")
+    ):
+        raise LiveEvaluationError(f"rollout lacks final provider usage: {path}")
+    return {
+        "input_tokens": usage["input_tokens"],
+        "cached_input_tokens": usage["cached_input_tokens"],
+        "output_tokens": usage["output_tokens"],
+    }
+
+
+def parse_new_rollouts(
+    home: Path, before: Mapping[str, str], parent_thread_id: str
+) -> dict[str, Any]:
+    after = rollout_snapshot(home)
+    modified = [path for path, digest in before.items() if after.get(path) != digest]
+    if modified:
+        raise LiveEvaluationError("pre-existing rollout files changed during session")
+    new_paths = [Path(path) for path in after if path not in before]
+    documents: list[dict[str, Any]] = []
+    for path in new_paths:
+        rows = _rollout_rows(path)
+        if (
+            not rows
+            or rows[0].get("type") != "session_meta"
+            or not isinstance(rows[0].get("payload"), dict)
+        ):
+            raise LiveEvaluationError(f"rollout lacks an initial session_meta: {path}")
+        # A child created with fork_turns may contain inherited parent metadata later.
+        # The first row is the file owner's host-written identity.
+        meta = rows[0]["payload"]
+        documents.append({"path": path, "rows": rows, "meta": meta})
+    parents = [
+        item
+        for item in documents
+        if (item["meta"].get("id") or item["meta"].get("session_id"))
+        == parent_thread_id
+    ]
+    if len(parents) != 1:
+        raise LiveEvaluationError(
+            "new rollouts lack exactly one matching parent thread"
+        )
+    parent = parents[0]
+    parent_rows = parent["rows"]
+    spawn_calls: dict[str, str] = {}
+    wait_completed = False
+    activities: dict[str, dict[str, Any]] = {}
+    for row in parent_rows:
+        payload = row.get("payload", {})
+        if (
+            row.get("type") == "response_item"
+            and payload.get("type") == "function_call"
+        ):
+            if payload.get("name") == "spawn_agent":
+                try:
+                    args = json.loads(payload.get("arguments", ""))
+                except json.JSONDecodeError as error:
+                    raise LiveEvaluationError(
+                        "spawn_agent arguments are invalid"
+                    ) from error
+                task_name = args.get("task_name") if isinstance(args, dict) else None
+                call_id = payload.get("call_id")
+                if (
+                    not isinstance(task_name, str)
+                    or not task_name
+                    or not isinstance(call_id, str)
+                ):
+                    raise LiveEvaluationError("spawn_agent lacks observable task_name")
+                spawn_calls[call_id] = task_name
+            elif payload.get("name") == "wait_agent":
+                call_id = payload.get("call_id")
+                outputs = [
+                    nested.get("payload", {})
+                    for nested in parent_rows
+                    if nested.get("type") == "response_item"
+                    and nested.get("payload", {}).get("type") == "function_call_output"
+                    and nested.get("payload", {}).get("call_id") == call_id
+                ]
+                wait_completed = wait_completed or any(
+                    '"timed_out":false'
+                    in str(output.get("output", "")).replace(" ", "").lower()
+                    for output in outputs
+                )
+        if (
+            row.get("type") == "event_msg"
+            and payload.get("type") == "sub_agent_activity"
+        ):
+            if payload.get("kind") == "started" and isinstance(
+                payload.get("event_id"), str
+            ):
+                activities[payload["event_id"]] = payload
+    if set(spawn_calls) != set(activities):
+        raise LiveEvaluationError("spawn calls do not match host sub-agent activity")
+    children_by_id = {
+        item["meta"].get("id") or item["meta"].get("session_id"): item
+        for item in documents
+        if item is not parent
+    }
+    lifecycle: list[dict[str, Any]] = []
+    for call_id, task_name in spawn_calls.items():
+        activity = activities[call_id]
+        child_id = activity.get("agent_thread_id")
+        child = children_by_id.get(child_id)
+        if child is None:
+            raise LiveEvaluationError("spawned child rollout is missing")
+        meta = child["meta"]
+        source = meta.get("source")
+        spawn = (
+            source.get("subagent", {}).get("thread_spawn", {})
+            if isinstance(source, dict)
+            else {}
+        )
+        if (
+            meta.get("parent_thread_id") != parent_thread_id
+            or spawn.get("parent_thread_id") != parent_thread_id
+            or spawn.get("depth") != 1
+            or meta.get("thread_source") != "subagent"
+        ):
+            raise LiveEvaluationError(
+                "child rollout is not linked to the parent thread"
+            )
+        has_result = any(
+            row.get("type") == "event_msg"
+            and row.get("payload", {}).get("type") == "agent_message"
+            for row in child["rows"]
+        )
+        lifecycle.append(
+            {
+                "assignment_id": None,
+                "task_name": task_name,
+                "actor_id": child_id,
+                "role": None,
+                "parent_id": parent_thread_id,
+                "delegation_depth": 1,
+                "phases": ["spawned"]
+                + (["joined"] if wait_completed else [])
+                + (["result"] if has_result else []),
+                "usage": _final_rollout_usage(child["rows"], child["path"]),
+                "binding_provenance": "persistent-rollout-v3",
+                "rollout_sha256": hashlib.sha256(
+                    child["path"].read_bytes()
+                ).hexdigest(),
+            }
+        )
+    unrelated_children = [
+        item
+        for child_id, item in children_by_id.items()
+        if child_id not in {x["actor_id"] for x in lifecycle}
+    ]
+    if unrelated_children:
+        raise LiveEvaluationError(
+            "new child rollout is not linked to an observed spawn"
+        )
+    parent_usage = _final_rollout_usage(parent_rows, parent["path"])
+    aggregate = {
+        field: parent_usage[field] + sum(item["usage"][field] for item in lifecycle)
+        for field in ("input_tokens", "cached_input_tokens", "output_tokens")
+    }
+    return {
+        "schema_version": 3,
+        "source": "persistent-rollouts",
+        "parent_thread_id": parent_thread_id,
+        "parent_rollout_sha256": hashlib.sha256(
+            parent["path"].read_bytes()
+        ).hexdigest(),
+        "lifecycle": lifecycle,
+        "parent_usage": parent_usage,
+        "aggregate_usage": aggregate,
+        "new_rollout_count": len(new_paths),
+    }
+
+
 def load_controller_protocol(path: Path) -> dict[str, str]:
     """Validate and fingerprint the frozen controller-specific experiment contract."""
     resolved = _resolved(path)
@@ -56,8 +297,10 @@ def load_controller_protocol(path: Path) -> dict[str, str]:
         payload = json.loads(resolved.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise LiveEvaluationError("controller protocol is not valid JSON") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
-        raise LiveEvaluationError("controller protocol must use schema_version 1 or 2")
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2, 3}:
+        raise LiveEvaluationError(
+            "controller protocol must use schema_version 1, 2, or 3"
+        )
     comparison = payload.get("comparison")
     design = payload.get("design")
     rounds = design.get("rounds") if isinstance(design, dict) else None
@@ -676,13 +919,18 @@ def _execution_semantics(
         binding = {
             "assignment_id": item["assignment_id"],
             "actor_id": observed.get("actor_id"),
-            "role": observed.get("role"),
+            "role_observed": observed.get("role"),
             "parent_id": observed.get("parent_id"),
             "delegation_depth": observed.get("delegation_depth"),
+            "task_name": observed.get("task_name"),
+            "binding_provenance": observed.get("binding_provenance"),
         }
         bindings.append(binding)
         if (
-            binding["role"] != item["role"]
+            (
+                binding["role_observed"] is not None
+                and binding["role_observed"] != item["role"]
+            )
             or not isinstance(binding["actor_id"], str)
             or not binding["actor_id"]
             or not isinstance(binding["parent_id"], str)
@@ -724,6 +972,38 @@ def _execution_semantics(
     return planned, bindings, bool(valid)
 
 
+def _normalized_task_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+
+
+def _bind_rollout_assignments(
+    observed_plan: dict[str, Any] | None, lifecycle: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    bound = [dict(item) for item in lifecycle]
+    if observed_plan is None:
+        return bound
+    aliases: dict[str, str] = {}
+    for wave in observed_plan.get("waves", []):
+        if not isinstance(wave, dict):
+            continue
+        for assignment in wave.get("assignments", []):
+            if not isinstance(assignment, dict):
+                continue
+            assignment_id = assignment.get("assignment_id")
+            for alias in (assignment.get("id"), assignment_id):
+                if isinstance(alias, str) and isinstance(assignment_id, str):
+                    normalized = _normalized_task_name(alias)
+                    if normalized in aliases and aliases[normalized] != assignment_id:
+                        aliases[normalized] = ""
+                    else:
+                        aliases[normalized] = assignment_id
+    for item in bound:
+        task_name = item.get("task_name")
+        if isinstance(task_name, str):
+            item["assignment_id"] = aliases.get(_normalized_task_name(task_name))
+    return bound
+
+
 def classify_agent_decision(
     parsed: dict[str, Any], controller_mode: str
 ) -> dict[str, Any]:
@@ -739,7 +1019,9 @@ def classify_agent_decision(
         if observed_plan
         else ("solo" if implicit_solo else None)
     )
-    lifecycle = parsed.get("agent_lifecycle", [])
+    lifecycle = _bind_rollout_assignments(
+        observed_plan, parsed.get("agent_lifecycle", [])
+    )
     planned, lifecycle_bindings, semantic_binding = _execution_semantics(
         observed_plan, lifecycle
     )
@@ -808,7 +1090,7 @@ def classify_agent_decision(
         else None
     )
     execution_receipt = {
-        "schema_version": 2,
+        "schema_version": 3,
         "plan_sha256": plan_sha256,
         "selected_mode": selected_mode,
         "executed_mode": executed_mode,
@@ -1214,11 +1496,13 @@ def _run_one(
     environment["COGNITIVE_POWERS_CONTROLLER_MODE"] = controller_mode
     environment["COGNITIVE_POWERS_DATA"] = str(storage_dir)
     environment["COGNITIVE_POWERS_AVAILABLE_AGENT_SLOTS"] = str(agent_slots)
+    effective_prompt, directive = compose_controller_prompt(prompt, controller_mode)
+    rollouts_before = rollout_snapshot(home)
     command = build_codex_command(
         codex=codex,
         fixture=fixture,
         message=message,
-        prompt=prompt,
+        prompt=effective_prompt,
         model=model,
         reasoning_effort=reasoning_effort,
         bypass_sandbox=bypass_sandbox,
@@ -1244,6 +1528,22 @@ def _run_one(
             ) from error
     elapsed = time.monotonic() - started
     parsed = parse_events(events)
+    rollout_telemetry = parse_new_rollouts(
+        home, rollouts_before, parsed["parent_thread_id"]
+    )
+    parsed["agent_lifecycle"] = rollout_telemetry["lifecycle"]
+    parsed["observed_assignments"] = [
+        {
+            "assignment_id": item.get("assignment_id"),
+            "actor_id": item["actor_id"],
+            "role": item.get("role"),
+            "task_name": item["task_name"],
+            "provenance": item["binding_provenance"],
+        }
+        for item in rollout_telemetry["lifecycle"]
+    ]
+    parsed["usage"] = rollout_telemetry["aggregate_usage"]
+    parsed["usage_includes_subagents"] = bool(rollout_telemetry["lifecycle"])
     if not message.is_file() or not message.read_text(encoding="utf-8").strip():
         raise LiveEvaluationError(f"missing final message for {artifact_prefix.name}")
     before_path = Path(f"{artifact_prefix}-initial-hashes.json")
@@ -1327,6 +1627,12 @@ def _run_one(
     critical.extend(quality["critical_errors"])
     usage = parsed["usage"]
     decision = classify_agent_decision(parsed, controller_mode)
+    if not decision["complete"]:
+        critical.append(
+            "agent execution telemetry is incomplete or violates controller mode"
+        )
+    if decision["executed_mode"] == "parallel-read-only" and changed:
+        critical.append("read-only delegation changed the workspace")
     return {
         "success": not critical,
         "critical_errors": critical,
@@ -1349,9 +1655,14 @@ def _run_one(
             name in {"followup_task", "send_message"} for name in parsed["tool_names"]
         ),
         "controller_mode": controller_mode,
+        "base_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "controller_directive": {
+            key: directive[key]
+            for key in ("version", "mode", "template_sha256", "mode_sha256")
+        },
         "agent_telemetry": {
-            "schema_version": 2,
-            "source": "provider-event-stream",
+            "schema_version": 3,
+            "source": "persistent-rollouts+provider-event-stream",
             "controller_mode": controller_mode,
             "tool_names": parsed["tool_names"],
             "events": parsed["agent_events"],
@@ -1370,7 +1681,9 @@ def _run_one(
                 decision["agent_execution_receipt"]["result_assignment_ids"]
             ),
             "plan_receipts": parsed["agent_plans"],
-            "observed_assignments": parsed["observed_assignments"],
+            "observed_assignments": decision["agent_execution_receipt"][
+                "lifecycle_bindings"
+            ],
             "selected_mode": decision["selected_mode"],
             "executed_mode": decision["executed_mode"],
             "outcome": decision["outcome"],
@@ -1382,6 +1695,15 @@ def _run_one(
                 or parsed["usage_includes_subagents"]
             ),
             "agent_execution_receipt": decision["agent_execution_receipt"],
+            "rollout_telemetry": rollout_telemetry,
+            "workspace_change_check": {
+                "changed_paths": changed,
+                "allowed_paths": list(allowed_changes),
+                "read_only_unchanged": (
+                    decision["executed_mode"] != "parallel-read-only" or not changed
+                ),
+                "provenance": "pre-evaluator-tree-diff",
+            },
             "complete": decision["complete"],
         },
         "pre_evaluation_diff_sha256": source_sha256(
@@ -1541,6 +1863,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "available_tools": sorted(set(args.available_tool)),
             "agent_slots": args.agent_slots,
             "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
+            "controller_directive_version": CONTROLLER_DIRECTIVE_VERSION,
+            "controller_directive_template_sha256": controller_directive("forced-solo")[
+                "template_sha256"
+            ],
+            "controller_directive_mode_sha256": {
+                mode: controller_directive(mode)["mode_sha256"]
+                for mode in sorted(CONTROLLER_MODES)
+            },
             "host_identity_sha256": hashlib.sha256(
                 json.dumps(
                     host_identity, sort_keys=True, separators=(",", ":")
@@ -1708,6 +2038,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "tool_calls": result["tool_calls"],
                         "retries": result["retries"],
                         "agent_telemetry": result["agent_telemetry"],
+                        "base_prompt_sha256": result["base_prompt_sha256"],
+                        "controller_directive": result["controller_directive"],
                         "host_identity": host_identity,
                         "hidden_check_sha256": hidden_identity["sha256"],
                         "quality_check_sha256": quality_identity["sha256"],

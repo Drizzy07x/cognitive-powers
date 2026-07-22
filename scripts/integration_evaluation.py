@@ -122,12 +122,17 @@ EXPECTED_REQUIRED_ARTIFACTS = {
 EXPECTED_TELEMETRY_FIELDS = {
     "agent_plan_input",
     "agent_plan_output",
+    "rollout_snapshot_before",
+    "parent_rollout_sha256",
+    "child_rollout_sha256s",
     "observed_agents",
-    "parent_ids",
-    "roles",
+    "observed_task_names",
+    "observed_parent_ids",
+    "observed_depths",
+    "planned_roles",
     "waves",
-    "ownership",
-    "permissions",
+    "planned_ownership",
+    "planned_permissions",
     "joins",
     "retries",
     "verifier_identity",
@@ -149,6 +154,8 @@ EXPECTED_IDENTITY_FIELDS = {
     "model",
     "reasoning_effort",
     "prompt_sha256",
+    "controller_directive_template_sha256",
+    "controller_directive_mode_sha256",
     "tools_sha256",
     "permissions_sha256",
     "instructions_sha256",
@@ -172,8 +179,8 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
         payload = json.loads(raw)
     except (OSError, json.JSONDecodeError) as error:
         raise EvaluationError("controller protocol cannot be loaded") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
-        raise EvaluationError("controller protocol must use schema_version 1 or 2")
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2, 3}:
+        raise EvaluationError("controller protocol must use schema_version 1, 2, or 3")
     protocol_schema = payload["schema_version"]
     comparison = payload.get("comparison")
     design = payload.get("design")
@@ -276,6 +283,7 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
                 or execution_state.get("fixture_lock_sha256") is not None
             )
         )
+        or (protocol_schema == 3 and execution_state.get("sessions_completed") != 0)
         or execution_state.get("sessions_completed") != 0
         or execution_state.get("results_available") is not False
         or execution_state.get("provider_evidence_available") is not False
@@ -1030,7 +1038,7 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                 raise EvaluationError(
                     "agent_telemetry.observed_assignments must be a list"
                 )
-            normalized_observations: list[dict[str, str]] = []
+            normalized_observations: list[dict[str, Any]] = []
             for index, observation in enumerate(observations):
                 normalized_observations.append(
                     {
@@ -1042,16 +1050,21 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                             observation.get("actor_id"),
                             f"agent_telemetry.observed_assignments[{index}].actor_id",
                         ),
-                        "role": _string(
-                            observation.get("role"),
-                            f"agent_telemetry.observed_assignments[{index}].role",
+                        "role_observed": observation.get(
+                            "role_observed", observation.get("role")
                         ),
+                        "parent_id": observation.get("parent_id"),
+                        "delegation_depth": observation.get("delegation_depth"),
+                        "task_name": observation.get("task_name"),
+                        "binding_provenance": observation.get("binding_provenance"),
                     }
                 )
             result["agent_telemetry"]["observed_assignments"] = normalized_observations
             result["agent_execution_claim_eligible"] = False
             execution = telemetry.get("agent_execution_receipt")
-            if telemetry.get("schema_version") == 2 and isinstance(execution, dict):
+            if telemetry.get("schema_version") in {2, 3} and isinstance(
+                execution, dict
+            ):
                 selected_mode = _string(
                     execution.get("selected_mode"),
                     "agent_execution_receipt.selected_mode",
@@ -1109,7 +1122,11 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                         and set(expected) == set(planned_ids) == set(observed)
                         and len(actor_ids) == len(set(actor_ids))
                         and all(
-                            observed[assignment_id].get("role") == item.get("role")
+                            (
+                                observed[assignment_id].get("role_observed") is None
+                                or observed[assignment_id].get("role_observed")
+                                == item.get("role")
+                            )
                             and observed[assignment_id].get("delegation_depth")
                             == item.get("delegation_depth")
                             and isinstance(
@@ -1121,6 +1138,15 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                     )
                 parent_thread_id = execution.get("parent_thread_id")
                 host_identity = value.get("host_identity")
+                workspace_check = telemetry.get("workspace_change_check")
+                workspace_valid = (
+                    isinstance(workspace_check, dict)
+                    and workspace_check.get("provenance") == "pre-evaluator-tree-diff"
+                    and (
+                        executed_mode != "parallel-read-only"
+                        or workspace_check.get("read_only_unchanged") is True
+                    )
+                )
                 host_valid = (
                     isinstance(host_identity, dict)
                     and isinstance(host_identity.get("version"), str)
@@ -1131,7 +1157,7 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                 )
                 result["host_identity"] = host_identity if host_valid else None
                 result["agent_execution_claim_eligible"] = bool(
-                    execution.get("schema_version") == 2
+                    execution.get("schema_version") == 3
                     and execution.get("complete") is True
                     and execution.get("outcome") == "completed"
                     and selected_mode == executed_mode
@@ -1141,6 +1167,7 @@ def normalize_receipt(value: object) -> dict[str, Any]:
                     and isinstance(parent_thread_id, str)
                     and bool(parent_thread_id)
                     and host_valid
+                    and workspace_valid
                 )
         if result["live_execution"]:
             missing = [
@@ -1310,7 +1337,10 @@ def _agent_plan_compliant(
     if (
         actual_mode not in AGENT_PLAN_MODES
         or not isinstance(spawns, int)
-        or telemetry.get("usage_includes_subagents") is not True
+        or (
+            actual_mode != "solo"
+            and telemetry.get("usage_includes_subagents") is not True
+        )
     ):
         return False
     if expected_mode is not None and actual_mode != expected_mode:
@@ -1363,13 +1393,16 @@ def _agent_plan_compliant(
             return False
         assignment_id = item.get("assignment_id")
         actor_id = item.get("actor_id")
-        role = item.get("role")
+        role = item.get("role_observed", item.get("role"))
         if (
             not isinstance(assignment_id, str)
             or assignment_id in observed_by_assignment
             or not isinstance(actor_id, str)
             or not actor_id
-            or not isinstance(role, str)
+            or (
+                role is None
+                and item.get("binding_provenance") != "persistent-rollout-v3"
+            )
         ):
             return False
         observed_by_assignment[assignment_id] = item
@@ -1384,7 +1417,11 @@ def _agent_plan_compliant(
     if verifier_actors & executor_actors:
         return False
     for identifier, assignment in zip(identifiers, assignments, strict=True):
-        if observed_by_assignment[identifier]["role"] != assignment.get("role"):
+        if observed_by_assignment[identifier].get(
+            "role_observed", observed_by_assignment[identifier].get("role")
+        ) is not None and observed_by_assignment[identifier].get(
+            "role_observed", observed_by_assignment[identifier].get("role")
+        ) != assignment.get("role"):
             return False
     owned: list[tuple[str, str]] = []
     for identifier, item in zip(identifiers, assignments, strict=True):

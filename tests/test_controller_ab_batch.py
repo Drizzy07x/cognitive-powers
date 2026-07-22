@@ -125,12 +125,12 @@ class ControllerAbBatchTests(unittest.TestCase):
             ):
                 case_id = f"{task_id}-rep{repetition}"
                 telemetry = {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "complete": True,
                     "controller_mode": mode,
                     "actual_mode": "solo",
                     "agent_execution_receipt": {
-                        "schema_version": 2,
+                        "schema_version": 3,
                         "complete": True,
                         "selected_mode": "solo",
                         "executed_mode": "solo",
@@ -143,6 +143,12 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "joined_assignment_ids": [],
                         "result_assignment_ids": [],
                         "descendant_usage": {},
+                    },
+                    "workspace_change_check": {
+                        "changed_paths": [],
+                        "allowed_paths": ["src/a.py"],
+                        "read_only_unchanged": True,
+                        "provenance": "pre-evaluator-tree-diff",
                     },
                 }
                 receipts.append(
@@ -372,6 +378,32 @@ class ControllerAbBatchTests(unittest.TestCase):
             batch.validate_confirmatory_schema_binding(
                 legacy, {"schema_version": 3}, {"schema_version": 2}
             )
+
+    def test_incomplete_receipt_closes_invalid_bundle_with_sha256_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            (output / "frozen-manifest.json").write_text("{}\n", encoding="utf-8")
+            (output / "randomized-schedule.json").write_text("{}\n", encoding="utf-8")
+            (output / "session-receipts.jsonl").write_text(
+                '{"agent_telemetry":{"complete":false}}\n', encoding="utf-8"
+            )
+            (output / "batch-journal.jsonl").write_text(
+                '{"job_id":"pilot-a","state":"started"}\n', encoding="utf-8"
+            )
+            status = batch.materialize_invalid_bundle(
+                output, "runner receipt lacks telemetry"
+            )
+            self.assertEqual(status["verdict"], "invalid")
+            self.assertEqual(status["attempted_session_count"], 2)
+            verdict = json.loads(
+                (output / "independent-verdict.json").read_text(encoding="utf-8")
+            )
+            index = json.loads(
+                (output / "sha256-index.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(verdict["verdict"], "invalid")
+            self.assertEqual(index["verdict"], "invalid")
+            self.assertIn("session-receipts.jsonl", index["artifacts"])
 
 
 if __name__ == "__main__":

@@ -200,14 +200,14 @@ def _load_json(path: Path, label: str) -> Any:
 
 def load_config(path: Path) -> dict[str, Any]:
     value = _load_json(path.resolve(), "batch config")
-    if not isinstance(value, dict) or value.get("schema_version") not in {1, 2}:
-        raise BatchError("batch config must use schema_version 1 or 2")
-    if value["schema_version"] == 2 and value.get("round_name") not in {
+    if not isinstance(value, dict) or value.get("schema_version") not in {1, 2, 3}:
+        raise BatchError("batch config must use schema_version 1, 2, or 3")
+    if value["schema_version"] in {2, 3} and value.get("round_name") not in {
         "pilot",
         "promotion",
     }:
         raise BatchError("batch config v2 requires round_name")
-    value["claim_eligible"] = value["schema_version"] == 2
+    value["claim_eligible"] = value["schema_version"] == 3
     required = {
         "task_contract",
         "controller_protocol",
@@ -295,14 +295,14 @@ def validate_confirmatory_schema_binding(
     task_contract: Mapping[str, Any],
     controller_protocol: Mapping[str, Any],
 ) -> bool:
-    """Keep v1 readable while preventing it from entering the v2 confirmatory path."""
+    """Keep v1 readable while preventing it from entering a confirmatory path."""
     claim_eligible = config.get("claim_eligible") is True
     if not claim_eligible and (
         task_contract.get("schema_version") == 3
-        or controller_protocol.get("schema_version") == 2
+        or controller_protocol.get("schema_version") in {2, 3}
     ):
         raise BatchError(
-            "batch config schema v1 is not claim-eligible for protocol v2 or task contract v3"
+            "batch config schema v1 is not claim-eligible for protocol v2/v3 or task contract v3"
         )
     return claim_eligible
 
@@ -432,7 +432,10 @@ def _validate_execution_semantics(execution: Mapping[str, Any]) -> None:
                 or depth < 1
                 or item.get("may_spawn") is not False
                 or item.get("may_verify_parent") is not False
-                or binding.get("role") != role
+                or (
+                    binding.get("role_observed") is not None
+                    and binding.get("role_observed") != role
+                )
                 or binding.get("delegation_depth") != depth
                 or not isinstance(binding.get("parent_id"), str)
                 or not binding["parent_id"]
@@ -526,16 +529,23 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(telemetry, dict)
             else None
         )
+        workspace_check = (
+            telemetry.get("workspace_change_check")
+            if isinstance(telemetry, dict)
+            else None
+        )
         if (
             receipt.get("controller_protocol_sha256") is None
             or receipt.get("experiment_sha256") is None
             or not isinstance(telemetry, dict)
-            or telemetry.get("schema_version") != 2
+            or telemetry.get("schema_version") != 3
             or telemetry.get("complete") is not True
             or receipt.get("host_identity") != frozen_host
             or not isinstance(execution, dict)
-            or execution.get("schema_version") != 2
+            or execution.get("schema_version") != 3
             or execution.get("complete") is not True
+            or not isinstance(workspace_check, dict)
+            or workspace_check.get("provenance") != "pre-evaluator-tree-diff"
         ):
             raise BatchError(
                 f"runner receipt lacks identity or telemetry for {job['job_id']}"
@@ -568,6 +578,11 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
             raise BatchError(f"runner execution degraded for {job['job_id']}")
         if execution.get("outcome") != "completed":
             raise BatchError(f"runner execution did not complete for {job['job_id']}")
+        if (
+            execution.get("executed_mode") == "parallel-read-only"
+            and workspace_check.get("read_only_unchanged") is not True
+        ):
+            raise BatchError(f"read-only delegation changed files for {job['job_id']}")
         _validate_execution_semantics(execution)
     hashes = {
         name: file_sha256(path / name)
@@ -668,6 +683,55 @@ def materialize_coordinator_index(output: Path) -> dict[str, Any]:
     return index
 
 
+def materialize_invalid_bundle(output: Path, reason: str) -> dict[str, Any]:
+    """Close an instrumentally invalid experiment with hash-verifiable artifacts."""
+    journal = output / "batch-journal.jsonl"
+    attempted: list[str] = []
+    if journal.is_file():
+        for line in journal.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("state") == "started" and isinstance(row.get("job_id"), str):
+                attempted.append(row["job_id"])
+    verdict = {
+        "schema_version": 3,
+        "verdict": "invalid",
+        "reason": reason,
+        "attempted_job_ids": sorted(set(attempted)),
+        "attempted_session_count": len(set(attempted)) * 2,
+        "independent": False,
+    }
+    _write_json(output / "independent-verdict.json", verdict)
+    _write_json(
+        output / "analysis-with-ci95.json",
+        {"schema_version": 3, "verdict": "invalid", "reason": reason},
+    )
+    status = {
+        "schema_version": 3,
+        "complete": False,
+        "verdict": "invalid",
+        "reason": reason,
+        "attempted_job_ids": verdict["attempted_job_ids"],
+        "attempted_session_count": verdict["attempted_session_count"],
+    }
+    _write_json(output / "batch-status.json", status)
+    artifacts = {
+        path.relative_to(output).as_posix(): file_sha256(path)
+        for path in sorted(output.rglob("*"))
+        if path.is_file() and path.name != "sha256-index.json"
+    }
+    index_payload = {
+        "schema_version": 3,
+        "verdict": "invalid",
+        "artifacts": artifacts,
+    }
+    index = {**index_payload, "sha256": canonical_sha256(index_payload)}
+    _write_json(output / "sha256-index.json", index)
+    return {**status, "sha256_index": index["sha256"]}
+
+
 def runner_command(
     python: str,
     runner: Path,
@@ -747,7 +811,7 @@ def run_batch(
     protocol = load_controller_protocol(Path(config["controller_protocol"]))
     expected_tasks = (
         set(contract["rounds"][config["round_name"]]["task_ids"])
-        if config["schema_version"] == 2
+        if config["schema_version"] in {2, 3}
         else set(contract["tasks"])
     )
     if set(config["tasks"]) != expected_tasks:
@@ -782,19 +846,27 @@ def run_batch(
     states = read_journal(journal, known_jobs)
     ambiguous = [job_id for job_id, state in states.items() if state != "completed"]
     if ambiguous:
-        raise BatchError(
+        error = BatchError(
             "batch contains an unfinished or failed provider job; refusing duplicate: "
             + ", ".join(sorted(ambiguous))
         )
+        materialize_invalid_bundle(output, str(error))
+        raise error
     completed = set(states)
     for job in jobs:
         job_id = job["job_id"]
         destination = output / "sessions" / job_id
         if job_id in completed:
-            validate_job_output(destination, job)
+            try:
+                validate_job_output(destination, job)
+            except BatchError as error:
+                materialize_invalid_bundle(output, str(error))
+                raise
             continue
         if destination.exists():
-            raise BatchError(f"untracked runner output exists for {job_id}")
+            error = BatchError(f"untracked runner output exists for {job_id}")
+            materialize_invalid_bundle(output, str(error))
+            raise error
         _append_journal(journal, {"job_id": job_id, "state": "started"})
         command = runner_command(
             sys.executable,
@@ -814,10 +886,20 @@ def run_batch(
                 journal,
                 {"job_id": job_id, "state": "failed", "exit_code": result.returncode},
             )
-            raise BatchError(
+            error = BatchError(
                 f"runner failed closed for {job_id}: exit {result.returncode}"
             )
-        validated = validate_job_output(destination, job)
+            materialize_invalid_bundle(output, str(error))
+            raise error
+        try:
+            validated = validate_job_output(destination, job)
+        except BatchError as error:
+            _append_journal(
+                journal,
+                {"job_id": job_id, "state": "failed", "reason": str(error)},
+            )
+            materialize_invalid_bundle(output, str(error))
+            raise
         _append_journal(
             journal,
             {
@@ -828,22 +910,30 @@ def run_batch(
             },
         )
         completed.add(job_id)
+        try:
+            materialize(output, jobs, completed)
+        except (BatchError, ValueError, OSError) as error:
+            materialize_invalid_bundle(output, str(error))
+            raise
+    try:
         materialize(output, jobs, completed)
-    materialize(output, jobs, completed)
-    analysis = compare(
-        json.loads(
-            "["
-            + ",".join(
-                (output / "session-receipts.jsonl")
-                .read_text(encoding="utf-8")
-                .splitlines()
-            )
-            + "]"
-        ),
-        minimum_live_pairs=1,
-        task_contract=contract_raw,
-        controller_protocol=protocol,
-    )
+        analysis = compare(
+            json.loads(
+                "["
+                + ",".join(
+                    (output / "session-receipts.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                )
+                + "]"
+            ),
+            minimum_live_pairs=1,
+            task_contract=contract_raw,
+            controller_protocol=protocol,
+        )
+    except (BatchError, ValueError, OSError, json.JSONDecodeError) as error:
+        materialize_invalid_bundle(output, str(error))
+        raise
     _write_json(output / "analysis-with-ci95.json", analysis)
     status = {
         "schema_version": 1,

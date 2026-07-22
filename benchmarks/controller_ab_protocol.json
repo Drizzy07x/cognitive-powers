@@ -1,19 +1,31 @@
 {
-  "schema_version": 2,
-  "protocol_id": "cognitive-powers-controller-ab-v2",
-  "supersedes_protocol_id": "cognitive-powers-controller-ab-v1",
+  "schema_version": 3,
+  "protocol_id": "cognitive-powers-controller-ab-v3",
+  "supersedes_protocol_id": "cognitive-powers-controller-ab-v2",
   "status": "planned",
   "claim_status": "not-proven",
   "contains_fixture_definitions": false,
   "contains_execution_results": false,
   "contains_provider_evidence": false,
-  "previous_protocol_evidence": {
-    "protocol_id": "cognitive-powers-controller-ab-v1",
-    "verdict": "invalid",
-    "immutable_preflight_sessions": 8,
-    "sha256_index": "31509c6aaf2e664596fd2910e9fc8b2f64663728dc9c3f3817a40a56ab534ef9",
-    "reusable_for_v2_claims": false
-  },
+  "previous_protocol_evidence": [
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v1",
+      "verdict": "invalid",
+      "immutable_preflight_sessions": 8,
+      "sha256_index": "31509c6aaf2e664596fd2910e9fc8b2f64663728dc9c3f3817a40a56ab534ef9",
+      "reusable_for_v3_claims": false
+    },
+    {
+      "protocol_id": "cognitive-powers-controller-ab-v2",
+      "verdict": "invalid",
+      "preflight_sessions_attempted": 4,
+      "preflight_sessions_required": 8,
+      "failure": "codex exec JSON omitted host-backed child lifecycle and controller_mode did not yet apply an observable treatment",
+      "sha256_index": null,
+      "index_absent_reason": "the v2 batch aborted before its invalid-path artifact index was implemented",
+      "reusable_for_v3_claims": false
+    }
+  ],
   "comparison": {
     "design": "paired-provider-backed",
     "control_arm": {
@@ -32,7 +44,8 @@
       "codex_cli_identity",
       "model",
       "reasoning_effort",
-      "prompt",
+      "base_prompt",
+      "controller_directive_template",
       "tools",
       "permissions",
       "available_agent_slots",
@@ -102,7 +115,7 @@
       "level": 0.95,
       "method": "paired-stratified-bootstrap-by-fixture",
       "resamples": 10000,
-      "seed": "controller-ab-bootstrap-v2"
+      "seed": "controller-ab-bootstrap-v3"
     }
   },
   "promotion_gates": [
@@ -213,7 +226,7 @@
         "descendant_tokens_observed",
         "available_agent_slots",
         "codex_cli_sha256",
-        "event_schema_version"
+        "persistent_rollout_schema_version"
       ],
       "declared_without_observation": "invalid",
       "missing_or_inconsistent": "invalid"
@@ -227,6 +240,8 @@
         "model",
         "reasoning_effort",
         "prompt_sha256",
+        "controller_directive_template_sha256",
+        "controller_directive_mode_sha256",
         "tools_sha256",
         "permissions_sha256",
         "instructions_sha256",
@@ -244,12 +259,17 @@
       "required": [
         "agent_plan_input",
         "agent_plan_output",
+        "rollout_snapshot_before",
+        "parent_rollout_sha256",
+        "child_rollout_sha256s",
         "observed_agents",
-        "parent_ids",
-        "roles",
+        "observed_task_names",
+        "observed_parent_ids",
+        "observed_depths",
+        "planned_roles",
         "waves",
-        "ownership",
-        "permissions",
+        "planned_ownership",
+        "planned_permissions",
         "joins",
         "retries",
         "verifier_identity",
@@ -289,7 +309,7 @@
   "execution_state": {
     "fixtures_created": 0,
     "fixture_lock_sha256": null,
-    "fixture_status": "pending-v2-materialization",
+    "fixture_status": "pending-v3-materialization",
     "sessions_completed": 0,
     "results_available": false,
     "provider_evidence_available": false

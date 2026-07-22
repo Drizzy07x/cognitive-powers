@@ -17,11 +17,224 @@ SPEC.loader.exec_module(runner)
 
 
 class LiveAbRunnerTests(unittest.TestCase):
+    def _write_rollout_pair(
+        self,
+        home: Path,
+        *,
+        task_name: str = "unit_a",
+        child_parent: str = "parent-1",
+        include_child_usage: bool = True,
+    ) -> None:
+        sessions = home / "sessions" / "2026" / "07" / "22"
+        sessions.mkdir(parents=True)
+        parent = [
+            {"type": "session_meta", "payload": {"id": "parent-1", "source": "exec"}},
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "spawn_agent",
+                    "arguments": json.dumps(
+                        {"task_name": task_name, "message": "encrypted"}
+                    ),
+                    "call_id": "spawn-call",
+                },
+            },
+            {
+                "type": "event_msg",
+                "payload": {
+                    "type": "sub_agent_activity",
+                    "event_id": "spawn-call",
+                    "agent_thread_id": "child-1",
+                    "agent_path": f"/root/{task_name}",
+                    "kind": "started",
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "wait_agent",
+                    "arguments": '{"timeout_ms":1000}',
+                    "call_id": "wait-call",
+                },
+            },
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "wait-call",
+                    "output": '{"timed_out":false}',
+                },
+            },
+            {
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": 10,
+                            "cached_input_tokens": 2,
+                            "output_tokens": 3,
+                        }
+                    },
+                },
+            },
+        ]
+        child = [
+            {
+                "type": "session_meta",
+                "payload": {
+                    "id": "child-1",
+                    "parent_thread_id": child_parent,
+                    "thread_source": "subagent",
+                    "agent_path": f"/root/{task_name}",
+                    "source": {
+                        "subagent": {
+                            "thread_spawn": {
+                                "parent_thread_id": child_parent,
+                                "depth": 1,
+                                "agent_path": f"/root/{task_name}",
+                            }
+                        }
+                    },
+                },
+            },
+            {
+                "type": "event_msg",
+                "payload": {"type": "agent_message", "message": "done"},
+            },
+        ]
+        if include_child_usage:
+            child.append(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {
+                                "input_tokens": 5,
+                                "cached_input_tokens": 1,
+                                "output_tokens": 2,
+                            }
+                        },
+                    },
+                }
+            )
+        for name, rows in (("parent.jsonl", parent), ("child.jsonl", child)):
+            (sessions / name).write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+
+    def test_rollout_v3_links_only_new_children_and_aggregates_usage_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_pair(home)
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+            self.assertEqual(parsed["new_rollout_count"], 2)
+            self.assertEqual(parsed["lifecycle"][0]["task_name"], "unit_a")
+            self.assertEqual(
+                parsed["lifecycle"][0]["binding_provenance"], "persistent-rollout-v3"
+            )
+            self.assertEqual(parsed["aggregate_usage"]["input_tokens"], 15)
+            self.assertEqual(parsed["aggregate_usage"]["output_tokens"], 5)
+
+    def test_rollout_v3_rejects_unlinked_child_and_missing_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_pair(home, child_parent="other-parent")
+            with self.assertRaisesRegex(runner.LiveEvaluationError, "not linked"):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_pair(home, include_child_usage=False)
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "final provider usage"
+            ):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+
+    def test_controller_directive_is_observable_and_mode_specific(self) -> None:
+        base = "Do the task"
+        forced, forced_receipt = runner.compose_controller_prompt(base, "forced-solo")
+        adaptive, adaptive_receipt = runner.compose_controller_prompt(base, "adaptive")
+        self.assertTrue(forced.startswith(base))
+        self.assertTrue(adaptive.startswith(base))
+        self.assertEqual(
+            forced_receipt["template_sha256"], adaptive_receipt["template_sha256"]
+        )
+        self.assertNotEqual(
+            forced_receipt["mode_sha256"], adaptive_receipt["mode_sha256"]
+        )
+        self.assertIn("Do not spawn", forced)
+        self.assertIn("consult and execute", adaptive)
+
+    def test_rollout_binding_rejects_wrong_task_name_and_forced_solo_spawn(
+        self,
+    ) -> None:
+        plan = {
+            "mode": "parallel-read-only",
+            "waves": [
+                {
+                    "kind": "read-only-investigation",
+                    "parallel": True,
+                    "assignments": [
+                        {
+                            "id": unit_id,
+                            "assignment_id": assignment_id,
+                            "role": "investigator",
+                            "permissions": "read-only",
+                            "ownership": [],
+                            "dependencies": [],
+                            "delegation_depth": 1,
+                            "may_spawn": False,
+                            "may_verify_parent": False,
+                        }
+                        for unit_id, assignment_id in (
+                            ("unit-a", "a-1"),
+                            ("unit-b", "b-1"),
+                        )
+                    ],
+                }
+            ],
+        }
+        lifecycle = [
+            {
+                "assignment_id": None,
+                "task_name": "wrong_name",
+                "actor_id": "child-1",
+                "role": None,
+                "parent_id": "parent-1",
+                "delegation_depth": 1,
+                "phases": ["spawned", "joined", "result"],
+                "usage": {
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                },
+                "binding_provenance": "persistent-rollout-v3",
+            }
+        ]
+        bound = runner._bind_rollout_assignments(plan, lifecycle)
+        self.assertIsNone(bound[0]["assignment_id"])
+        forced = runner.classify_agent_decision(
+            {
+                "agent_plans": [],
+                "agent_spawns": 1,
+                "agent_joins": 1,
+                "agent_lifecycle": lifecycle,
+                "usage_includes_subagents": True,
+                "parent_thread_id": "parent-1",
+                "host_errors": [],
+            },
+            "forced-solo",
+        )
+        self.assertFalse(forced["complete"])
+
     def test_controller_protocol_is_bound_and_fails_closed_when_changed(self) -> None:
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v2")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v3")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"

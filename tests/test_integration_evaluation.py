@@ -345,7 +345,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
                     "persistent_parent_thread": True,
                 },
                 "agent_telemetry": {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "controller_mode": "forced-solo",
                     "spawn_count": 0,
                     "join_count": 0,
@@ -353,7 +353,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
                     "actual_mode": "solo",
                     "observed_assignments": [],
                     "agent_execution_receipt": {
-                        "schema_version": 2,
+                        "schema_version": 3,
                         "complete": True,
                         "selected_mode": "solo",
                         "executed_mode": "solo",
@@ -367,6 +367,12 @@ class IntegrationEvaluationTests(unittest.TestCase):
                         "joined_assignment_ids": [],
                         "result_assignment_ids": [],
                         "descendant_usage": {},
+                    },
+                    "workspace_change_check": {
+                        "changed_paths": [],
+                        "allowed_paths": [],
+                        "read_only_unchanged": True,
+                        "provenance": "pre-evaluator-tree-diff",
                     },
                 },
             }

@@ -13,6 +13,10 @@ class ControllerAbProtocolTests(unittest.TestCase):
         cls.protocol = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
 
     def test_design_cardinality_is_consistent(self) -> None:
+        self.assertEqual(self.protocol["schema_version"], 3)
+        self.assertEqual(
+            self.protocol["protocol_id"], "cognitive-powers-controller-ab-v3"
+        )
         design = self.protocol["design"]
         self.assertEqual(len(design["modes"]), 4)
         self.assertEqual(len(design["categories"]), 5)
@@ -138,10 +142,13 @@ class ControllerAbProtocolTests(unittest.TestCase):
         self.assertFalse(self.protocol["contains_execution_results"])
         self.assertFalse(self.protocol["contains_provider_evidence"])
         self.assertEqual(self.protocol["verdict"]["current"], None)
+        previous = self.protocol["previous_protocol_evidence"]
+        self.assertEqual([item["verdict"] for item in previous], ["invalid", "invalid"])
+        self.assertTrue(all(not item["reusable_for_v3_claims"] for item in previous))
 
         state = self.protocol["execution_state"]
         self.assertEqual(state["fixtures_created"], 0)
-        self.assertEqual(state["fixture_status"], "pending-v2-materialization")
+        self.assertEqual(state["fixture_status"], "pending-v3-materialization")
         self.assertIsNone(state["fixture_lock_sha256"])
         self.assertEqual(state["sessions_completed"], 0)
         self.assertFalse(state["results_available"])
