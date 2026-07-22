@@ -305,7 +305,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v7")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v8")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -818,6 +818,61 @@ class LiveAbRunnerTests(unittest.TestCase):
         decision = runner.classify_agent_decision(parsed, "adaptive")
         self.assertFalse(decision["complete"])
         self.assertFalse(decision["agent_execution_receipt"]["semantic_binding"])
+
+    def test_staged_verify_accepts_canonical_verifier_only_wave(self) -> None:
+        verifier = {
+            "id": "fresh-verifier",
+            "assignment_id": "assignment-verifier",
+            "role": "verifier",
+            "permissions": "read-only",
+            "ownership": [],
+            "dependencies": [],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+        }
+        parsed = {
+            "agent_plans": [
+                {
+                    "mode": "staged-verify",
+                    "waves": [
+                        {
+                            "kind": "verification",
+                            "parallel": False,
+                            "assignments": [verifier],
+                        }
+                    ],
+                }
+            ],
+            "agent_spawns": 1,
+            "agent_joins": 1,
+            "agent_lifecycle": [
+                {
+                    "assignment_id": "assignment-verifier",
+                    "task_name": "fresh_verifier",
+                    "actor_id": "actor-verifier",
+                    "role": None,
+                    "parent_id": "root-actor",
+                    "delegation_depth": 1,
+                    "phases": ["spawned", "joined", "result"],
+                    "usage": {
+                        "input_tokens": 5,
+                        "cached_input_tokens": 1,
+                        "output_tokens": 2,
+                    },
+                    "binding_provenance": "persistent-rollout-v3",
+                }
+            ],
+            "usage_includes_subagents": True,
+            "parent_thread_id": "root-actor",
+            "host_errors": [],
+        }
+
+        decision = runner.classify_agent_decision(parsed, "adaptive")
+
+        self.assertTrue(decision["complete"])
+        self.assertEqual(decision["executed_mode"], "staged-verify")
+        self.assertTrue(decision["agent_execution_receipt"]["semantic_binding"])
 
     def test_no_thread_host_error_fails_closed(self) -> None:
         parsed = {

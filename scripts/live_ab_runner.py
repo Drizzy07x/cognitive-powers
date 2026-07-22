@@ -1046,9 +1046,17 @@ def _execution_semantics(
         }
         valid = valid and len(write_items) >= 2 and len(implementation_waves) == 1
     elif mode == "staged-verify":
-        valid = (
-            valid
-            and bool(write_items)
+        verifier_only = (
+            len(planned) == 1
+            and len(verifier_items) == 1
+            and verifier_items[0]["wave_kind"] == "verification"
+            and verifier_items[0]["wave_index"] == 0
+            and verifier_items[0]["dependencies"] == []
+            and verifier_items[0]["permissions"] == "read-only"
+            and verifier_items[0]["ownership"] == []
+        )
+        verifier_after_writes = (
+            bool(write_items)
             and len(verifier_items) == 1
             and verifier_items[0]["wave_kind"] == "verification"
             and verifier_items[0]["wave_index"]
@@ -1056,6 +1064,7 @@ def _execution_semantics(
             and set(verifier_items[0]["dependencies"])
             == {item["unit_id"] for item in write_items}
         )
+        valid = valid and (verifier_only or verifier_after_writes)
     elif mode == "solo":
         valid = valid and not planned and not lifecycle
     else:
