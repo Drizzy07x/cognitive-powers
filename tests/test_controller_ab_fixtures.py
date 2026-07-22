@@ -163,6 +163,21 @@ class ControllerABFixtureTests(unittest.TestCase):
                 if "parallel-read-only" in key
             )
             self.assertEqual(read_only["allow_changes"], ["__read_only_no_changes__"])
+            self.assertFalse(config["bypass_sandbox"])
+            unsandboxed = fixtures.build_batch_config(
+                manifest,
+                materialized_root=output,
+                task_contract=EVALUATION_TASKS_PATH,
+                controller_protocol=PLUGIN_ROOT
+                / "benchmarks"
+                / "controller_ab_protocol.json",
+                baseline_home=output / "baseline-home",
+                candidate_home=output / "candidate-home",
+                model="test-model",
+                reasoning_effort="medium",
+                bypass_sandbox=True,
+            )
+            self.assertTrue(unsandboxed["bypass_sandbox"])
 
             first = fixtures.expand_definitions(manifest)[0]
             target = output / first["actor_path"] / "src" / "scenario.txt"

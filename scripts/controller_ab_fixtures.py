@@ -394,6 +394,7 @@ def build_batch_config(
     candidate_home: Path,
     model: str,
     reasoning_effort: str,
+    bypass_sandbox: bool = False,
 ) -> dict[str, Any]:
     report = validate_corpus(manifest, materialized_root)
     if (
@@ -441,7 +442,7 @@ def build_batch_config(
         ],
         "agent_slots": 4,
         "codex": "codex",
-        "bypass_sandbox": False,
+        "bypass_sandbox": bypass_sandbox,
         "tasks": tasks,
     }
 
@@ -727,6 +728,11 @@ def main() -> int:
     batch_parser.add_argument("--candidate-home", type=Path, required=True)
     batch_parser.add_argument("--model", required=True)
     batch_parser.add_argument("--reasoning-effort", required=True)
+    batch_parser.add_argument(
+        "--bypass-sandbox",
+        action="store_true",
+        help="grant both frozen arms identical unsandboxed shell permissions",
+    )
     batch_parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -761,6 +767,7 @@ def main() -> int:
                 candidate_home=args.candidate_home,
                 model=args.model,
                 reasoning_effort=args.reasoning_effort,
+                bypass_sandbox=args.bypass_sandbox,
             )
             args.output.write_text(
                 json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8"
