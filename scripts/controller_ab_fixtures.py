@@ -666,12 +666,48 @@ def build_batch_config(
             "allow_changes": allowed,
             "guard_roots": [str(evaluator.resolve())],
         }
+    source_root = controller_protocol.resolve().parents[1]
+    identity = subprocess.run(
+        ["git", "-C", str(source_root), "rev-parse", "--show-toplevel", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    lines = identity.stdout.splitlines()
+    if identity.returncode != 0 or len(lines) != 2:
+        raise CorpusError("confirmatory source must be a Git checkout")
+    if Path(lines[0]).resolve() != source_root:
+        raise CorpusError("controller protocol must belong to the source Git root")
+    status = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(source_root),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if status.returncode != 0:
+        raise CorpusError("cannot read confirmatory source Git status")
+    source_git = {
+        "head": lines[1].strip().lower(),
+        "status_sha256": hashlib.sha256(status.stdout.encode("utf-8")).hexdigest(),
+    }
+    source_git["sha256"] = hashlib.sha256(
+        json.dumps(source_git, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return {
         "schema_version": 3,
         "round_name": round_name,
         "promotion_content_accessed": round_name == "promotion",
         "task_contract": str(task_contract.resolve()),
         "controller_protocol": str(controller_protocol.resolve()),
+        "source_commit": source_git["head"],
+        "source_git": source_git,
         "baseline_home": str(baseline_home.resolve()),
         "candidate_home": str(candidate_home.resolve()),
         "model": model,

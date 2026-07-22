@@ -1344,6 +1344,7 @@ def _candidate_identity(item: dict[str, Any], candidate_home: Path) -> dict[str,
             "candidate source or installed plugin directory is missing"
         )
     source_hashes = tree_hashes(source_root)
+    source_git = git_identity(source_root, required=True)
     installed_hashes = tree_hashes(installed_root)
     canonical_surface = {
         path: digest
@@ -1381,6 +1382,8 @@ def _candidate_identity(item: dict[str, Any], candidate_home: Path) -> dict[str,
         "installed_sha256": installed_identity,
         "source_file_count": len(source_hashes),
         "file_count": len(installed_hashes),
+        "source_commit": source_git["head"],
+        "source_git": source_git,
     }
 
 
@@ -1414,11 +1417,25 @@ def validate_arm_plugins(
     candidate_identity = _candidate_identity(candidate_cognitive, candidate_home)
     comparable = {
         key: baseline_identity[key]
-        for key in ("version", "source_sha256", "installed_sha256", "file_count")
+        for key in (
+            "version",
+            "source_sha256",
+            "installed_sha256",
+            "file_count",
+            "source_commit",
+            "source_git",
+        )
     }
     if comparable != {
         key: candidate_identity[key]
-        for key in ("version", "source_sha256", "installed_sha256", "file_count")
+        for key in (
+            "version",
+            "source_sha256",
+            "installed_sha256",
+            "file_count",
+            "source_commit",
+            "source_git",
+        )
     }:
         raise LiveEvaluationError("Cognitive Powers differs between experiment arms")
     return {
@@ -1921,6 +1938,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--controller-protocol", type=Path, default=DEFAULT_CONTROLLER_PROTOCOL
     )
+    parser.add_argument("--source-commit")
+    parser.add_argument("--source-git-sha256")
     parser.add_argument("--model", required=True)
     parser.add_argument("--reasoning-effort", required=True)
     parser.add_argument(
@@ -2028,6 +2047,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         plugin_identity = validate_arm_plugins(
             args.codex, baseline_home, candidate_home
         )
+        if binding is not None and (
+            args.source_commit != plugin_identity["source_commit"]
+            or args.source_git_sha256 != plugin_identity["source_git"]["sha256"]
+        ):
+            raise LiveEvaluationError(
+                "frozen source Git identity differs from the installed plugin source"
+            )
         host_identity = codex_host_identity(args.codex)
         guards = protected_roots(args.guard_root, fixture, plugin_identity)
         guard_before = snapshot_guards(guards)
@@ -2042,6 +2068,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "fixture_sha256": fixture_sha,
             "fixture_git_sha256": fixture_git["sha256"] if fixture_git else None,
             "plugin_sha256": plugin_identity["source_sha256"],
+            "source_commit": plugin_identity["source_commit"],
+            "source_git_sha256": plugin_identity["source_git"]["sha256"],
             "hidden_check_sha256": hidden_identity["sha256"],
             "quality_check_sha256": quality_identity["sha256"]
             if quality_identity
@@ -2100,7 +2128,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_plugin_identity = validate_arm_plugins(
                 args.codex, homes["baseline"], homes["candidate"]
             )
-            for field in ("version", "source_sha256", "installed_sha256", "file_count"):
+            for field in (
+                "version",
+                "source_sha256",
+                "installed_sha256",
+                "file_count",
+                "source_commit",
+                "source_git",
+            ):
                 if run_plugin_identity[field] != plugin_identity[field]:
                     raise LiveEvaluationError(
                         f"fresh home plugin identity differs for repetition {repetition}"
@@ -2209,6 +2244,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "repetition": result["repetition"],
                         "source_sha256": result["source_sha256"],
                         "fixture_git_sha256": result["fixture_git_sha256"],
+                        "source_commit": plugin_identity["source_commit"],
+                        "source_git_sha256": plugin_identity["source_git"]["sha256"],
                         "experiment_sha256": result["experiment_sha256"],
                         "pre_evaluation_diff_sha256": result[
                             "pre_evaluation_diff_sha256"
@@ -2253,6 +2290,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "batch_repetition": args.batch_repetition,
             "source_sha256": fixture_sha,
             "fixture_git": fixture_git,
+            "source_commit": plugin_identity["source_commit"],
+            "source_git": plugin_identity["source_git"],
             "experiment_identity": experiment_identity,
             "experiment_sha256": experiment_sha256,
             "controller_modes": controller_modes,

@@ -222,6 +222,25 @@ def load_config(path: Path) -> dict[str, Any]:
     }
     if not required.issubset(value):
         raise BatchError("batch config is incomplete")
+    if value["schema_version"] == 3:
+        source_git = value.get("source_git")
+        if (
+            not isinstance(value.get("source_commit"), str)
+            or len(value["source_commit"]) != 40
+            or not isinstance(source_git, dict)
+            or source_git.get("head") != value["source_commit"]
+            or not isinstance(source_git.get("status_sha256"), str)
+            or source_git.get("status_sha256") != hashlib.sha256(b"").hexdigest()
+            or not isinstance(source_git.get("sha256"), str)
+            or canonical_sha256(
+                {
+                    "head": source_git.get("head"),
+                    "status_sha256": source_git.get("status_sha256"),
+                }
+            )
+            != source_git.get("sha256")
+        ):
+            raise BatchError("batch config v3 requires a canonical source Git identity")
     root = path.resolve().parent
     for field in (
         "task_contract",
@@ -325,6 +344,8 @@ def build_manifest(
         "coordinator_sha256": file_sha256(Path(__file__)),
         "schedule_sha256": schedule["sha256"],
         "configuration_sha256": canonical_sha256(config),
+        "source_commit": config.get("source_commit"),
+        "source_git": config.get("source_git"),
         "model": config["model"],
         "reasoning_effort": config["reasoning_effort"],
         "available_tools": sorted(set(config["available_tools"])),
@@ -504,7 +525,11 @@ def _validate_execution_semantics(execution: Mapping[str, Any]) -> None:
             raise BatchError("staged verifier execution semantics are invalid")
 
 
-def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
+def validate_job_output(
+    path: Path,
+    job: Mapping[str, Any],
+    expected_source_git: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     summary = _load_json(path / "summary.json", "runner summary")
     receipts = _load_json(path / "receipts.json", "runner receipts")
     results = _load_json(path / "results.json", "runner results")
@@ -531,6 +556,11 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
     frozen_host = summary.get("host_identity")
     if not isinstance(frozen_host, dict):
         raise BatchError(f"runner summary lacks host identity for {job['job_id']}")
+    if expected_source_git is not None and (
+        summary.get("source_git") != expected_source_git
+        or summary.get("candidate_plugin", {}).get("source_git") != expected_source_git
+    ):
+        raise BatchError(f"runner source Git identity differs for {job['job_id']}")
     for receipt in receipts:
         telemetry = (
             receipt.get("agent_telemetry") if isinstance(receipt, dict) else None
@@ -557,6 +587,14 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
             or execution.get("complete") is not True
             or not isinstance(workspace_check, dict)
             or workspace_check.get("provenance") != "pre-evaluator-tree-diff"
+            or (
+                expected_source_git is not None
+                and (
+                    receipt.get("source_commit") != expected_source_git.get("head")
+                    or receipt.get("source_git_sha256")
+                    != expected_source_git.get("sha256")
+                )
+            )
         ):
             raise BatchError(
                 f"runner receipt lacks identity or telemetry for {job['job_id']}"
@@ -617,7 +655,10 @@ def validate_job_output(path: Path, job: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def materialize(
-    output: Path, jobs: Sequence[Mapping[str, Any]], completed: set[str]
+    output: Path,
+    jobs: Sequence[Mapping[str, Any]],
+    completed: set[str],
+    expected_source_git: Mapping[str, Any] | None = None,
 ) -> None:
     receipts: list[dict[str, Any]] = []
     agents: list[dict[str, Any]] = []
@@ -628,7 +669,9 @@ def materialize(
     for job in jobs:
         if job["job_id"] not in completed:
             continue
-        validated = validate_job_output(output / "sessions" / job["job_id"], job)
+        validated = validate_job_output(
+            output / "sessions" / job["job_id"], job, expected_source_git
+        )
         receipts.extend(validated["receipts"])
         for result in validated["results"]:
             key = f"{result['case_id']}-{result['variant']}"
@@ -796,6 +839,15 @@ def runner_command(
         "--agent-slots",
         str(config["agent_slots"]),
     ]
+    if config.get("schema_version") == 3:
+        command.extend(
+            (
+                "--source-commit",
+                config["source_commit"],
+                "--source-git-sha256",
+                config["source_git"]["sha256"],
+            )
+        )
     for tool in config["available_tools"]:
         command.extend(("--available-tool", tool))
     for pattern in binding["allow_changes"]:
@@ -878,7 +930,7 @@ def run_batch(
         destination = output / "sessions" / job_id
         if job_id in completed:
             try:
-                validate_job_output(destination, job)
+                validate_job_output(destination, job, config.get("source_git"))
             except BatchError as error:
                 materialize_invalid_bundle(output, str(error))
                 raise
@@ -912,7 +964,7 @@ def run_batch(
             materialize_invalid_bundle(output, str(error))
             raise error
         try:
-            validated = validate_job_output(destination, job)
+            validated = validate_job_output(destination, job, config.get("source_git"))
         except BatchError as error:
             _append_journal(
                 journal,
@@ -931,12 +983,12 @@ def run_batch(
         )
         completed.add(job_id)
         try:
-            materialize(output, jobs, completed)
+            materialize(output, jobs, completed, config.get("source_git"))
         except (BatchError, ValueError, OSError) as error:
             materialize_invalid_bundle(output, str(error))
             raise
     try:
-        materialize(output, jobs, completed)
+        materialize(output, jobs, completed, config.get("source_git"))
         analysis = compare(
             json.loads(
                 "["

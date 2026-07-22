@@ -375,7 +375,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v12")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v13")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -1173,6 +1173,14 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(receipts[0]["before_sha256"], receipts[0]["after_sha256"])
 
     def test_candidate_identity_rejects_stale_installation(self) -> None:
+        source_git = {
+            "head": "c" * 40,
+            "status_sha256": "e" * 64,
+            "sha256": "f" * 64,
+        }
+        git_patch = mock.patch.object(runner, "git_identity", return_value=source_git)
+        git_patch.start()
+        self.addCleanup(git_patch.stop)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "source"
@@ -1206,10 +1214,20 @@ class LiveAbRunnerTests(unittest.TestCase):
             (installed / "plugin.txt").write_text("current\n", encoding="utf-8")
             identity = runner._candidate_identity(item, home)
             self.assertEqual(identity["source_sha256"], identity["installed_sha256"])
+            self.assertEqual(identity["source_commit"], source_git["head"])
+            self.assertEqual(identity["source_git"], source_git)
 
     def test_candidate_identity_accepts_only_exact_canonical_runtime_projection(
         self,
     ) -> None:
+        source_git = {
+            "head": "c" * 40,
+            "status_sha256": "e" * 64,
+            "sha256": "f" * 64,
+        }
+        git_patch = mock.patch.object(runner, "git_identity", return_value=source_git)
+        git_patch.start()
+        self.addCleanup(git_patch.stop)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "source"
@@ -1245,6 +1263,7 @@ class LiveAbRunnerTests(unittest.TestCase):
 
             self.assertNotEqual(identity["source_sha256"], identity["installed_sha256"])
             self.assertGreater(identity["source_file_count"], identity["file_count"])
+            self.assertEqual(identity["source_commit"], source_git["head"])
             (installed / "skills" / "runtime.txt").unlink()
             with self.assertRaisesRegex(
                 runner.LiveEvaluationError, "canonical runtime surface"

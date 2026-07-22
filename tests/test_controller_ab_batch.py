@@ -18,6 +18,41 @@ SPEC.loader.exec_module(batch)
 
 
 class ControllerAbBatchTests(unittest.TestCase):
+    def test_v3_config_requires_clean_canonical_source_git_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, _, _ = self._write_batch_inputs(root)
+            payload = json.loads(config.read_text(encoding="utf-8"))
+            payload.update(
+                {
+                    "schema_version": 3,
+                    "round_name": "pilot",
+                    "source_commit": "a" * 40,
+                    "source_git": {
+                        "head": "a" * 40,
+                        "status_sha256": batch.hashlib.sha256(b"").hexdigest(),
+                    },
+                }
+            )
+            payload["source_git"]["sha256"] = batch.canonical_sha256(
+                payload["source_git"]
+            )
+            config.write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded = batch.load_config(config)
+            self.assertEqual(loaded["source_commit"], "a" * 40)
+
+            payload["source_git"]["status_sha256"] = "b" * 64
+            payload["source_git"]["sha256"] = batch.canonical_sha256(
+                {
+                    "head": payload["source_git"]["head"],
+                    "status_sha256": payload["source_git"]["status_sha256"],
+                }
+            )
+            config.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "source Git identity"):
+                batch.load_config(config)
+
     def test_verifier_only_staged_execution_is_valid(self) -> None:
         batch._validate_execution_semantics(
             {
@@ -192,6 +227,25 @@ class ControllerAbBatchTests(unittest.TestCase):
             if "--batch-repetition" in command
             else list(range(1, repetitions + 1))
         )
+        source_commit = (
+            command[command.index("--source-commit") + 1]
+            if "--source-commit" in command
+            else None
+        )
+        source_git_sha256 = (
+            command[command.index("--source-git-sha256") + 1]
+            if "--source-git-sha256" in command
+            else None
+        )
+        source_git = (
+            {
+                "head": source_commit,
+                "status_sha256": batch.hashlib.sha256(b"").hexdigest(),
+                "sha256": source_git_sha256,
+            }
+            if source_commit is not None
+            else None
+        )
         destination.mkdir(parents=True, exist_ok=True)
         receipts = []
         results = []
@@ -235,6 +289,8 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "controller_protocol_sha256": "a" * 64,
                         "experiment_sha256": "b" * 64,
                         "host_identity": {"version": "codex-test"},
+                        "source_commit": source_commit,
+                        "source_git_sha256": source_git_sha256,
                         "agent_telemetry": telemetry,
                     }
                 )
@@ -261,6 +317,8 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "candidate": "adaptive",
                     },
                     "host_identity": {"version": "codex-test"},
+                    "source_git": source_git,
+                    "candidate_plugin": {"source_git": source_git},
                 }
             ),
             encoding="utf-8",
@@ -269,6 +327,39 @@ class ControllerAbBatchTests(unittest.TestCase):
             json.dumps(receipts), encoding="utf-8"
         )
         (destination / "results.json").write_text(json.dumps(results), encoding="utf-8")
+
+    def test_job_output_is_bound_to_exact_source_git_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_git = {
+                "head": "a" * 40,
+                "status_sha256": batch.hashlib.sha256(b"").hexdigest(),
+            }
+            source_git["sha256"] = batch.canonical_sha256(source_git)
+            command = [
+                "python",
+                "runner.py",
+                "--output",
+                str(root),
+                "--task-id",
+                "task-a",
+                "--repetitions",
+                "1",
+                "--source-commit",
+                source_git["head"],
+                "--source-git-sha256",
+                source_git["sha256"],
+            ]
+            self._fake_runner_output(command)
+            job = {"job_id": "job-a", "task_id": "task-a", "repetitions": 1}
+
+            batch.validate_job_output(root, job, source_git)
+
+            receipts = json.loads((root / "receipts.json").read_text(encoding="utf-8"))
+            receipts[0]["source_commit"] = "b" * 40
+            (root / "receipts.json").write_text(json.dumps(receipts), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "identity or telemetry"):
+                batch.validate_job_output(root, job, source_git)
 
     def test_schedule_is_deterministic_complete_and_counterbalanced(self) -> None:
         first = batch.build_schedule(self._contract())
