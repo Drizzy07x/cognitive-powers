@@ -122,6 +122,69 @@ def build_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
     return {**payload, "sha256": canonical_sha256(payload)}
 
 
+def build_preflight_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
+    """Select one pilot fixture per mode for eight non-scored sessions."""
+    modes = ("solo", "parallel-read-only", "parallel-packets", "staged-verify")
+    selected: dict[str, str] = {}
+    pilot_ids = set(contract["rounds"]["pilot"]["task_ids"])
+    for task_id, task in contract["tasks"].items():
+        mode = task.get("expected_mode")
+        if task_id in pilot_ids and mode in modes and mode not in selected:
+            selected[mode] = task_id
+    if set(selected) != set(modes):
+        raise BatchError(
+            "preflight requires one pilot fixture for every controller mode"
+        )
+    seed = f"{contract['task_set_id']}-instrumental-preflight-v1"
+    jobs: list[dict[str, Any]] = []
+    sessions: list[dict[str, Any]] = []
+    ordinal = 0
+    for mode_index, mode in enumerate(modes):
+        task_id = selected[mode]
+        order = (
+            ["baseline", "candidate"]
+            if mode_index % 2 == 0
+            else ["candidate", "baseline"]
+        )
+        job_id = f"preflight-{mode}"
+        jobs.append(
+            {
+                "job_id": job_id,
+                "task_id": task_id,
+                "split": "preflight",
+                "seed": seed,
+                "runner_seed": seed,
+                "repetition": 1,
+                "repetitions": 1,
+                "declared_repetitions": 1,
+                "arm_orders": [order],
+                "non_scored": True,
+            }
+        )
+        for arm in order:
+            ordinal += 1
+            sessions.append(
+                {
+                    "ordinal": ordinal,
+                    "job_id": job_id,
+                    "task_id": task_id,
+                    "split": "preflight",
+                    "repetition": 1,
+                    "arm": arm,
+                    "non_scored": True,
+                }
+            )
+    payload = {
+        "schema_version": 1,
+        "task_set_id": contract["task_set_id"],
+        "execution": "sequential-instrumental-preflight",
+        "non_scored": True,
+        "jobs": jobs,
+        "sessions": sessions,
+    }
+    return {**payload, "sha256": canonical_sha256(payload)}
+
+
 def _load_json(path: Path, label: str) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -479,6 +542,7 @@ def run_batch(
     output: Path,
     runner: Path,
     *,
+    preflight: bool = False,
     invoke: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     if not runner.resolve().is_file():
@@ -492,7 +556,9 @@ def run_batch(
     config["task_prompts"] = {
         task_id: task["prompt"] for task_id, task in contract["tasks"].items()
     }
-    schedule = build_schedule(contract)
+    schedule = (
+        build_preflight_schedule(contract) if preflight else build_schedule(contract)
+    )
     manifest = build_manifest(config, contract, protocol, schedule, runner)
     output = output.resolve()
     if output.exists():
@@ -603,9 +669,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         default=Path(__file__).resolve().parent / "live_ab_runner.py",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="run eight non-scored instrumental sessions, one A/B pair per mode",
+    )
     args = parser.parse_args(argv)
     try:
-        status = run_batch(args.config, args.output, args.runner.resolve())
+        status = run_batch(
+            args.config,
+            args.output,
+            args.runner.resolve(),
+            preflight=args.preflight,
+        )
     except (OSError, BatchError, ValueError) as error:
         print(json.dumps({"error": str(error)}))
         return 2

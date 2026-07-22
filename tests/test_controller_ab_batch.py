@@ -18,6 +18,29 @@ SPEC.loader.exec_module(batch)
 
 
 class ControllerAbBatchTests(unittest.TestCase):
+    def test_preflight_schedule_has_one_pair_per_mode_and_is_non_scored(self) -> None:
+        contract = batch.validate_task_contract(
+            json.loads(
+                (ROOT / "benchmarks" / "evaluation_tasks.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+        schedule = batch.build_preflight_schedule(contract)
+        self.assertEqual(len(schedule["jobs"]), 4)
+        self.assertEqual(len(schedule["sessions"]), 8)
+        self.assertTrue(schedule["non_scored"])
+        self.assertEqual(
+            {job["job_id"] for job in schedule["jobs"]},
+            {
+                "preflight-solo",
+                "preflight-parallel-read-only",
+                "preflight-parallel-packets",
+                "preflight-staged-verify",
+            },
+        )
+        self.assertTrue(all(job["non_scored"] for job in schedule["jobs"]))
+
     def _contract(self) -> dict[str, object]:
         return {
             "task_set_id": "controller-test",
