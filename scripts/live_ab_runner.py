@@ -634,6 +634,53 @@ def _canonical_agent_plan_v2(value: object) -> dict[str, Any] | None:
     return value
 
 
+def _canonical_plan_transition(plans: Sequence[dict[str, Any]]) -> str | None:
+    """Accept only a solo implementation phase followed by fresh verification."""
+    if len(plans) <= 1:
+        return None
+    if len(plans) != 2:
+        raise LiveEvaluationError("multiple distinct agent_plan receipts were emitted")
+
+    initial, verification = plans
+    initial_is_solo = (
+        initial.get("valid_input") is True
+        and initial.get("mode") == "solo"
+        and initial.get("spawn_count") == 0
+        and initial.get("total_planned_agents") == 0
+        and initial.get("max_depth") == 0
+        and initial.get("waves") == []
+    )
+    waves = verification.get("waves")
+    verification_wave = waves[0] if isinstance(waves, list) and len(waves) == 1 else None
+    assignments = (
+        verification_wave.get("assignments")
+        if isinstance(verification_wave, dict)
+        else None
+    )
+    verifier = assignments[0] if isinstance(assignments, list) and len(assignments) == 1 else None
+    verification_is_fresh_read_only = (
+        verification.get("valid_input") is True
+        and verification.get("mode") == "staged-verify"
+        and verification.get("spawn_count") == 0
+        and verification.get("total_planned_agents") == 1
+        and verification.get("max_depth") == 1
+        and isinstance(verification_wave, dict)
+        and verification_wave.get("kind") == "verification"
+        and verification_wave.get("parallel") is False
+        and isinstance(verifier, dict)
+        and verifier.get("role") == "verifier"
+        and verifier.get("permissions") == "read-only"
+        and verifier.get("ownership") == []
+        and verifier.get("dependencies") == []
+        and verifier.get("delegation_depth") == 1
+        and verifier.get("may_spawn") is False
+        and verifier.get("may_verify_parent") is False
+    )
+    if not initial_is_solo or not verification_is_fresh_read_only:
+        raise LiveEvaluationError("multiple distinct agent_plan receipts were emitted")
+    return "solo-to-fresh-verification"
+
+
 def _agent_message_json_values(item: Mapping[str, Any]) -> list[object]:
     if item.get("type") != "agent_message":
         return []
@@ -858,8 +905,7 @@ def parse_events(path: Path) -> dict[str, Any]:
                 for item in plan_receipts
             ):
                 plan_receipts.append(canonical)
-    if len(plan_receipts) > 1:
-        raise LiveEvaluationError("multiple distinct agent_plan receipts were emitted")
+    plan_transition = _canonical_plan_transition(plan_receipts)
     thread_rows = [row for row in rows if row.get("type") == "thread.started"]
     thread_ids: set[str] = set()
     for row in thread_rows:
@@ -888,6 +934,8 @@ def parse_events(path: Path) -> dict[str, Any]:
         "agent_spawns": sum(item["event"] == "spawn_agent" for item in agent_events),
         "agent_joins": sum(item["event"] == "wait_agent" for item in agent_events),
         "agent_plans": plan_receipts,
+        "plan_transition": plan_transition,
+        "plan_receipt_count": len(plan_receipts),
         "observed_assignments": [
             {key: item[key] for key in ("assignment_id", "actor_id", "role")}
             for item in observations
@@ -1814,6 +1862,8 @@ def _run_one(
                 decision["agent_execution_receipt"]["result_assignment_ids"]
             ),
             "plan_receipts": parsed["agent_plans"],
+            "plan_transition": parsed["plan_transition"],
+            "plan_receipt_count": parsed["plan_receipt_count"],
             "observed_assignments": decision["agent_execution_receipt"][
                 "lifecycle_bindings"
             ],

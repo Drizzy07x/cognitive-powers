@@ -87,6 +87,76 @@ class LiveAbRunnerTests(unittest.TestCase):
         plan["plan_id"] = "plan-" + runner.hashlib.sha256(encoded).hexdigest()
         return plan
 
+    @staticmethod
+    def _reidentify_plan(plan: dict[str, object]) -> dict[str, object]:
+        plan.pop("plan_id", None)
+        encoded = json.dumps(
+            plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        plan["plan_id"] = "plan-" + runner.hashlib.sha256(encoded).hexdigest()
+        return plan
+
+    def _canonical_solo_plan(self) -> dict[str, object]:
+        plan = self._canonical_plan()
+        plan.update(
+            {
+                "mode": "solo",
+                "selected_mode": "solo",
+                "spawn_count": 0,
+                "total_planned_agents": 0,
+                "max_concurrent_workers": 0,
+                "max_depth": 0,
+                "waves": [],
+            }
+        )
+        return self._reidentify_plan(plan)
+
+    def _canonical_verifier_plan(self) -> dict[str, object]:
+        plan = self._canonical_solo_plan()
+        verifier = {
+            "id": "fresh-verifier",
+            "role": "verifier",
+            "objective": "Independently verify the integrated result",
+            "context": ["objective", "integrated diff", "criteria", "receipts"],
+            "ownership": [],
+            "permissions": "read-only",
+            "expected_output": "confirmed, rejected, or inconclusive with evidence",
+            "check": ["python", "verification/verify.py"],
+            "dependencies": [],
+            "stop_conditions": [
+                "do not modify the workspace",
+                "do not self-verify",
+            ],
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+            "must_be_distinct_from": [],
+        }
+        encoded = json.dumps(
+            verifier, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        verifier["assignment_id"] = (
+            "assignment-" + runner.hashlib.sha256(encoded).hexdigest()
+        )
+        plan.update(
+            {
+                "mode": "staged-verify",
+                "selected_mode": "staged-verify",
+                "total_planned_agents": 1,
+                "max_concurrent_workers": 1,
+                "max_depth": 1,
+                "reserve_verifier_slot": True,
+                "waves": [
+                    {
+                        "kind": "verification",
+                        "parallel": False,
+                        "assignments": [verifier],
+                    }
+                ],
+            }
+        )
+        return self._reidentify_plan(plan)
+
     def _write_rollout_pair(
         self,
         home: Path,
@@ -305,7 +375,7 @@ class LiveAbRunnerTests(unittest.TestCase):
         canonical = runner.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
         )
-        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v10")
+        self.assertEqual(canonical["protocol_id"], "cognitive-powers-controller-ab-v11")
         self.assertEqual(len(canonical["sha256"]), 64)
         with tempfile.TemporaryDirectory() as temporary:
             altered = Path(temporary) / "protocol.json"
@@ -495,6 +565,79 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(parsed["agent_plans"][0]["mode"], "parallel-read-only")
             self.assertEqual(parsed["observed_assignments"][0]["actor_id"], "worker-1")
             self.assertEqual(parsed["parent_thread_id"], "thread-1")
+
+    def test_parse_events_accepts_solo_to_fresh_verification_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            rows = [
+                {"type": "thread.started", "thread_id": "thread-1"},
+                *[
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": json.dumps({"agent_plan": plan}),
+                        },
+                    }
+                    for plan in (
+                        self._canonical_solo_plan(),
+                        self._canonical_verifier_plan(),
+                    )
+                ],
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                    },
+                },
+            ]
+            events.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+
+            parsed = runner.parse_events(events)
+
+            self.assertEqual(parsed["plan_receipt_count"], 2)
+            self.assertEqual(parsed["plan_transition"], "solo-to-fresh-verification")
+            self.assertEqual(parsed["agent_plans"][-1]["mode"], "staged-verify")
+
+    def test_parse_events_rejects_non_solo_plan_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            events = Path(temporary) / "events.jsonl"
+            rows = [
+                *[
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": json.dumps({"agent_plan": plan}),
+                        },
+                    }
+                    for plan in (
+                        self._canonical_plan(),
+                        self._canonical_verifier_plan(),
+                    )
+                ],
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                    },
+                },
+            ]
+            events.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError,
+                "multiple distinct agent_plan receipts were emitted",
+            ):
+                runner.parse_events(events)
 
     def test_parse_events_does_not_infer_plan_from_spawn_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
