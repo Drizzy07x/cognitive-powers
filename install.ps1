@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $repository = "Drizzy07x/cognitive-powers"
 $marketplace = "cognitive-powers"
 $pluginId = "cognitive-powers@cognitive-powers"
-$expectedVersion = "1.4.2"
+$expectedVersion = "1.5.0"
 
 function Assert-Command {
     param([Parameter(Mandatory)][string]$Name)

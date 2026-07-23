@@ -284,7 +284,7 @@ class IntegrationEvaluationTests(unittest.TestCase):
         for receipt, mode in zip(pair, ("forced-solo", "adaptive"), strict=True):
             receipt.update(
                 {
-                    "provider": "cognitive-powers-1.4.2",
+                    "provider": "cognitive-powers-1.5.0",
                     "fixture_git_sha256": "b" * 64,
                     "experiment_sha256": "c" * 64,
                     "hidden_check_sha256": "d" * 64,

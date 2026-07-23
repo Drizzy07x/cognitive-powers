@@ -110,7 +110,7 @@ The repository is private, so GitHub CLI must be installed and authenticated wit
 & ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.4.2` is enabled. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.5.0` is enabled. Restart Codex before starting a new task.
 
 ## Update the local development installation
 

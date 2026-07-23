@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+## 1.5.0 - 2026-07-22
+
 - Hardened the adaptive-controller evaluation to protocol v3: persistent parent/child rollout evidence, an observable controller treatment, selected-versus-executed mode receipts, semantic lifecycle binding, descendant token accounting, invalid-path artifact indexes, and physically separate pilot/promotion roots with schema-v3 locks. Legacy batch configs are non-confirmatory. Previous provider preflights remain invalid and no performance improvement is claimed.
 
 - Added the 80-fixture controller corpus, deterministic external materializer, promotion seals, and fail-closed corpus validation.
 - Added minimal equivalent experiment homes and a resumable 240-pair/480-session batch coordinator with globally randomized pairs and immutable journals.
-- Kept provider results, causal improvement, publication, installation, and a 1.5.0 version claim pending; no live result is included in this checkout.
+- Added conservative adaptive agent planning with observable solo, parallel read-only, disjoint packet, and staged verification modes.
+- The confirmatory provider-backed promotion is incomplete. This release makes no causal quality, success-rate, or token-efficiency claim.
 
 ## 1.4.2 - 2026-07-21
 
