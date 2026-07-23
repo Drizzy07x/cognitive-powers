@@ -38,6 +38,31 @@ def command_result(command, category: str, *, passed: bool = True):
 
 
 class ValidateAllTests(unittest.TestCase):
+    def test_ci_installs_pinned_validation_dependencies(self) -> None:
+        requirements_path = PLUGIN_ROOT / "requirements-dev.txt"
+        requirements = requirements_path.read_text(encoding="utf-8").splitlines()
+        declared = [
+            line.strip()
+            for line in requirements
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(declared, ["ruff==0.15.21"])
+
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("python -m pip install -r requirements-dev.txt", workflow)
+        self.assertLess(
+            workflow.index("python -m pip install -r requirements-dev.txt"),
+            workflow.index("python scripts/validate_all.py --offline"),
+        )
+
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "& $python -m pip install -r requirements-dev.txt",
+            readme,
+        )
+
     def test_release_witness_uses_same_offline_command_contract(self) -> None:
         signature = [
             (command.name, command.argv) for command in validator.OFFLINE_COMMANDS

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.5.1 - 2026-07-22
+
+- Pinned the offline validation dependency and made both CI and the documented local workflow install it explicitly.
+- Corrected adaptive planning so worker capacity is reused across dependency-aware waves, verifier capacity is reserved only when it runs, retries are not truncated by first-wave capacity, and eligible work is not silently omitted.
+- Hardened v2 worker-result validation with exact command receipts, execution-context binding, explicit no-op semantics, complete verifier coverage, and distinct real actor identities.
+- Bound persistent rollout evidence per child across spawn, observable join, result, and provider usage. Incomplete lifecycle telemetry is now invalid instead of being mislabeled as degraded controller behavior.
+- No provider-backed pilot or promotion was run, and no quality, success-rate, token-efficiency, or performance claim changed.
+
 ## 1.5.0 - 2026-07-22
 
 - Hardened the adaptive-controller evaluation to protocol v3: persistent parent/child rollout evidence, an observable controller treatment, selected-versus-executed mode receipts, semantic lifecycle binding, descendant token accounting, invalid-path artifact indexes, and physically separate pilot/promotion roots with schema-v3 locks. Legacy batch configs are non-confirmatory. Previous provider preflights remain invalid and no performance improvement is claimed.

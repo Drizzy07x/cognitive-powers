@@ -182,9 +182,11 @@ def parse_new_rollouts(
     parent = parents[0]
     parent_rows = parent["rows"]
     spawn_calls: dict[str, str] = {}
-    wait_completed = False
     activities: dict[str, dict[str, Any]] = {}
-    for row in parent_rows:
+    wait_call_indexes: dict[str, int] = {}
+    wait_outputs: list[tuple[int, str]] = []
+    parent_final_messages: list[tuple[int, str, str]] = []
+    for row_index, row in enumerate(parent_rows):
         payload = row.get("payload", {})
         if (
             row.get("type") == "response_item"
@@ -205,21 +207,56 @@ def parse_new_rollouts(
                     or not isinstance(call_id, str)
                 ):
                     raise LiveEvaluationError("spawn_agent lacks observable task_name")
+                if call_id in spawn_calls:
+                    raise LiveEvaluationError("duplicate spawn call identity")
                 spawn_calls[call_id] = task_name
             elif payload.get("name") == "wait_agent":
                 call_id = payload.get("call_id")
-                outputs = [
-                    nested.get("payload", {})
-                    for nested in parent_rows
-                    if nested.get("type") == "response_item"
-                    and nested.get("payload", {}).get("type") == "function_call_output"
-                    and nested.get("payload", {}).get("call_id") == call_id
-                ]
-                wait_completed = wait_completed or any(
-                    '"timed_out":false'
-                    in str(output.get("output", "")).replace(" ", "").lower()
-                    for output in outputs
-                )
+                if not isinstance(call_id, str) or not call_id:
+                    raise LiveEvaluationError("wait_agent lacks observable call_id")
+                if call_id in wait_call_indexes:
+                    raise LiveEvaluationError("duplicate wait call identity")
+                wait_call_indexes[call_id] = row_index
+        if (
+            row.get("type") == "response_item"
+            and payload.get("type") == "function_call_output"
+            and payload.get("call_id") in wait_call_indexes
+        ):
+            output = payload.get("output")
+            try:
+                decoded = json.loads(output) if isinstance(output, str) else output
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, dict) and decoded.get("timed_out") is False:
+                wait_outputs.append((row_index, payload["call_id"]))
+        if (
+            row.get("type") == "response_item"
+            and payload.get("type") == "agent_message"
+        ):
+            author = payload.get("author")
+            content = payload.get("content")
+            is_final = isinstance(content, list) and any(
+                isinstance(item, dict)
+                and item.get("type") == "input_text"
+                and isinstance(item.get("text"), str)
+                and item["text"].lstrip().startswith("Message Type: FINAL_ANSWER")
+                for item in content
+            )
+            if is_final and isinstance(author, str) and author.startswith("/root/"):
+                message_id = payload.get("id")
+                if not isinstance(message_id, str) or not message_id:
+                    encoded = json.dumps(
+                        {
+                            "row_index": row_index,
+                            "author": author,
+                            "payload": payload,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    message_id = "sha256:" + hashlib.sha256(encoded).hexdigest()
+                parent_final_messages.append((row_index, author, message_id))
         if (
             row.get("type") == "event_msg"
             and payload.get("type") == "sub_agent_activity"
@@ -227,14 +264,81 @@ def parse_new_rollouts(
             if payload.get("kind") == "started" and isinstance(
                 payload.get("event_id"), str
             ):
+                if payload["event_id"] in activities:
+                    raise LiveEvaluationError("duplicate sub-agent activity identity")
                 activities[payload["event_id"]] = payload
     if set(spawn_calls) != set(activities):
         raise LiveEvaluationError("spawn calls do not match host sub-agent activity")
-    children_by_id = {
-        item["meta"].get("id") or item["meta"].get("session_id"): item
-        for item in documents
-        if item is not parent
-    }
+    if len(set(spawn_calls.values())) != len(spawn_calls):
+        raise LiveEvaluationError("duplicate task identity breaks one-to-one binding")
+
+    child_binding_by_path: dict[str, dict[str, str]] = {}
+    actor_ids: set[str] = set()
+    for call_id, task_name in spawn_calls.items():
+        activity = activities[call_id]
+        child_id = activity.get("agent_thread_id")
+        agent_path = activity.get("agent_path")
+        if not isinstance(child_id, str) or not child_id:
+            raise LiveEvaluationError("spawn activity lacks observable child identity")
+        if child_id in actor_ids:
+            raise LiveEvaluationError(
+                "duplicate actor identity breaks one-to-one binding"
+            )
+        actor_ids.add(child_id)
+        expected_path = f"/root/{task_name}"
+        if agent_path != expected_path or expected_path in child_binding_by_path:
+            raise LiveEvaluationError(
+                "spawn task and actor paths lack a one-to-one binding"
+            )
+        child_binding_by_path[expected_path] = {
+            "call_id": call_id,
+            "task_name": task_name,
+            "actor_id": child_id,
+        }
+
+    successful_waits = [
+        {"row_index": row_index, "call_id": call_id, "consumed": False}
+        for row_index, call_id in sorted(wait_outputs)
+    ]
+    joins_by_path: dict[str, dict[str, str | None]] = {}
+    for row_index, author, message_id in parent_final_messages:
+        if author not in child_binding_by_path:
+            raise LiveEvaluationError("observable join references an unknown child")
+        if author in joins_by_path:
+            raise LiveEvaluationError(
+                "duplicate observable join breaks one-to-one binding"
+            )
+        eligible_waits = [
+            item
+            for item in successful_waits
+            if not item["consumed"] and item["row_index"] < row_index
+        ]
+        matched_wait = eligible_waits[-1] if eligible_waits else None
+        if matched_wait is not None:
+            matched_wait["consumed"] = True
+        joins_by_path[author] = {
+            "join_call_id": (
+                str(matched_wait["call_id"]) if matched_wait is not None else None
+            ),
+            "join_source": (
+                "wait-agent-final-answer"
+                if matched_wait is not None
+                else "parent-final-answer"
+            ),
+            "parent_result_message_id": message_id,
+        }
+
+    children_by_id: dict[str, dict[str, Any]] = {}
+    for item in documents:
+        if item is parent:
+            continue
+        child_id = item["meta"].get("id") or item["meta"].get("session_id")
+        if not isinstance(child_id, str) or not child_id:
+            raise LiveEvaluationError("child rollout lacks an observable identity")
+        if child_id in children_by_id:
+            raise LiveEvaluationError("duplicate child rollout identity")
+        children_by_id[child_id] = item
+
     lifecycle: list[dict[str, Any]] = []
     for call_id, task_name in spawn_calls.items():
         activity = activities[call_id]
@@ -254,15 +358,36 @@ def parse_new_rollouts(
             or spawn.get("parent_thread_id") != parent_thread_id
             or spawn.get("depth") != 1
             or meta.get("thread_source") != "subagent"
+            or meta.get("agent_path") != activity.get("agent_path")
+            or spawn.get("agent_path") != activity.get("agent_path")
         ):
             raise LiveEvaluationError(
                 "child rollout is not linked to the parent thread"
             )
-        has_result = any(
-            row.get("type") == "event_msg"
+        child_results = [
+            (row_index, row.get("payload", {}))
+            for row_index, row in enumerate(child["rows"])
+            if row.get("type") == "event_msg"
             and row.get("payload", {}).get("type") == "agent_message"
-            for row in child["rows"]
-        )
+        ]
+        has_result = bool(child_results)
+        result_message_id = None
+        if child_results:
+            result_row_index, result_payload = child_results[-1]
+            result_message_id = result_payload.get("id")
+            if not isinstance(result_message_id, str) or not result_message_id:
+                encoded = json.dumps(
+                    {
+                        "actor_id": child_id,
+                        "row_index": result_row_index,
+                        "payload": result_payload,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                result_message_id = "sha256:" + hashlib.sha256(encoded).hexdigest()
+        join = joins_by_path.get(activity.get("agent_path"))
         lifecycle.append(
             {
                 "assignment_id": None,
@@ -272,8 +397,15 @@ def parse_new_rollouts(
                 "parent_id": parent_thread_id,
                 "delegation_depth": 1,
                 "phases": ["spawned"]
-                + (["joined"] if wait_completed else [])
+                + (["joined"] if join is not None else [])
                 + (["result"] if has_result else []),
+                "spawn_call_id": call_id,
+                "join_call_id": (join["join_call_id"] if join is not None else None),
+                "join_source": join["join_source"] if join is not None else None,
+                "parent_result_message_id": (
+                    join["parent_result_message_id"] if join is not None else None
+                ),
+                "result_message_id": result_message_id,
                 "usage": _final_rollout_usage(child["rows"], child["path"]),
                 "binding_provenance": "persistent-rollout-v3",
                 "rollout_sha256": hashlib.sha256(
@@ -1272,9 +1404,11 @@ def classify_agent_decision(
         "completed"
         if complete and selected_mode == executed_mode
         else "degraded"
-        if selected_mode in AGENT_PLAN_MODES
+        if selected_mode in AGENT_PLAN_MODES and telemetry_observation_complete
         else "invalid"
     )
+    telemetry_status = "complete" if telemetry_observation_complete else "incomplete"
+    controller_compliant = complete if telemetry_observation_complete else None
     plan_sha256 = (
         hashlib.sha256(
             json.dumps(active_plan, sort_keys=True, separators=(",", ":")).encode()
@@ -1311,8 +1445,11 @@ def classify_agent_decision(
         ),
         "host_errors": list(parsed.get("host_errors", [])),
         "telemetry_observation_complete": telemetry_observation_complete,
-        "controller_compliant": complete,
-        "plan_adherent": complete if controller_mode == "adaptive" else None,
+        "telemetry_status": telemetry_status,
+        "controller_compliant": controller_compliant,
+        "plan_adherent": (
+            controller_compliant if controller_mode == "adaptive" else None
+        ),
         "suppressed_policy_mode": (
             suppressed_plan.get("mode") if suppressed_plan is not None else None
         ),

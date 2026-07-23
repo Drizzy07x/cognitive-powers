@@ -266,6 +266,193 @@ class LiveAbRunnerTests(unittest.TestCase):
                 "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
             )
 
+    @staticmethod
+    def _write_rollout_lifecycle(
+        home: Path,
+        *,
+        spawns: list[tuple[str, str, str]],
+        children: list[dict[str, object]] | None = None,
+        waits: list[tuple[bool, list[str]]] | None = None,
+        observable_joins: list[str] | None = None,
+    ) -> None:
+        sessions = home / "sessions" / "2026" / "07" / "22"
+        sessions.mkdir(parents=True)
+        parent: list[dict[str, object]] = [
+            {"type": "session_meta", "payload": {"id": "parent-1", "source": "exec"}}
+        ]
+        for call_id, task_name, actor_id in spawns:
+            parent.extend(
+                [
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "function_call",
+                            "name": "spawn_agent",
+                            "arguments": json.dumps(
+                                {"task_name": task_name, "message": "encrypted"}
+                            ),
+                            "call_id": call_id,
+                        },
+                    },
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "sub_agent_activity",
+                            "event_id": call_id,
+                            "agent_thread_id": actor_id,
+                            "agent_path": f"/root/{task_name}",
+                            "kind": "started",
+                        },
+                    },
+                ]
+            )
+
+        def final_message(task_name: str, ordinal: int) -> dict[str, object]:
+            return {
+                "type": "response_item",
+                "payload": {
+                    "type": "agent_message",
+                    "id": f"amsg-{ordinal}",
+                    "author": f"/root/{task_name}",
+                    "recipient": "/root",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Message Type: FINAL_ANSWER\n"
+                                "Task name: /root\n"
+                                f"Sender: /root/{task_name}\n"
+                                "Payload:\ndone"
+                            ),
+                        }
+                    ],
+                },
+            }
+
+        message_ordinal = 0
+        for wait_ordinal, (timed_out, joined_tasks) in enumerate(waits or []):
+            wait_call_id = f"wait-{wait_ordinal}"
+            parent.extend(
+                [
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "function_call",
+                            "name": "wait_agent",
+                            "arguments": '{"timeout_ms":1000}',
+                            "call_id": wait_call_id,
+                        },
+                    },
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "function_call_output",
+                            "call_id": wait_call_id,
+                            "output": json.dumps(
+                                {
+                                    "message": (
+                                        "Wait timed out."
+                                        if timed_out
+                                        else "Wait completed."
+                                    ),
+                                    "timed_out": timed_out,
+                                }
+                            ),
+                        },
+                    },
+                ]
+            )
+            for task_name in joined_tasks:
+                parent.append(final_message(task_name, message_ordinal))
+                message_ordinal += 1
+        for task_name in observable_joins or []:
+            parent.append(final_message(task_name, message_ordinal))
+            message_ordinal += 1
+        parent.append(
+            {
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": 10,
+                            "cached_input_tokens": 2,
+                            "output_tokens": 3,
+                        }
+                    },
+                },
+            }
+        )
+        (sessions / "parent.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in parent) + "\n",
+            encoding="utf-8",
+        )
+
+        if children is None:
+            children = [
+                {
+                    "task_name": task_name,
+                    "actor_id": actor_id,
+                    "result": True,
+                    "usage": True,
+                }
+                for _, task_name, actor_id in spawns
+            ]
+        written_actor_ids: set[str] = set()
+        for child in children:
+            task_name = str(child["task_name"])
+            actor_id = str(child["actor_id"])
+            if actor_id in written_actor_ids:
+                continue
+            written_actor_ids.add(actor_id)
+            rows: list[dict[str, object]] = [
+                {
+                    "type": "session_meta",
+                    "payload": {
+                        "id": actor_id,
+                        "parent_thread_id": "parent-1",
+                        "thread_source": "subagent",
+                        "agent_path": f"/root/{task_name}",
+                        "source": {
+                            "subagent": {
+                                "thread_spawn": {
+                                    "parent_thread_id": "parent-1",
+                                    "depth": 1,
+                                    "agent_path": f"/root/{task_name}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ]
+            if child.get("result", True):
+                rows.append(
+                    {
+                        "type": "event_msg",
+                        "payload": {"type": "agent_message", "message": "done"},
+                    }
+                )
+            if child.get("usage", True):
+                rows.append(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 5,
+                                    "cached_input_tokens": 1,
+                                    "output_tokens": 2,
+                                }
+                            },
+                        },
+                    }
+                )
+            (sessions / f"{actor_id}.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
     def test_rollout_v3_links_only_new_children_and_aggregates_usage_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
@@ -288,6 +475,237 @@ class LiveAbRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             self._write_rollout_pair(home, include_child_usage=False)
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "final provider usage"
+            ):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+
+    def test_rollout_lifecycle_binds_each_successful_join_to_one_child(
+        self,
+    ) -> None:
+        spawns = [
+            ("spawn-a", "unit_a", "child-a"),
+            ("spawn-b", "unit_b", "child-b"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=spawns,
+                waits=[(False, ["unit_a"]), (False, ["unit_b"])],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        lifecycle = {item["task_name"]: item for item in parsed["lifecycle"]}
+        self.assertEqual(set(lifecycle), {"unit_a", "unit_b"})
+        self.assertEqual(lifecycle["unit_a"]["spawn_call_id"], "spawn-a")
+        self.assertEqual(lifecycle["unit_b"]["spawn_call_id"], "spawn-b")
+        self.assertEqual(lifecycle["unit_a"]["join_call_id"], "wait-0")
+        self.assertEqual(lifecycle["unit_b"]["join_call_id"], "wait-1")
+        self.assertIn("joined", lifecycle["unit_a"]["phases"])
+        self.assertIn("joined", lifecycle["unit_b"]["phases"])
+        self.assertNotEqual(
+            lifecycle["unit_a"]["rollout_sha256"],
+            lifecycle["unit_b"]["rollout_sha256"],
+        )
+
+    def test_rollout_lifecycle_does_not_join_silent_sibling_from_global_wait(
+        self,
+    ) -> None:
+        spawns = [
+            ("spawn-a", "unit_a", "child-a"),
+            ("spawn-b", "unit_b", "child-b"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=spawns,
+                waits=[(False, ["unit_a"])],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        lifecycle = {item["task_name"]: item for item in parsed["lifecycle"]}
+        self.assertIn("joined", lifecycle["unit_a"]["phases"])
+        self.assertNotIn("joined", lifecycle["unit_b"]["phases"])
+        self.assertEqual(lifecycle["unit_a"]["join_call_id"], "wait-0")
+        self.assertIsNone(lifecycle["unit_b"]["join_call_id"])
+
+    def test_rollout_lifecycle_keeps_result_without_observable_join_unjoined(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[("spawn-a", "unit_a", "child-a")],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        child = parsed["lifecycle"][0]
+        self.assertEqual(child["phases"], ["spawned", "result"])
+        self.assertIsNone(child["join_call_id"])
+        self.assertIsNotNone(child["result_message_id"])
+
+    def test_rollout_lifecycle_accepts_child_specific_observable_join_without_wait(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[("spawn-a", "unit_a", "child-a")],
+                observable_joins=["unit_a"],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        child = parsed["lifecycle"][0]
+        self.assertIn("joined", child["phases"])
+        self.assertIsNone(child["join_call_id"])
+        self.assertEqual(child["join_source"], "parent-final-answer")
+
+    def test_rollout_lifecycle_rejects_join_for_unknown_child(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[("spawn-a", "unit_a", "child-a")],
+                waits=[(False, ["ghost"])],
+            )
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "join.*unknown|unknown.*join"
+            ):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+
+    def test_rollout_lifecycle_rejects_missing_spawn_or_child_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[("spawn-a", "unit_a", "child-a")],
+                children=[
+                    {
+                        "task_name": "unit_a",
+                        "actor_id": "child-a",
+                        "result": True,
+                        "usage": True,
+                    },
+                    {
+                        "task_name": "orphan",
+                        "actor_id": "child-orphan",
+                        "result": True,
+                        "usage": True,
+                    },
+                ],
+            )
+            with self.assertRaisesRegex(runner.LiveEvaluationError, "not linked"):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[
+                    ("spawn-a", "unit_a", "child-a"),
+                    ("spawn-b", "unit_b", "child-b"),
+                ],
+                children=[
+                    {
+                        "task_name": "unit_a",
+                        "actor_id": "child-a",
+                        "result": True,
+                        "usage": True,
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "rollout is missing"
+            ):
+                runner.parse_new_rollouts(home, {}, "parent-1")
+
+    def test_rollout_lifecycle_binds_multiple_waits_in_observed_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[
+                    ("spawn-a", "unit_a", "child-a"),
+                    ("spawn-b", "unit_b", "child-b"),
+                ],
+                waits=[(False, ["unit_b"]), (False, ["unit_a"])],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        lifecycle = {item["task_name"]: item for item in parsed["lifecycle"]}
+        self.assertEqual(lifecycle["unit_b"]["join_call_id"], "wait-0")
+        self.assertEqual(lifecycle["unit_a"]["join_call_id"], "wait-1")
+
+    def test_rollout_lifecycle_timeout_only_joins_observed_completed_child(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[
+                    ("spawn-a", "unit_a", "child-a"),
+                    ("spawn-b", "unit_b", "child-b"),
+                ],
+                waits=[(True, []), (False, ["unit_a"])],
+            )
+            parsed = runner.parse_new_rollouts(home, {}, "parent-1")
+
+        lifecycle = {item["task_name"]: item for item in parsed["lifecycle"]}
+        self.assertEqual(lifecycle["unit_a"]["join_call_id"], "wait-1")
+        self.assertNotIn("joined", lifecycle["unit_b"]["phases"])
+
+    def test_rollout_lifecycle_rejects_duplicate_task_or_actor_identity(self) -> None:
+        cases = [
+            [
+                ("spawn-a", "duplicate", "child-a"),
+                ("spawn-b", "duplicate", "child-b"),
+            ],
+            [
+                ("spawn-a", "unit_a", "same-child"),
+                ("spawn-b", "unit_b", "same-child"),
+            ],
+        ]
+        for spawns in cases:
+            with (
+                self.subTest(spawns=spawns),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                home = Path(temporary)
+                self._write_rollout_lifecycle(home, spawns=spawns)
+                with self.assertRaisesRegex(
+                    runner.LiveEvaluationError, "duplicate|one-to-one"
+                ):
+                    runner.parse_new_rollouts(home, {}, "parent-1")
+
+    def test_rollout_lifecycle_rejects_missing_child_token_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self._write_rollout_lifecycle(
+                home,
+                spawns=[
+                    ("spawn-a", "unit_a", "child-a"),
+                    ("spawn-b", "unit_b", "child-b"),
+                ],
+                children=[
+                    {
+                        "task_name": "unit_a",
+                        "actor_id": "child-a",
+                        "result": True,
+                        "usage": True,
+                    },
+                    {
+                        "task_name": "unit_b",
+                        "actor_id": "child-b",
+                        "result": True,
+                        "usage": False,
+                    },
+                ],
+            )
             with self.assertRaisesRegex(
                 runner.LiveEvaluationError, "final provider usage"
             ):
@@ -928,7 +1346,15 @@ class LiveAbRunnerTests(unittest.TestCase):
         )
 
         parsed["agent_lifecycle"][1]["phases"] = ["spawned", "result"]
-        self.assertFalse(runner.classify_agent_decision(parsed, "adaptive")["complete"])
+        incomplete = runner.classify_agent_decision(parsed, "adaptive")
+        self.assertFalse(incomplete["complete"])
+        self.assertFalse(incomplete["telemetry_observation_complete"])
+        self.assertEqual(incomplete["outcome"], "invalid")
+        self.assertIsNone(incomplete["agent_execution_receipt"]["controller_compliant"])
+        self.assertEqual(
+            incomplete["agent_execution_receipt"]["telemetry_status"],
+            "incomplete",
+        )
 
     def test_staged_verify_rejects_inverted_roles_and_same_actor(self) -> None:
         executor = {
@@ -1067,7 +1493,11 @@ class LiveAbRunnerTests(unittest.TestCase):
         }
         decision = runner.classify_agent_decision(parsed, "adaptive")
         self.assertFalse(decision["complete"])
-        self.assertEqual(decision["outcome"], "degraded")
+        self.assertEqual(decision["outcome"], "invalid")
+        self.assertEqual(
+            decision["agent_execution_receipt"]["telemetry_status"], "incomplete"
+        )
+        self.assertIsNone(decision["agent_execution_receipt"]["controller_compliant"])
 
     def test_codex_command_is_persistent_and_enables_multi_agent(self) -> None:
         command = runner.build_codex_command(

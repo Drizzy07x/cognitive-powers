@@ -286,10 +286,17 @@ class OrchestrationPolicyTests(unittest.TestCase):
             agent_signals(units=list(reversed(units)))
         )
 
-        self.assertEqual(one_worker["mode"], "solo")
-        self.assertEqual(one_worker["spawn_count"], 0)
+        self.assertEqual(one_worker["mode"], "parallel-read-only")
+        self.assertEqual(one_worker["spawn_count"], 5)
+        self.assertEqual(one_worker["max_concurrent_workers"], 1)
+        self.assertEqual(len(one_worker["waves"]), 5)
         self.assertEqual(capped["mode"], "parallel-read-only")
-        self.assertEqual(capped["spawn_count"], 3)
+        self.assertEqual(capped["spawn_count"], 5)
+        self.assertEqual(capped["max_concurrent_workers"], 3)
+        self.assertEqual(
+            [len(wave["assignments"]) for wave in capped["waves"]],
+            [3, 2],
+        )
         self.assertEqual(capped["max_depth"], 1)
         self.assertEqual(capped, reversed_result)
         assignment = capped["waves"][0]["assignments"][0]
@@ -762,6 +769,183 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(retry["retry_policy"]["target_assignment_id"], target)
         self.assertFalse(invalid["valid_input"])
 
+    def test_v2_worker_capacity_is_per_wave_and_does_not_reserve_future_verifier(
+        self,
+    ) -> None:
+        for slots, worker_count in ((2, 1), (3, 2), (4, 3)):
+            with self.subTest(slots=slots, worker_count=worker_count):
+                units = [
+                    unit(
+                        f"worker-{index}",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=[f"src/worker_{index}.py"],
+                    )
+                    for index in range(worker_count)
+                ]
+                plan = policy.select_agent_plan(
+                    agent_signals_v2(
+                        request_mode="change",
+                        phase="implement",
+                        authorization="change",
+                        delegated_change=True,
+                        packet_plan_valid=True,
+                        available_agent_slots=slots,
+                        units=units,
+                    )
+                )
+                worker_waves = [
+                    wave for wave in plan["waves"] if wave["kind"] != "verification"
+                ]
+                planned_workers = [
+                    assignment
+                    for wave in worker_waves
+                    for assignment in wave["assignments"]
+                ]
+
+                self.assertEqual(
+                    plan["mode"],
+                    "staged-verify" if worker_count == 1 else "parallel-packets",
+                )
+                self.assertEqual(plan["spawn_count"], worker_count)
+                self.assertEqual(plan["total_planned_agents"], worker_count + 1)
+                self.assertEqual(
+                    plan["max_concurrent_workers"],
+                    min(worker_count, slots - 1),
+                )
+                self.assertTrue(worker_waves)
+                self.assertTrue(
+                    all(len(wave["assignments"]) <= slots - 1 for wave in worker_waves)
+                )
+                self.assertEqual(
+                    {assignment["id"] for assignment in planned_workers},
+                    {item["id"] for item in units},
+                )
+                self.assertEqual(plan["waves"][-1]["kind"], "verification")
+                self.assertEqual(len(plan["waves"][-1]["assignments"]), 1)
+
+    def test_v2_complete_plan_uses_later_waves_instead_of_partial_selection(
+        self,
+    ) -> None:
+        for slots, unit_count in ((2, 2), (3, 2), (3, 3), (4, 3)):
+            with self.subTest(slots=slots, unit_count=unit_count):
+                units = [unit(f"lane-{index}") for index in range(unit_count)]
+                plan = policy.select_agent_plan(
+                    agent_signals_v2(
+                        available_agent_slots=slots,
+                        units=units,
+                    )
+                )
+                assignments = [
+                    assignment
+                    for wave in plan["waves"]
+                    for assignment in wave["assignments"]
+                ]
+
+                self.assertEqual(plan["mode"], "parallel-read-only")
+                self.assertEqual(plan["spawn_count"], unit_count)
+                self.assertEqual(
+                    {assignment["id"] for assignment in assignments},
+                    {item["id"] for item in units},
+                )
+                self.assertTrue(
+                    all(len(wave["assignments"]) <= slots - 1 for wave in plan["waves"])
+                )
+
+    def test_v2_complete_plan_preserves_topology_and_excludes_ineligible_units(
+        self,
+    ) -> None:
+        topological = policy.select_agent_plan(
+            agent_signals_v2(
+                available_agent_slots=3,
+                units=[
+                    unit("a"),
+                    unit("b", dependencies=["a"]),
+                    unit("c", dependencies=["b"]),
+                ],
+            )
+        )
+        layers = [
+            [assignment["id"] for assignment in wave["assignments"]]
+            for wave in topological["waves"]
+        ]
+        self.assertEqual(layers, [["a"], ["b"], ["c"]])
+
+        filtered = policy.select_agent_plan(
+            agent_signals_v2(
+                available_agent_slots=3,
+                units=[
+                    unit("ready-a"),
+                    unit("ready-b"),
+                    unit("not-ready", ready=False),
+                    unit("not-distinct", distinct_output=False),
+                ],
+            )
+        )
+        filtered_ids = {
+            assignment["id"]
+            for wave in filtered["waves"]
+            for assignment in wave["assignments"]
+        }
+        self.assertEqual(filtered_ids, {"ready-a", "ready-b"})
+        self.assertEqual(filtered["spawn_count"], 2)
+
+        blocked = policy.select_agent_plan(
+            agent_signals_v2(
+                available_agent_slots=3,
+                units=[
+                    unit("blocked-dependency", ready=False),
+                    unit("otherwise-ready", dependencies=["blocked-dependency"]),
+                    unit("independent"),
+                ],
+            )
+        )
+        self.assertEqual(blocked["mode"], "solo")
+        self.assertEqual(blocked["spawn_count"], 0)
+        self.assertTrue(
+            any(
+                term in " ".join(blocked["reasons"]).lower()
+                for term in ("unscheduled", "blocked", "dependency", "unsatisfied")
+            )
+        )
+
+    def test_v2_retry_selects_target_even_when_it_is_beyond_first_wave_capacity(
+        self,
+    ) -> None:
+        units = [unit("a"), unit("b"), unit("c")]
+        original = policy.select_agent_plan(
+            agent_signals_v2(available_agent_slots=4, units=units)
+        )
+        target = next(
+            assignment["assignment_id"]
+            for wave in original["waves"]
+            for assignment in wave["assignments"]
+            if assignment["id"] == "c"
+        )
+        retry = policy.select_agent_plan(
+            agent_signals_v2(
+                available_agent_slots=2,
+                units=units,
+                retry_record={
+                    "failed_assignment_id": target,
+                    "failure_class": "tool",
+                    "evidence": "worker command timed out",
+                    "attempts": 0,
+                },
+            )
+        )
+        workers = [
+            assignment
+            for wave in retry["waves"]
+            if wave["kind"] != "verification"
+            for assignment in wave["assignments"]
+        ]
+        self.assertEqual(
+            [assignment["assignment_id"] for assignment in workers], [target]
+        )
+        self.assertEqual(retry["spawn_count"], 1)
+        self.assertEqual(retry["max_concurrent_workers"], 1)
+
     def test_v2_result_validation_binds_plan_ownership_and_execution(self) -> None:
         plan = policy.select_agent_plan(
             agent_signals_v2(
@@ -792,6 +976,7 @@ class OrchestrationPolicyTests(unittest.TestCase):
             "actor_id": "worker-a",
             "role": assignment["role"],
             "permissions": assignment["permissions"],
+            "ownership": assignment["ownership"],
             "delegation_depth": assignment["delegation_depth"],
             "dependencies": assignment["dependencies"],
             "status": "completed",
@@ -806,6 +991,47 @@ class OrchestrationPolicyTests(unittest.TestCase):
                 "plan": plan,
                 "assignment_id": assignment["assignment_id"],
                 "result": result,
+            }
+        )
+        execution_context = {
+            "schema_version": 1,
+            "source_sha256": "c" * 64,
+            "actor_bindings": {
+                assignment["assignment_id"]: result["actor_id"],
+            },
+            "worker_results": [],
+        }
+        eligible = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": result,
+                "execution_context": execution_context,
+            }
+        )
+        missing_source = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": result,
+                "execution_context": {
+                    **execution_context,
+                    "source_sha256": None,
+                },
+            }
+        )
+        missing_actor_binding = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": result,
+                "execution_context": {
+                    **execution_context,
+                    "actor_bindings": {},
+                },
             }
         )
         outside = policy.validate_worker_result(
@@ -829,9 +1055,121 @@ class OrchestrationPolicyTests(unittest.TestCase):
         )
 
         self.assertTrue(valid["valid"])
-        self.assertTrue(valid["durable_claim_eligible"])
+        self.assertFalse(valid["durable_claim_eligible"])
+        self.assertTrue(eligible["valid"])
+        self.assertTrue(eligible["durable_claim_eligible"])
+        self.assertTrue(missing_source["valid"])
+        self.assertFalse(missing_source["durable_claim_eligible"])
+        self.assertTrue(missing_actor_binding["valid"])
+        self.assertFalse(missing_actor_binding["durable_claim_eligible"])
         self.assertFalse(outside["valid"])
         self.assertFalse(failed_completion["valid"])
+
+    def test_v2_result_requires_declared_check_exact_assignment_and_explicit_noop(
+        self,
+    ) -> None:
+        plan = policy.select_agent_plan(
+            agent_signals_v2(
+                request_mode="change",
+                phase="implement",
+                authorization="change",
+                packet_plan_valid=True,
+                units=[
+                    unit(
+                        "a",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=["src/a.py"],
+                    ),
+                    unit(
+                        "b",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=["src/b.py"],
+                    ),
+                ],
+            )
+        )
+        assignment = plan["waves"][0]["assignments"][0]
+        result = {
+            "plan_id": plan["plan_id"],
+            "assignment_id": assignment["assignment_id"],
+            "actor_id": "worker-a",
+            "role": assignment["role"],
+            "permissions": assignment["permissions"],
+            "ownership": assignment["ownership"],
+            "delegation_depth": assignment["delegation_depth"],
+            "dependencies": assignment["dependencies"],
+            "status": "completed",
+            "changed_paths": ["src/a.py"],
+            "commands": [{"argv": assignment["check"], "exit_code": 0}],
+            "blockers": [],
+            "risks": [],
+        }
+        context = {
+            "schema_version": 1,
+            "source_sha256": "d" * 64,
+            "actor_bindings": {
+                assignment["assignment_id"]: result["actor_id"],
+            },
+            "worker_results": [],
+        }
+
+        wrong_check = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": {
+                    **result,
+                    "commands": [
+                        {
+                            "argv": ["python", "-c", "print('not the check')"],
+                            "exit_code": 0,
+                        }
+                    ],
+                },
+                "execution_context": context,
+            }
+        )
+        wrong_ownership = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": {**result, "ownership": ["src/b.py"]},
+                "execution_context": context,
+            }
+        )
+        ambiguous_empty_write = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": {**result, "changed_paths": []},
+                "execution_context": context,
+            }
+        )
+        explicit_noop = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": assignment["assignment_id"],
+                "result": {
+                    **result,
+                    "status": "no-op",
+                    "changed_paths": [],
+                    "no_op_reason": "Required behavior was already present and the check confirms it.",
+                },
+                "execution_context": context,
+            }
+        )
+
+        self.assertFalse(wrong_check["valid"])
+        self.assertFalse(wrong_ownership["valid"])
+        self.assertFalse(ambiguous_empty_write["valid"])
+        self.assertTrue(explicit_noop["valid"])
+        self.assertTrue(explicit_noop["durable_claim_eligible"])
 
     def test_v2_verifier_statuses_are_separate_and_self_verification_fails(
         self,
@@ -849,6 +1187,7 @@ class OrchestrationPolicyTests(unittest.TestCase):
             "actor_id": "independent-verifier",
             "role": "verifier",
             "permissions": "read-only",
+            "ownership": verifier["ownership"],
             "delegation_depth": 1,
             "dependencies": verifier["dependencies"],
             "status": "confirmed",
@@ -858,7 +1197,40 @@ class OrchestrationPolicyTests(unittest.TestCase):
             "risks": [],
             "verified_assignment_ids": worker_ids,
         }
-        valid = policy.validate_worker_result(
+        worker_assignments = [
+            assignment
+            for wave in plan["waves"][:-1]
+            for assignment in wave["assignments"]
+        ]
+        worker_results = [
+            {
+                "plan_id": plan["plan_id"],
+                "assignment_id": assignment["assignment_id"],
+                "actor_id": f"actor-worker-{index}",
+                "role": assignment["role"],
+                "permissions": assignment["permissions"],
+                "ownership": assignment["ownership"],
+                "delegation_depth": assignment["delegation_depth"],
+                "dependencies": assignment["dependencies"],
+                "status": "completed",
+                "changed_paths": [],
+                "commands": [{"argv": assignment["check"], "exit_code": 0}],
+                "blockers": [],
+                "risks": [],
+            }
+            for index, assignment in enumerate(worker_assignments)
+        ]
+        actor_bindings = {
+            item["assignment_id"]: item["actor_id"] for item in worker_results
+        }
+        actor_bindings[verifier["assignment_id"]] = result["actor_id"]
+        execution_context = {
+            "schema_version": 1,
+            "source_sha256": "e" * 64,
+            "actor_bindings": actor_bindings,
+            "worker_results": worker_results,
+        }
+        legacy_compatible = policy.validate_worker_result(
             {
                 "schema_version": 2,
                 "plan": plan,
@@ -866,18 +1238,50 @@ class OrchestrationPolicyTests(unittest.TestCase):
                 "result": result,
             }
         )
+        valid = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": verifier["assignment_id"],
+                "result": result,
+                "execution_context": execution_context,
+            }
+        )
         self_verify = policy.validate_worker_result(
             {
                 "schema_version": 2,
                 "plan": plan,
                 "assignment_id": verifier["assignment_id"],
-                "result": {**result, "actor_id": verifier["must_be_distinct_from"][0]},
+                "result": {**result, "actor_id": worker_results[0]["actor_id"]},
+                "execution_context": {
+                    **execution_context,
+                    "actor_bindings": {
+                        **actor_bindings,
+                        verifier["assignment_id"]: worker_results[0]["actor_id"],
+                    },
+                },
+            }
+        )
+        partial_coverage = policy.validate_worker_result(
+            {
+                "schema_version": 2,
+                "plan": plan,
+                "assignment_id": verifier["assignment_id"],
+                "result": {
+                    **result,
+                    "verified_assignment_ids": worker_ids[:1],
+                },
+                "execution_context": execution_context,
             }
         )
 
+        self.assertTrue(legacy_compatible["valid"])
+        self.assertFalse(legacy_compatible["durable_claim_eligible"])
         self.assertTrue(valid["valid"])
         self.assertEqual(valid["status"], "confirmed")
+        self.assertTrue(valid["durable_claim_eligible"])
         self.assertFalse(self_verify["valid"])
+        self.assertFalse(partial_coverage["valid"])
 
     def test_agent_fixture_covers_all_modes_and_cli(self) -> None:
         report = policy.evaluate_agent_cases(AGENT_CASES_PATH)
