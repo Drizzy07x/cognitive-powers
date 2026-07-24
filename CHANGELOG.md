@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.5.2 - 2026-07-24
+
+- Prevented adaptive-plan resumptions from rescheduling units already listed in `completed_unit_ids`.
+- Made private and local Codex installations mutually exclusive, pinned the private marketplace to immutable ref `v1.5.2`, enforced a fail-closed exact source allowlist and tag preflight, removed duplicate Cognitive Powers entries, and verified exactly one enabled instance.
+- Scoped doctor Git cleanliness checks to the diagnosed plugin root so unrelated parent-repository changes cannot contaminate the result.
+- Ignored Codex host-generated `.codex-marketplace-install.json` metadata in source/package identity and Git cleanliness reporting without hiding real tracked changes.
+- Added the host metadata file to the plugin ignore rules so marketplace upgrades remain clean and reproducible.
 - Made `tests` an importable package so the canonical targeted `unittest` command used by `validate_all.py`, CI, and the README resolves the repository's test modules reliably.
 - Prevented hook-lock contention and stale-file races from silently dropping edit events by moving hashes outside the critical section and using bounded, owner-safe OS file locks.
 - Expanded offline CI to Ubuntu, Windows, and macOS with explicit OS-lock coverage before the canonical validator.

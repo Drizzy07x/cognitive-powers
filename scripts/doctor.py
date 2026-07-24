@@ -28,6 +28,7 @@ PACKAGE_IGNORED_PARTS = SOURCE_IGNORED_PARTS | {
     "playwright-report",
     "test-results",
 }
+HOST_METADATA_FILES = {".codex-marketplace-install.json"}
 
 
 class DoctorError(ValueError):
@@ -49,6 +50,8 @@ def _iter_files(root: Path, ignored_parts: set[str]) -> Iterable[Path]:
         if not path.is_file() or path.is_symlink():
             continue
         relative = path.relative_to(root)
+        if relative.as_posix() in HOST_METADATA_FILES:
+            continue
         if any(part in ignored_parts for part in relative.parts):
             continue
         if path.suffix.lower() in {".pyc", ".pyo"}:
@@ -96,6 +99,8 @@ def git_identity(root: Path) -> dict[str, Any]:
                 "status",
                 "--porcelain=v1",
                 "--untracked-files=all",
+                "--",
+                ".",
             ],
             capture_output=True,
             text=True,
@@ -113,12 +118,17 @@ def git_identity(root: Path) -> dict[str, Any]:
         or any(character not in "0123456789abcdef" for character in sha)
     ):
         return {"available": False, "reason": "root has no readable Git HEAD"}
-    entries = [line for line in status.stdout.splitlines() if line]
+    all_entries = [line for line in status.stdout.splitlines() if line]
+    ignored_host_entries = [
+        line for line in all_entries if line == "?? .codex-marketplace-install.json"
+    ]
+    entries = [line for line in all_entries if line not in ignored_host_entries]
     return {
         "available": True,
         "sha": sha,
         "dirty": bool(entries),
         "statusEntryCount": len(entries),
+        "ignoredHostEntries": ignored_host_entries,
     }
 
 

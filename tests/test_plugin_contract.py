@@ -16,7 +16,7 @@ class PluginContractTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.5.1")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.5.2")
         self.assertEqual(manifest["skills"], "./skills-core/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
@@ -252,17 +252,27 @@ class PluginContractTests(unittest.TestCase):
             '$ErrorActionPreference = "Stop"',
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',
-            '$expectedVersion = "1.5.1"',
+            '$pluginName = "cognitive-powers"',
+            '$expectedVersion = "1.5.2"',
+            '$releaseRef = "v$expectedVersion"',
+            "$allowedSources = @(",
+            "[string]::IsNullOrWhiteSpace($configuredSource)",
+            "$allowedSources -notcontains $configuredSource",
+            '"plugin", "marketplace", "remove", $marketplace',
+            '"plugin", "marketplace", "add", $repository, "--ref", $releaseRef',
             '"auth", "setup-git"',
+            '"api", "repos/$repository/git/ref/tags/$releaseRef", "--silent"',
             '"plugin", "marketplace", "add"',
-            '"plugin", "marketplace", "upgrade"',
             '"plugin", "add", $pluginId',
+            '"plugin", "remove", $duplicate.pluginId',
+            "$enabledMatches.Count -ne 1",
         ]
         for fragment in required_fragments:
             self.assertIn(fragment, installer)
 
         self.assertNotIn("gho_", installer)
         self.assertNotIn("github_pat_", installer)
+        self.assertNotIn('"--ref", "main"', installer)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [

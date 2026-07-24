@@ -270,6 +270,28 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertIn("boundaries", unclear["reasons"][0])
         self.assertIn("cheaper local", cheaper["reasons"][0])
 
+    def test_v2_completed_units_are_not_rescheduled(self) -> None:
+        plan = policy.select_agent_plan(
+            agent_signals_v2(
+                quality_claim=True,
+                available_agent_slots=2,
+                completed_unit_ids=["done"],
+                units=[
+                    unit("done"),
+                    unit("next", dependencies=["done"]),
+                ],
+            )
+        )
+        worker_ids = [
+            assignment["id"]
+            for wave in plan["waves"]
+            if wave["kind"] != "verification"
+            for assignment in wave["assignments"]
+        ]
+
+        self.assertEqual(worker_ids, ["next"])
+        self.assertEqual(plan["spawn_count"], 1)
+
     def test_diagnosis_reproduces_before_parallel_investigation(self) -> None:
         result = policy.select_agent_plan(agent_signals(symptom_reproduced=False))
 

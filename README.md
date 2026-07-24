@@ -134,18 +134,19 @@ The repository is private, so GitHub CLI must be installed and authenticated wit
 & ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.5.1` is enabled. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, replaces the `cognitive-powers` marketplace with the immutable `v1.5.2` ref, removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.5.2` entry is enabled. Restart Codex before starting a new task.
 
 ## Update the local development installation
 
-After the source version passes validation, refresh the configured local marketplace installation through Codex itself:
+The private and local-development routes are mutually exclusive: only one enabled installation of `cognitive-powers` may exist. To switch to the local checkout after its source version passes validation, remove the private-marketplace installation first:
 
 ```powershell
+codex plugin remove cognitive-powers@cognitive-powers --json
 codex plugin add cognitive-powers@personal --json
 codex plugin list --json
 ```
 
-The installed entry must report the same version as `.codex-plugin/plugin.json`. This local-development route is separate from the private GitHub installer above.
+The installed entry must report the same version as `.codex-plugin/plugin.json`, and `codex plugin list --json` must show exactly one installed and enabled entry named `cognitive-powers`. Running the private GitHub installer later removes the local-development entry before installing the private release.
 
 ## Doctor
 

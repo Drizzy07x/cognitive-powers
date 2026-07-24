@@ -656,7 +656,11 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
             schema_version=schema_version,
         )
 
-    candidates = [unit for unit in units if unit["ready"] and unit["distinct_output"]]
+    candidates = [
+        unit
+        for unit in units
+        if unit["id"] not in completed and unit["ready"] and unit["distinct_output"]
+    ]
     if phase in {"discover", "diagnose"}:
         candidates = [unit for unit in candidates if unit["read_only"]]
     elif phase == "implement":

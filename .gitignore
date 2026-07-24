@@ -8,3 +8,4 @@ benchmark-results/
 blob-report/
 playwright-report/
 test-results/
+.codex-marketplace-install.json

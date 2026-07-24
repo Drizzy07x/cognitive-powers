@@ -150,9 +150,41 @@ class DoctorTests(unittest.TestCase):
             source = root / "source.txt"
             source.write_text("first", encoding="utf-8")
             before = doctor.source_identity(root)
+            (root / ".codex-marketplace-install.json").write_text(
+                json.dumps({"installed": True}), encoding="utf-8"
+            )
+            after_host_metadata = doctor.source_identity(root)
             source.write_text("second", encoding="utf-8")
             after = doctor.source_identity(root)
+        self.assertEqual(before, after_host_metadata)
         self.assertNotEqual(before["sha256"], after["sha256"])
+
+    def test_git_identity_ignores_only_codex_marketplace_metadata(self) -> None:
+        completed = doctor.subprocess.CompletedProcess
+        with mock.patch.object(
+            doctor.subprocess,
+            "run",
+            side_effect=[
+                completed(["git"], 0, stdout="a" * 40 + "\n", stderr=""),
+                completed(
+                    ["git"],
+                    0,
+                    stdout=(
+                        "?? .codex-marketplace-install.json\n M tracked-source.py\n"
+                    ),
+                    stderr="",
+                ),
+            ],
+        ) as run:
+            identity = doctor.git_identity(Path("plugin"))
+
+        self.assertEqual(run.call_args_list[1].args[0][-2:], ["--", "."])
+        self.assertTrue(identity["dirty"])
+
+        self.assertEqual(
+            identity["ignoredHostEntries"],
+            ["?? .codex-marketplace-install.json"],
+        )
 
     def test_release_installation_uses_disposable_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
