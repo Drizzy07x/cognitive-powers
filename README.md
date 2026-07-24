@@ -238,6 +238,15 @@ Run the complete declared offline surface with one command. The JSON receipt mus
 
 The command fails closed when Git has no real HEAD, the worktree is dirty, source identity changes during execution, a declared command is missing, or any real exit code is nonzero. It records offline and live status separately and never runs live checks by default.
 
+GitHub Actions treats the blocking `validate_all.py` result as the code check and
+reports receipt publication separately. The workflow always prints the receipt
+SHA-256, bound Git/source identities, and failed-command tails. Artifact upload is
+non-blocking for the PR check because repository quota is external to code
+validation, but it is never relabeled as successful: `receipt_uploaded=false`
+blocks release preparation. A green validation check does not mean release-ready;
+that claim still requires preserving the receipt through a valid channel and
+creating an independent release witness.
+
 The canonical offline surface executed by that entrypoint is listed below and checked against the orchestrator by tests:
 
 ```powershell

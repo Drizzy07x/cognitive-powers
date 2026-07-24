@@ -29,32 +29,24 @@ jobs:
         run: >-
           python scripts/validate_all.py --offline
           --json-output "${{ runner.temp }}/cognitive-powers-validation.json"
+      - name: Report validation receipt
+        id: receipt-report
+        if: always()
+        run: >-
+          python scripts/report_validation_receipt.py
+          --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
       - name: Preserve validation receipt
         id: receipt-upload
-        if: always()
+        if: always() && steps.receipt-report.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: validation-${{ matrix.os }}-py${{ matrix.python }}
           path: ${{ runner.temp }}/cognitive-powers-validation.json
           if-no-files-found: error
-      - name: Report validation and publication status
+      - name: Report validation and artifact publication status
         if: always()
-        shell: python
-        env:
-          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
-          ARTIFACT_PUBLICATION_OUTCOME: ${{ steps.receipt-upload.outcome }}
-        run: |
-          import os
-          from pathlib import Path
-
-          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-          with summary.open("a", encoding="utf-8") as stream:
-              stream.write("## Offline validation result\n\n")
-              stream.write(
-                  f"- Validation: `{os.environ['VALIDATION_OUTCOME']}`\n"
-              )
-              stream.write(
-                  "- Artifact publication: "
-                  f"`{os.environ['ARTIFACT_PUBLICATION_OUTCOME']}`\n"
-              )
+        run: >-
+          python scripts/report_validation_receipt.py
+          --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
+          --publication-outcome "${{ steps.receipt-upload.outcome }}"
