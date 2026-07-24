@@ -1626,7 +1626,15 @@ class LiveAbRunnerTests(unittest.TestCase):
                 {"source_root": str(source), "installed_root": str(installed)},
             )
 
-            self.assertEqual(roots, [explicit, source, fixture, installed])
+            self.assertEqual(
+                roots,
+                [
+                    runner._resolved(explicit),
+                    runner._resolved(source),
+                    runner._resolved(fixture),
+                    runner._resolved(installed),
+                ],
+            )
 
     def test_guard_postflight_rejects_runtime_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

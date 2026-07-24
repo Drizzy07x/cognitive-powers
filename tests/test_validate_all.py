@@ -71,7 +71,9 @@ class ValidateAllTests(unittest.TestCase):
             "- name: Run the canonical offline validation entrypoint"
         )
         upload_step = workflow.index("- name: Preserve validation receipt")
-        summary_step = workflow.index("- name: Report validation and publication status")
+        summary_step = workflow.index(
+            "- name: Report validation and publication status"
+        )
         self.assertLess(validation_step, upload_step)
         self.assertLess(upload_step, summary_step)
         self.assertNotIn(

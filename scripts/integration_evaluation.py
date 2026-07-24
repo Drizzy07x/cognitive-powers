@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import random
+import stat
 import statistics
 from collections import Counter
 from pathlib import Path
@@ -336,6 +337,19 @@ def load_controller_protocol(path: Path) -> dict[str, Any]:
     }
 
 
+def _contains_link_or_reparse(root: Path, item: Path) -> bool:
+    current = root
+    for part in item.relative_to(root).parts:
+        current /= part
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or (
+            getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        ):
+            return True
+    return False
+
+
 def _artifact_sha256(path: Path) -> str:
     if path.is_file():
         data = path.read_bytes()
@@ -346,6 +360,10 @@ def _artifact_sha256(path: Path) -> str:
         files: dict[str, str] = {}
         resolved_root = path.resolve()
         for item in sorted(path.rglob("*")):
+            if _contains_link_or_reparse(path, item):
+                raise EvaluationError(
+                    f"artifact directory contains a link or reparse alias: {item.name}"
+                )
             if not item.is_file():
                 continue
             resolved_item = item.resolve()
@@ -355,10 +373,6 @@ def _artifact_sha256(path: Path) -> str:
                 raise EvaluationError(
                     f"artifact directory entry escapes its root: {item.name}"
                 ) from error
-            if item.is_symlink() or resolved_item != item.absolute():
-                raise EvaluationError(
-                    f"artifact directory contains a link or reparse alias: {item.name}"
-                )
             files[item.relative_to(path).as_posix()] = hashlib.sha256(
                 item.read_bytes()
             ).hexdigest()
