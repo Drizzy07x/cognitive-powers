@@ -222,6 +222,29 @@ def validation_inventory(root: Path) -> dict[str, Any]:
     }
 
 
+def local_usage_counter_policy() -> dict[str, Any]:
+    """Report the deliberate absence of a privacy-safe local counter seam."""
+    return {
+        "status": "abstained",
+        "reasonCode": "no-privacy-safe-natural-seam",
+        "implemented": False,
+        "writesLocalState": False,
+        "prohibitedFields": [
+            "prompts",
+            "commands",
+            "outputs",
+            "paths",
+            "identifiers",
+        ],
+        "controls": [],
+        "reason": (
+            "Existing hooks and durable receipts contain prohibited contextual "
+            "fields; adding counters there would create misleading telemetry or "
+            "broaden the plugin's write surface."
+        ),
+    }
+
+
 def _declared_path(root: Path, value: str) -> Path:
     path = (root / value).resolve()
     try:
@@ -532,6 +555,7 @@ def build_report(root: Path, *, validate_installation: bool = False) -> dict[str
         "source": source_identity(root),
         "optionalProviders": provider_declarations(root),
         "validation": validation_inventory(root),
+        "localUsageCounters": local_usage_counter_policy(),
     }
     if validate_installation:
         report["installationValidation"] = validate_release_installation(root)
@@ -555,6 +579,7 @@ def _print_human(report: dict[str, Any]) -> None:
         "validation: "
         f"{'available' if report['validation']['available'] else 'incomplete'}"
     )
+    print(f"local usage counters: {report['localUsageCounters']['status']}")
     if "installationValidation" in report:
         status = "passed" if report["installationValidation"]["passed"] else "failed"
         print(f"temporary installation: {status}")

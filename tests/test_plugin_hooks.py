@@ -350,6 +350,150 @@ class PluginHookTests(unittest.TestCase):
         warning = json.loads(result.stdout)["systemMessage"]
         self.assertIn("hash changed", warning)
 
+    def test_hash_chain_corruption_properties_fail_closed(self) -> None:
+        for index in range(3):
+            payload = self.payload()
+            payload["turnId"] = f"turn-{index}"
+            self.run_hook("post-tool-use", payload)
+        original = self.ledger().read_text(encoding="utf-8").splitlines()
+
+        def event_hash(event: dict[str, object]) -> str:
+            unsigned = dict(event)
+            unsigned.pop("eventHash", None)
+            canonical = json.dumps(
+                unsigned,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return hashlib.sha256(canonical).hexdigest()
+
+        def changed_hash(lines: list[str]) -> list[str]:
+            events = [json.loads(line) for line in lines]
+            events[1]["cwd"] = str(self.base / "tampered")
+            return [json.dumps(event) for event in events]
+
+        def broken_link(lines: list[str]) -> list[str]:
+            events = [json.loads(line) for line in lines]
+            events[1]["previousEventHash"] = "f" * 64
+            events[1]["eventHash"] = event_hash(events[1])
+            return [json.dumps(event) for event in events]
+
+        def reordered(lines: list[str]) -> list[str]:
+            return [lines[1], lines[0], *lines[2:]]
+
+        cases = (
+            ("hash changed", changed_hash(original), "hash changed"),
+            ("chain link", broken_link(original), "breaks the hash chain"),
+            ("reordered", reordered(original), "breaks the hash chain"),
+            ("truncated", [*original[:1], '{"schema":'], "not JSON"),
+        )
+        for name, lines, expected in cases:
+            with self.subTest(case=name):
+                self.ledger().write_text("\n".join(lines) + "\n", encoding="utf-8")
+                result = self.run_hook(
+                    "stop", {"sessionId": "session/with unsafe characters"}
+                )
+                warning = json.loads(result.stdout)["systemMessage"]
+                self.assertIn(expected, warning)
+
+    def test_traversal_and_symlink_candidates_never_escape_cwd(self) -> None:
+        outside = self.base / "outside"
+        outside.mkdir()
+        secret = outside / "secret.txt"
+        secret.write_text("do-not-record", encoding="utf-8")
+        candidates = (
+            "../outside/secret.txt",
+            str(secret),
+            "nested/../../outside/secret.txt",
+        )
+        for index, candidate in enumerate(candidates):
+            payload = self.payload("Write")
+            payload["turnId"] = f"traversal-{index}"
+            payload["toolInput"] = {"file_path": candidate}
+            result = self.run_hook("post-tool-use", payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        link = self.repo / "linked-outside"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            link = None
+        if link is not None:
+            payload = self.payload("Write")
+            payload["turnId"] = "symlink"
+            payload["toolInput"] = {"file_path": "linked-outside/secret.txt"}
+            result = self.run_hook("post-tool-use", payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertTrue(events)
+        self.assertTrue(all(event["files"] == [] for event in events))
+        self.assertNotIn(
+            "do-not-record",
+            self.ledger().read_text(encoding="utf-8"),
+        )
+
+    def test_short_lock_contention_does_not_silently_drop_event(self) -> None:
+        lock = self.ledger().with_suffix(self.ledger().suffix + ".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os, pathlib, sys, time\n"
+                    "path = pathlib.Path(sys.argv[1])\n"
+                    "handle = path.open('a+b')\n"
+                    "handle.seek(0, os.SEEK_END)\n"
+                    "if handle.tell() == 0:\n"
+                    "    handle.write(b'\\0'); handle.flush()\n"
+                    "handle.seek(0)\n"
+                    "if os.name == 'nt':\n"
+                    "    import msvcrt\n"
+                    "    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)\n"
+                    "else:\n"
+                    "    import fcntl\n"
+                    "    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)\n"
+                    "print('ready', flush=True)\n"
+                    "time.sleep(2.2)\n"
+                    "if os.name == 'nt':\n"
+                    "    handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)\n"
+                    "else:\n"
+                    "    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)\n"
+                    "handle.close()\n"
+                ),
+                str(lock),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert holder.stdout is not None
+        self.assertEqual(holder.stdout.readline().strip(), "ready")
+        try:
+            result = self.run_hook("post-tool-use", self.payload())
+        finally:
+            _stdout, stderr = holder.communicate(timeout=10)
+        self.assertEqual(holder.returncode, 0, stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self.ledger().read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(events), 1)
+
+    def test_unlocked_residual_lock_file_does_not_block_event(self) -> None:
+        lock = self.ledger().with_suffix(self.ledger().suffix + ".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("stale-owner\n", encoding="utf-8")
+
+        result = self.run_hook("post-tool-use", self.payload())
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self.ledger().read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(events), 1)
+
     def test_concurrent_events_preserve_one_valid_hash_chain(self) -> None:
         source = self.repo / "src" / "example.py"
         source.parent.mkdir()

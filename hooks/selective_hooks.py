@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import hashlib
 import importlib.util
 import json
@@ -21,8 +22,7 @@ SCHEMA = "cognitive-powers.edit-event.v1"
 RECEIPT_SCHEMA = "cognitive-powers.validation-receipt.v1"
 MAX_STDIN_BYTES = 2 * 1024 * 1024
 MAX_HASH_BYTES = 32 * 1024 * 1024
-LOCK_TIMEOUT_SECONDS = 2.0
-LOCK_STALE_SECONDS = 30.0
+LOCK_TIMEOUT_SECONDS = 5.0
 SUPPORTED_TOOLS = {
     "apply_patch",
     "edit",
@@ -112,33 +112,51 @@ def _ledger_lock(ledger: Path) -> Iterator[None]:
     ledger.parent.mkdir(parents=True, exist_ok=True)
     lock = ledger.with_suffix(ledger.suffix + ".lock")
     deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
-            finally:
-                os.close(descriptor)
-        except FileExistsError:
-            try:
-                age = max(0.0, time.time() - lock.stat().st_mtime)
-            except FileNotFoundError:
-                continue
-            if age >= LOCK_STALE_SECONDS:
+    with lock.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+
+        if os.name == "nt":
+            import msvcrt
+
+            while True:
                 try:
-                    lock.unlink()
-                    continue
-                except (FileNotFoundError, PermissionError):
-                    pass
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"timed out waiting for hook ledger lock: {lock}")
-            time.sleep(0.02)
-    try:
-        yield
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock.unlink()
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out waiting for hook ledger lock: {lock}"
+                        ) from error
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as error:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out waiting for hook ledger lock: {lock}"
+                        ) from error
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _read_payload() -> dict[str, Any] | None:
@@ -237,12 +255,13 @@ def post_tool_use(payload: dict[str, Any]) -> None:
     cwd = Path(cwd_value).expanduser().resolve()
     if not cwd.is_dir() or _inside(data_root, cwd):
         return
+    tool_input = _tool_input(payload)
+    files = _file_records(cwd, _candidate_paths(tool_name, tool_input))
     ledger = _ledger_path(data_root, session_id)
     with _ledger_lock(ledger):
         events, error = _read_ledger(ledger)
         if error:
             return
-        tool_input = _tool_input(payload)
         event: dict[str, Any] = {
             "schema": SCHEMA,
             "sessionId": session_id,
@@ -250,7 +269,7 @@ def post_tool_use(payload: dict[str, Any]) -> None:
             "event": "PostToolUse",
             "tool": tool_name,
             "cwd": str(cwd),
-            "files": _file_records(cwd, _candidate_paths(tool_name, tool_input)),
+            "files": files,
             "recordedAt": datetime.now(timezone.utc).isoformat(),
             "previousEventHash": events[-1]["eventHash"] if events else None,
         }

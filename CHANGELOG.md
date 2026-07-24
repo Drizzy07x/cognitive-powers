@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Made `tests` an importable package so the canonical targeted `unittest` command used by `validate_all.py`, CI, and the README resolves the repository's test modules reliably.
+- Prevented hook-lock contention and stale-file races from silently dropping edit events by moving hashes outside the critical section and using bounded, owner-safe OS file locks.
+- Expanded offline CI to Ubuntu, Windows, and macOS with explicit OS-lock coverage before the canonical validator.
+- Added fail-closed durability fault/property tests, a read-only schema-migration doctor, and deterministic offline durability benchmarks without provider or model claims.
+- Documented skill selection, operations, and the explicit abstention from local usage counters because no privacy-safe natural persistence seam exists.
+
 ## 1.5.1 - 2026-07-22
 
 - Pinned the offline validation dependency and made both CI and the documented local workflow install it explicitly.

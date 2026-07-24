@@ -39,6 +39,7 @@ EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("ruff-check", ("-m", "ruff", "check", ".")),
     ("ruff-format", ("-m", "ruff", "format", "--check", ".")),
     ("core-benchmarks", ("scripts/run_benchmarks.py",)),
+    ("durability-benchmarks", ("scripts/run_durability_benchmarks.py",)),
     ("communication-benchmarks", ("scripts/run_communication_benchmarks.py",)),
     ("design-benchmarks", ("scripts/run_design_benchmarks.py",)),
     ("capability-benchmarks", ("scripts/run_capability_benchmarks.py",)),

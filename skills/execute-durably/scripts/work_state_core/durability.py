@@ -16,7 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 SCHEMA_VERSION = 1
+MIGRATION_POLICY_SCHEMA_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 10.0
 LOCK_STALE_SECONDS = 30.0
 OUTPUT_TAIL_CHARS = 8_000
@@ -393,7 +399,55 @@ def _read_lock_identity(
     )
 
 
-def _unlink_lock_if_identity(lock_path: Path, identity: str) -> bool:
+def _try_lock_guard(descriptor: int) -> bool:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    try:
+        if os.name == "nt":
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+            return False
+        raise
+    return True
+
+
+def _unlock_guard(descriptor: int) -> None:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    if os.name == "nt":
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _state_lock_guard(lock_path: Path) -> Iterator[None]:
+    """Serialize lock-file generation changes; the OS releases this on crash."""
+    guard_path = lock_path.with_name(f"{lock_path.name}.guard")
+    descriptor = os.open(guard_path, os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
+    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+        while not acquired:
+            acquired = _try_lock_guard(descriptor)
+            if acquired:
+                break
+            if time.monotonic() >= deadline:
+                raise WorkStateError(
+                    f"timed out waiting for state lock guard: {guard_path}"
+                )
+            time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            _unlock_guard(descriptor)
+        os.close(descriptor)
+
+
+def _unlink_lock_if_identity_guarded(lock_path: Path, identity: str) -> bool:
     try:
         current = hashlib.sha256(lock_path.read_bytes()).hexdigest()
     except FileNotFoundError:
@@ -407,6 +461,11 @@ def _unlink_lock_if_identity(lock_path: Path, identity: str) -> bool:
     return True
 
 
+def _unlink_lock_if_identity(lock_path: Path, identity: str) -> bool:
+    with _state_lock_guard(lock_path):
+        return _unlink_lock_if_identity_guarded(lock_path, identity)
+
+
 @contextlib.contextmanager
 def session_lock(session_dir: Path) -> Iterator[None]:
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -415,51 +474,66 @@ def session_lock(session_dir: Path) -> Iterator[None]:
     descriptor: int | None = None
     token = secrets.token_hex(16)
     while descriptor is None:
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        reclaimed = False
+        with _state_lock_guard(lock_path):
             try:
-                payload = {
-                    "schema_version": 1,
-                    "pid": os.getpid(),
-                    "token": token,
-                    "process_identity": _process_identity(os.getpid()),
-                    "created_at": utc_now(),
-                }
-                lock_bytes = (json.dumps(payload, sort_keys=True) + "\n").encode(
-                    "utf-8"
+                descriptor = os.open(
+                    lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
                 )
-                written = 0
-                while written < len(lock_bytes):
-                    count = os.write(descriptor, lock_bytes[written:])
-                    if count <= 0:
-                        raise OSError("lock identity write made no progress")
-                    written += count
-                os.fsync(descriptor)
-            except OSError:
-                os.close(descriptor)
-                descriptor = None
-                with contextlib.suppress(FileNotFoundError):
-                    lock_path.unlink()
-                raise
-            finally:
-                if descriptor is not None:
+                try:
+                    payload = {
+                        "schema_version": 1,
+                        "pid": os.getpid(),
+                        "token": token,
+                        "process_identity": _process_identity(os.getpid()),
+                        "created_at": utc_now(),
+                    }
+                    lock_bytes = (json.dumps(payload, sort_keys=True) + "\n").encode(
+                        "utf-8"
+                    )
+                    written = 0
+                    while written < len(lock_bytes):
+                        count = os.write(descriptor, lock_bytes[written:])
+                        if count <= 0:
+                            raise OSError("lock identity write made no progress")
+                        written += count
+                    os.fsync(descriptor)
+                except OSError:
                     os.close(descriptor)
-        except FileExistsError:
-            try:
-                owner_pid, _, owner_identity, identity = _read_lock_identity(lock_path)
-                age = max(0.0, time.time() - lock_path.stat().st_mtime)
-            except (FileNotFoundError, PermissionError):
-                continue
-            owner_is_dead = owner_pid is not None and not _process_matches_identity(
-                owner_pid, owner_identity
-            )
-            unidentified_is_stale = owner_pid is None and age >= LOCK_STALE_SECONDS
-            if owner_is_dead or unidentified_is_stale:
-                if _unlink_lock_if_identity(lock_path, identity):
-                    continue
-            if time.monotonic() >= deadline:
-                raise WorkStateError(f"timed out waiting for state lock: {lock_path}")
-            time.sleep(0.05)
+                    descriptor = None
+                    with contextlib.suppress(FileNotFoundError):
+                        lock_path.unlink()
+                    raise
+                finally:
+                    if descriptor is not None:
+                        os.close(descriptor)
+            except FileExistsError:
+                try:
+                    owner_pid, _, owner_identity, identity = _read_lock_identity(
+                        lock_path
+                    )
+                    age = max(0.0, time.time() - lock_path.stat().st_mtime)
+                except (FileNotFoundError, PermissionError):
+                    reclaimed = True
+                else:
+                    owner_is_dead = (
+                        owner_pid is not None
+                        and not _process_matches_identity(owner_pid, owner_identity)
+                    )
+                    unidentified_is_stale = (
+                        owner_pid is None and age >= LOCK_STALE_SECONDS
+                    )
+                    if owner_is_dead or unidentified_is_stale:
+                        reclaimed = _unlink_lock_if_identity_guarded(
+                            lock_path, identity
+                        )
+        if descriptor is not None:
+            break
+        if reclaimed:
+            continue
+        if time.monotonic() >= deadline:
+            raise WorkStateError(f"timed out waiting for state lock: {lock_path}")
+        time.sleep(0.05)
     try:
         yield
     finally:
@@ -475,6 +549,53 @@ def session_lock(session_dir: Path) -> Iterator[None]:
 
 def _state_path(session_dir: Path) -> Path:
     return session_dir / "state.json"
+
+
+def state_migration_report(session_dir: Path) -> dict[str, object]:
+    """Inspect state schema compatibility without changing session files."""
+    path = _state_path(session_dir)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise WorkStateError(f"state is unreadable: {path}: {error}") from error
+    if not isinstance(payload, dict):
+        raise WorkStateError(f"state is not an object: {path}")
+    version = payload.get("schema_version")
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise WorkStateError(f"state has malformed schema_version: {path}")
+    if version != SCHEMA_VERSION:
+        raise WorkStateError(
+            f"state schema_version {version} is unsupported; "
+            f"this checkout supports {SCHEMA_VERSION} and has no migration path"
+        )
+    _validate_state_payload(payload, path)
+    ledger_events = _read_ledger_events(session_dir)
+    for event in ledger_events:
+        snapshot = event.get("_state_snapshot")
+        if snapshot is not None:
+            if not isinstance(snapshot, dict):
+                raise WorkStateError(
+                    f"ledger contains a malformed state snapshot: "
+                    f"{session_dir / 'ledger.jsonl'}"
+                )
+            _validate_state_payload(
+                snapshot,
+                session_dir / "ledger.jsonl",
+                label="ledger state snapshot",
+            )
+    return {
+        "policy_schema_version": MIGRATION_POLICY_SCHEMA_VERSION,
+        "mode": "dry-run",
+        "status": "current",
+        "state_schema_version": version,
+        "target_schema_version": SCHEMA_VERSION,
+        "migration_required": False,
+        "available_migrations": [],
+        "backup_required_before_apply": True,
+        "backup_created": False,
+        "ledger_events": len(ledger_events),
+        "ledger_validated": True,
+    }
 
 
 def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
@@ -501,15 +622,50 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
     return events
 
 
+def _state_sequence(payload: dict[str, Any], label: str) -> int:
+    sequence = payload.get("last_seq")
+    if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+        raise WorkStateError(f"{label} has malformed last_seq")
+    return sequence
+
+
+def _validate_state_payload(
+    payload: dict[str, Any], path: Path, *, label: str = "state"
+) -> None:
+    version = payload.get("schema_version")
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != SCHEMA_VERSION
+    ):
+        raise WorkStateError(f"unsupported or malformed {label}: {path}")
+    _state_sequence(payload, label)
+    criteria = payload.get("criteria")
+    if not isinstance(criteria, list) or not all(
+        isinstance(item, dict) for item in criteria
+    ):
+        raise WorkStateError(f"{label} has malformed criteria: {path}")
+    if "work_packets" in payload and (
+        not isinstance(payload["work_packets"], list)
+        or not all(isinstance(item, dict) for item in payload["work_packets"])
+    ):
+        raise WorkStateError(f"{label} has malformed work_packets: {path}")
+
+
 def _latest_ledger_snapshot(session_dir: Path) -> dict[str, Any] | None:
     latest: dict[str, Any] | None = None
     for event in _read_ledger_events(session_dir):
         candidate = event.get("_state_snapshot")
         if not isinstance(candidate, dict):
             continue
-        if latest is None or int(candidate.get("last_seq", -1)) > int(
-            latest.get("last_seq", -1)
-        ):
+        _validate_state_payload(
+            candidate,
+            session_dir / "ledger.jsonl",
+            label="ledger state snapshot",
+        )
+        if latest is None or _state_sequence(
+            candidate, "ledger state snapshot"
+        ) > _state_sequence(latest, "ledger state snapshot"):
             latest = candidate
     return latest
 
@@ -526,21 +682,20 @@ def load_state(session_dir: Path) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError) as error:
             state_error = error
     ledger_snapshot = _latest_ledger_snapshot(session_dir)
-    if ledger_snapshot is not None and (
-        payload is None
-        or int(ledger_snapshot.get("last_seq", -1)) > int(payload.get("last_seq", -1))
-    ):
-        payload = ledger_snapshot
+    if ledger_snapshot is not None:
+        try:
+            payload_sequence = (
+                _state_sequence(payload, "state") if payload is not None else -1
+            )
+        except WorkStateError:
+            payload_sequence = -1
+        if _state_sequence(ledger_snapshot, "ledger state snapshot") > payload_sequence:
+            payload = ledger_snapshot
     if payload is None:
         if state_error is not None:
             raise WorkStateError(f"state is unreadable: {path}: {state_error}")
         raise WorkStateError(f"session does not exist: {session_dir}")
-    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
-        raise WorkStateError(f"unsupported or malformed state: {path}")
-    if not isinstance(payload.get("criteria"), list):
-        raise WorkStateError(f"state has no criteria list: {path}")
-    if "work_packets" in payload and not isinstance(payload["work_packets"], list):
-        raise WorkStateError(f"state has malformed work_packets: {path}")
+    _validate_state_payload(payload, path)
     return payload
 
 

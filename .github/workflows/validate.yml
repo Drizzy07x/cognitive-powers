@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,8 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install pinned validation dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Exercise the cross-platform hook lock
+        run: python -m unittest tests.test_plugin_hooks.PluginHookTests.test_short_lock_contention_does_not_silently_drop_event tests.test_plugin_hooks.PluginHookTests.test_unlocked_residual_lock_file_does_not_block_event
       - name: Run the canonical offline validation entrypoint
         id: validation
         run: >-

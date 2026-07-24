@@ -128,6 +128,29 @@ class WorkStateTests(unittest.TestCase):
             "integration_notes": ["Run the integrated criterion afterward"],
         }
 
+    def test_owned_path_property_rejects_traversal_and_absolute_forms(self) -> None:
+        invalid_paths = (
+            "",
+            ".",
+            "..",
+            "../source.py",
+            "src/../source.py",
+            "/absolute/source.py",
+            "\\absolute\\source.py",
+            "C:/absolute/source.py",
+            "C:\\absolute\\source.py",
+        )
+        for value in invalid_paths:
+            with self.subTest(value=value):
+                with self.assertRaises(work_state.WorkStateError):
+                    work_state._normalize_owned_path(value)
+
+        valid_paths = ("source.py", "src/module.py", ".config/policy.json")
+        self.assertEqual(
+            [work_state._normalize_owned_path(value) for value in valid_paths],
+            list(valid_paths),
+        )
+
     def test_packet_plan_rejects_overlapping_ownership_atomically(self) -> None:
         self.initialize()
         planned = self.plan_packets(
@@ -1910,6 +1933,89 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
         self.assertIn("must be outside the workspace", completed.stdout)
         self.assertFalse(internal_data.exists())
 
+    def test_state_migration_entrypoint_is_read_only_and_current_by_default(
+        self,
+    ) -> None:
+        initialized = self.initialize()
+        session_dir = Path(str(initialized["state"])).parent
+        before = {
+            path.relative_to(session_dir).as_posix(): path.read_bytes()
+            for path in session_dir.rglob("*")
+            if path.is_file()
+        }
+
+        completed = self.cli(
+            "state-migrate",
+            "--session",
+            "demo",
+            "--json",
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["policy_schema_version"], 1)
+        self.assertEqual(report["mode"], "dry-run")
+        self.assertEqual(report["state_schema_version"], 1)
+        self.assertEqual(report["target_schema_version"], 1)
+        self.assertFalse(report["migration_required"])
+        self.assertEqual(report["status"], "current")
+        self.assertFalse(report["backup_created"])
+        after = {
+            path.relative_to(session_dir).as_posix(): path.read_bytes()
+            for path in session_dir.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(after, before)
+
+    def test_state_migration_entrypoint_fails_closed_on_corrupt_ledger(self) -> None:
+        initialized = self.initialize()
+        session_dir = Path(str(initialized["state"])).parent
+        with (session_dir / "ledger.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write("{interrupted\n")
+
+        completed = self.cli(
+            "state-migrate",
+            "--session",
+            "demo",
+            "--json",
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("ledger line 2 is malformed", completed.stdout)
+
+    def test_state_migration_policy_fails_closed_on_unknown_versions(self) -> None:
+        for version in (True, "1", 0, 2):
+            with self.subTest(version=version):
+                session_dir = self.base / f"schema-{type(version).__name__}-{version}"
+                session_dir.mkdir()
+                (session_dir / "state.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": version,
+                            "last_seq": 0,
+                            "criteria": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaises(work_state.WorkStateError):
+                    work_state.state_migration_report(session_dir)
+
+        malformed = self.base / "schema-current-malformed"
+        malformed.mkdir()
+        (malformed / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "last_seq": "invalid",
+                    "criteria": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(work_state.WorkStateError, "last_seq"):
+            work_state.state_migration_report(malformed)
+
     def test_abandoned_lock_is_reclaimed(self) -> None:
         session_dir = self.base / "lock-session"
         session_dir.mkdir()
@@ -2066,6 +2172,59 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
             "replacement-token",
         )
 
+    def test_lock_generation_transitions_are_serialized_cross_process(self) -> None:
+        session_dir = self.base / "serialized-lock-session"
+        session_dir.mkdir()
+        lock_path = session_dir / ".state.lock"
+        release_marker = session_dir / "owner-released"
+        result_path = session_dir / "successor-result"
+        durability = work_state._DURABILITY_CORE._durability
+        child_code = """
+import pathlib
+import runpy
+import sys
+
+module = runpy.run_path(sys.argv[1])
+lock_path = pathlib.Path(sys.argv[2])
+release_marker = pathlib.Path(sys.argv[3])
+result_path = pathlib.Path(sys.argv[4])
+print("attempting", flush=True)
+with module["_state_lock_guard"](lock_path):
+    result_path.write_text(
+        "safe" if release_marker.exists() else "overlapped", encoding="utf-8"
+    )
+"""
+
+        with durability._state_lock_guard(lock_path):
+            successor = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    str(Path(durability.__file__)),
+                    str(lock_path),
+                    str(release_marker),
+                    str(result_path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertIsNotNone(successor.stdout)
+            self.assertEqual(successor.stdout.readline().strip(), "attempting")
+            release_marker.write_text("released", encoding="utf-8")
+
+        stdout, stderr = successor.communicate(timeout=5)
+        self.assertEqual(successor.returncode, 0, stdout + stderr)
+        self.assertEqual(result_path.read_text(encoding="utf-8"), "safe")
+
+    def test_repeated_lock_acquisition_leaves_no_residual_owner_file(self) -> None:
+        session_dir = self.base / "repeated-lock-session"
+        for _ in range(32):
+            with work_state.session_lock(session_dir):
+                self.assertTrue((session_dir / ".state.lock").is_file())
+            self.assertFalse((session_dir / ".state.lock").exists())
+
     def test_source_fingerprint_fails_when_a_source_file_is_unreadable(self) -> None:
         durability = work_state._DURABILITY_CORE._durability
         with mock.patch.object(
@@ -2102,6 +2261,56 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
 
         with self.assertRaisesRegex(work_state.WorkStateError, "line 2 is malformed"):
             work_state._read_ledger_events(session_dir)
+
+    def test_ledger_snapshot_with_boolean_schema_is_rejected(self) -> None:
+        session_dir = self.base / "boolean-schema-ledger-session"
+        session_dir.mkdir()
+        (session_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "last_seq": 0,
+                    "criteria": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (session_dir / "ledger.jsonl").write_text(
+            json.dumps(
+                {
+                    "seq": 1,
+                    "event": "corrupt_snapshot",
+                    "_state_snapshot": {
+                        "schema_version": True,
+                        "last_seq": 1,
+                        "criteria": [],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "ledger state snapshot"):
+            work_state.load_state(session_dir)
+
+    def test_malformed_state_sequence_fails_closed(self) -> None:
+        session_dir = self.base / "malformed-sequence-session"
+        session_dir.mkdir()
+        (session_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "last_seq": "not-an-integer",
+                    "criteria": [],
+                    "work_packets": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "last_seq"):
+            work_state.load_state(session_dir)
 
     def test_write_ahead_ledger_recovers_newer_state_snapshot(self) -> None:
         initialized = self.initialize()
@@ -2164,6 +2373,40 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
 
         self.assertEqual(target.read_text(encoding="utf-8"), "old\n")
         self.assertEqual(list(self.base.glob(".atomic.json.*.tmp")), [])
+
+    def test_atomic_fsync_failure_preserves_previous_file(self) -> None:
+        target = self.base / "atomic-fsync.json"
+        target.write_text("old\n", encoding="utf-8")
+        durability = work_state._DURABILITY_CORE._durability
+
+        with mock.patch.object(
+            durability.os, "fsync", side_effect=OSError("fsync interrupted")
+        ):
+            with self.assertRaisesRegex(OSError, "fsync interrupted"):
+                work_state._atomic_write_text(target, "new\n")
+
+        self.assertEqual(target.read_text(encoding="utf-8"), "old\n")
+        self.assertEqual(list(self.base.glob(".atomic-fsync.json.*.tmp")), [])
+
+    def test_evidence_symlink_ancestor_cannot_escape_storage(self) -> None:
+        session_dir = self.base / "symlink-evidence-session"
+        evidence_root = session_dir / "evidence"
+        outside = self.base / "outside-evidence"
+        evidence_root.mkdir(parents=True)
+        outside.mkdir()
+        (outside / "receipt.json").write_text("{}", encoding="utf-8")
+        link = evidence_root / "linked"
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "escapes"):
+            work_state._evidence_file_path(
+                session_dir,
+                "evidence/linked/receipt.json",
+                "evidence receipt",
+            )
 
 
 if __name__ == "__main__":

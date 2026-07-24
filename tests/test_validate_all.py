@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import tempfile
 import unittest
@@ -38,6 +39,19 @@ def command_result(command, category: str, *, passed: bool = True):
 
 
 class ValidateAllTests(unittest.TestCase):
+    def test_targeted_unittest_modules_are_importable(self) -> None:
+        targeted_modules = next(
+            command.argv[2:]
+            for command in validator.OFFLINE_COMMANDS
+            if command.name == "controller-ab-targeted-tests"
+        )
+        self.assertTrue(targeted_modules)
+        for module_name in targeted_modules:
+            with self.subTest(module=module_name):
+                self.assertEqual(
+                    importlib.import_module(module_name).__name__, module_name
+                )
+
     def test_ci_installs_pinned_validation_dependencies(self) -> None:
         requirements_path = PLUGIN_ROOT / "requirements-dev.txt"
         requirements = requirements_path.read_text(encoding="utf-8").splitlines()
@@ -62,6 +76,36 @@ class ValidateAllTests(unittest.TestCase):
             "& $python -m pip install -r requirements-dev.txt",
             readme,
         )
+
+    def test_ci_covers_cross_platform_lock_and_canonical_validation(self) -> None:
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "os: [ubuntu-latest, windows-latest, macos-latest]",
+            workflow,
+        )
+        lock_step = workflow.index("- name: Exercise the cross-platform hook lock")
+        canonical_step = workflow.index(
+            "- name: Run the canonical offline validation entrypoint"
+        )
+        self.assertLess(lock_step, canonical_step)
+        lock_slice = workflow[lock_step:canonical_step]
+        self.assertIn(
+            "python -m unittest "
+            "tests.test_plugin_hooks.PluginHookTests."
+            "test_short_lock_contention_does_not_silently_drop_event",
+            lock_slice,
+        )
+        self.assertIn(
+            "tests.test_plugin_hooks.PluginHookTests."
+            "test_unlocked_residual_lock_file_does_not_block_event",
+            lock_slice,
+        )
+        self.assertNotIn("secrets.", workflow)
+        for release_command in ("gh release", "npm publish", "codex plugin"):
+            with self.subTest(command=release_command):
+                self.assertNotIn(release_command, workflow)
 
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(

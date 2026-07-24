@@ -21,6 +21,7 @@ COORDINATION_BENCHMARK_SCRIPT = (
     PLUGIN_ROOT / "scripts" / "run_coordination_benchmarks.py"
 )
 QCU_BENCHMARK_SCRIPT = PLUGIN_ROOT / "scripts" / "run_qcu_benchmarks.py"
+DURABILITY_BENCHMARK_SCRIPT = PLUGIN_ROOT / "scripts" / "run_durability_benchmarks.py"
 
 
 class BenchmarkIntegrationTests(unittest.TestCase):
@@ -35,6 +36,33 @@ class BenchmarkIntegrationTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("Version-aware external context benchmark", completed.stdout)
         self.assertIn("PASS suite", completed.stdout)
+
+    def test_durability_suite_is_deterministic_and_makes_no_provider_claim(
+        self,
+    ) -> None:
+        completed = subprocess.run(
+            [sys.executable, str(DURABILITY_BENCHMARK_SCRIPT), "--json"],
+            cwd=PLUGIN_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertTrue(report["passed"])
+        self.assertFalse(report["liveValidated"])
+        self.assertFalse(report["providerModelImprovementProven"])
+        self.assertEqual(len(report["cases"]), 7)
+        self.assertTrue(all(case["passed"] for case in report["cases"]))
+        repeated = subprocess.run(
+            [sys.executable, str(DURABILITY_BENCHMARK_SCRIPT), "--json"],
+            cwd=PLUGIN_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+        self.assertEqual(json.loads(repeated.stdout), report)
 
     def test_semantic_suite_cannot_pass_without_real_codegraph_results(self) -> None:
         completed = subprocess.run(

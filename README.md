@@ -16,6 +16,18 @@ Use the smallest flow that fits the work:
 
 These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
 
+## Choose a skill
+
+| Need | Skill | Use it when |
+|---|---|---|
+| Bounded implementation, diagnosis, or source-backed decision | `$solve-efficiently` | The work can be narrowed to a coherent source-and-test boundary. |
+| Resumable multi-step execution with durable evidence | `$execute-durably` | Work may span agents, turns, or compactions and needs external receipts. |
+| Independent audit of an existing completion claim | `$verify-delivery` | Implementation has stopped and the claim must be checked against current evidence. |
+
+For updates, lock recovery, state-schema inspection, validation receipts, and
+the local-usage-counter abstention, use the
+[Operational guide](docs/operations.md).
+
 For non-trivial work, `solve-efficiently` can evaluate an explicit planning
 packet through the packaged runtime:
 
@@ -258,6 +270,7 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python -m ruff check .
 & $python -m ruff format --check .
 & $python scripts/run_benchmarks.py
+& $python scripts/run_durability_benchmarks.py
 & $python scripts/run_communication_benchmarks.py
 & $python scripts/run_design_benchmarks.py
 & $python scripts/run_capability_benchmarks.py

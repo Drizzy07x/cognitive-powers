@@ -55,6 +55,9 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
     ValidationCommand("ruff-format", ("-m", "ruff", "format", "--check", ".")),
     ValidationCommand("core-benchmarks", ("scripts/run_benchmarks.py",)),
     ValidationCommand(
+        "durability-benchmarks", ("scripts/run_durability_benchmarks.py",)
+    ),
+    ValidationCommand(
         "communication-benchmarks", ("scripts/run_communication_benchmarks.py",)
     ),
     ValidationCommand("design-benchmarks", ("scripts/run_design_benchmarks.py",)),

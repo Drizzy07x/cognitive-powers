@@ -42,6 +42,7 @@ def _load_durability_core():
 
 _DURABILITY_CORE = _load_durability_core()
 SCHEMA_VERSION = _DURABILITY_CORE.SCHEMA_VERSION
+MIGRATION_POLICY_SCHEMA_VERSION = _DURABILITY_CORE.MIGRATION_POLICY_SCHEMA_VERSION
 LOCK_TIMEOUT_SECONDS = _DURABILITY_CORE.LOCK_TIMEOUT_SECONDS
 LOCK_STALE_SECONDS = _DURABILITY_CORE.LOCK_STALE_SECONDS
 OUTPUT_TAIL_CHARS = _DURABILITY_CORE.OUTPUT_TAIL_CHARS
@@ -66,6 +67,7 @@ _process_is_alive = _DURABILITY_CORE._durability._process_is_alive
 _process_identity = _DURABILITY_CORE._durability._process_identity
 _process_matches_identity = _DURABILITY_CORE._durability._process_matches_identity
 _state_path = _DURABILITY_CORE._state_path
+state_migration_report = _DURABILITY_CORE.state_migration_report
 _read_ledger_events = _DURABILITY_CORE._read_ledger_events
 _latest_ledger_snapshot = _DURABILITY_CORE._latest_ledger_snapshot
 load_state = _DURABILITY_CORE.load_state
@@ -116,7 +118,7 @@ def _normalize_owned_path(value: str) -> str:
     if not raw or raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
         raise WorkStateError(f"owned path must be workspace-relative: {value!r}")
     path = PurePosixPath(raw)
-    if any(part in {"", ".", ".."} for part in path.parts):
+    if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
         raise WorkStateError(f"owned path must not traverse the workspace: {value!r}")
     return path.as_posix()
 
@@ -1169,6 +1171,18 @@ def plan_packets(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         "message": f"planned {len(packets)} work packets",
         "session_id": state["session_id"],
         "work_packets": packets,
+    }, 0
+
+
+def state_migrate(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    report = state_migration_report(session_dir)
+    return {
+        "message": f"session {sanitize_identifier(args.session, 'session')} schema is current",
+        "session_dir": str(session_dir),
+        **report,
     }, 0
 
 
@@ -2725,6 +2739,13 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--session", required=True)
     _add_json_flag(status_parser)
 
+    migration_parser = subparsers.add_parser(
+        "state-migrate",
+        help="inspect the versioned state migration policy without changing state",
+    )
+    migration_parser.add_argument("--session", required=True)
+    _add_json_flag(migration_parser)
+
     plan_parser = subparsers.add_parser(
         "plan-packets", help="install one dependency-aware work packet plan"
     )
@@ -2909,6 +2930,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     handlers = {
         "init": initialize,
         "status": status,
+        "state-migrate": state_migrate,
         "plan-packets": plan_packets,
         "start-packet": start_packet,
         "run-packet-check": run_packet_check,

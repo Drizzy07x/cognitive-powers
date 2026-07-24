@@ -129,6 +129,21 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(providers["availabilityUnknown"])
         self.assertTrue(providers["declared"])
 
+    def test_usage_counters_explicitly_abstain_without_a_privacy_safe_seam(
+        self,
+    ) -> None:
+        policy = doctor.build_report(PLUGIN_ROOT)["localUsageCounters"]
+
+        self.assertEqual(policy["status"], "abstained")
+        self.assertEqual(policy["reasonCode"], "no-privacy-safe-natural-seam")
+        self.assertFalse(policy["implemented"])
+        self.assertFalse(policy["writesLocalState"])
+        self.assertEqual(
+            policy["prohibitedFields"],
+            ["prompts", "commands", "outputs", "paths", "identifiers"],
+        )
+        self.assertEqual(policy["controls"], [])
+
     def test_source_identity_changes_when_packaged_source_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

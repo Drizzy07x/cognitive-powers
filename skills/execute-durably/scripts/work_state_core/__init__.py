@@ -4,6 +4,7 @@ from . import durability as _durability
 
 EXPORTS = [
     "SCHEMA_VERSION",
+    "MIGRATION_POLICY_SCHEMA_VERSION",
     "LOCK_TIMEOUT_SECONDS",
     "LOCK_STALE_SECONDS",
     "OUTPUT_TAIL_CHARS",
@@ -28,6 +29,7 @@ EXPORTS = [
     "_atomic_write_json",
     "session_lock",
     "_state_path",
+    "state_migration_report",
     "_read_ledger_events",
     "_latest_ledger_snapshot",
     "load_state",
