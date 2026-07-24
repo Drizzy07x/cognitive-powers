@@ -498,12 +498,18 @@ def _argv(value: object, field: str) -> list[str]:
 
 def _topological_selection(
     candidates: list[dict[str, Any]], completed: set[str], capacity: int
-) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[list[dict[str, Any]]],
+    list[dict[str, Any]],
+]:
     remaining = {unit["id"]: unit for unit in candidates}
     selected: list[dict[str, Any]] = []
     layers: list[list[dict[str, Any]]] = []
     satisfied = set(completed)
-    while remaining and len(selected) < capacity:
+    if capacity <= 0:
+        return selected, layers, list(remaining.values())
+    while remaining:
         layer = [
             unit
             for unit in remaining.values()
@@ -512,13 +518,14 @@ def _topological_selection(
         if not layer:
             break
         layer = sorted(layer, key=lambda item: item["id"])
-        layer = layer[: capacity - len(selected)]
+        layer = layer[:capacity]
         layers.append(layer)
         selected.extend(layer)
         for unit in layer:
             remaining.pop(unit["id"])
             satisfied.add(unit["id"])
-    return selected, layers
+    unscheduled = [remaining[unit_id] for unit_id in sorted(remaining)]
+    return selected, layers, unscheduled
 
 
 def _retry_record(
@@ -669,14 +676,30 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
             durable=durable,
             schema_version=schema_version,
         )
-    reserved = 1 if verifier_required else 0
-    worker_capacity = min(max(available_slots - 1 - reserved, 0), 3, len(candidates))
-    selected, layers = _topological_selection(candidates, completed, worker_capacity)
     if retry_record and schema_version == 2:
-        selected = [
-            unit for unit in selected if unit["id"] == retry_record["failed_unit_id"]
+        candidates = [
+            unit for unit in candidates if unit["id"] == retry_record["failed_unit_id"]
         ]
-        layers = [[unit] for unit in selected]
+        if not candidates:
+            return _solo_plan(
+                "the retry assignment is not eligible in the current phase",
+                valid_input=True,
+                durable=durable,
+                schema_version=schema_version,
+            )
+    worker_capacity = min(max(available_slots - 1, 0), 3, len(candidates))
+    selected, layers, unscheduled = _topological_selection(
+        candidates, completed, worker_capacity
+    )
+    if unscheduled:
+        blocked_ids = ", ".join(unit["id"] for unit in unscheduled)
+        return _solo_plan(
+            f"eligible units cannot be fully scheduled because dependencies are "
+            f"unsatisfied: {blocked_ids}",
+            valid_input=True,
+            durable=durable,
+            schema_version=schema_version,
+        )
 
     single_worker_staged_verify = (
         phase != "verify"
@@ -770,19 +793,6 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
                 "parallel": len(layer) > 1,
                 "assignments": [_assignment(unit, may_write=writes) for unit in layer],
             }
-        )
-
-    if (
-        selected
-        and not writes
-        and not any(wave["parallel"] for wave in waves)
-        and not retry_record
-    ):
-        return _solo_plan(
-            "read-only dependencies leave no executable parallel wave",
-            valid_input=True,
-            durable=durable,
-            schema_version=schema_version,
         )
 
     if writes:
@@ -962,6 +972,251 @@ def _commands(value: object) -> list[dict[str, Any]]:
     return value
 
 
+def _validate_worker_result_body(
+    result: dict[str, Any],
+    *,
+    plan_id: str,
+    assignment: dict[str, Any],
+    assignments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    assignment_id = assignment["assignment_id"]
+    if result.get("plan_id") != plan_id:
+        raise OrchestrationError("result plan_id does not match plan")
+    if result.get("assignment_id") != assignment_id:
+        raise OrchestrationError("result assignment_id does not match assignment")
+    for field in ("role", "permissions", "delegation_depth", "dependencies"):
+        if result.get(field) != assignment.get(field):
+            raise OrchestrationError(f"result {field} does not match assignment")
+    ownership_bound = "ownership" in result
+    if ownership_bound and result["ownership"] != assignment.get("ownership", []):
+        raise OrchestrationError("result ownership does not match assignment")
+
+    role = assignment["role"]
+    status = result.get("status")
+    allowed = (
+        {"confirmed", "rejected", "inconclusive"}
+        if role == "verifier"
+        else {"completed", "no-op", "failed", "blocked"}
+    )
+    if status not in allowed:
+        raise OrchestrationError("status is incompatible with assignment role")
+    changed_paths = [
+        _normalize_owned_path(item, "changed_paths")
+        for item in _string_list(
+            result.get("changed_paths"), "changed_paths", allow_empty=True
+        )
+    ]
+    read_only = assignment["permissions"] == "read-only"
+    if read_only and changed_paths:
+        raise OrchestrationError("read-only assignments cannot report changed paths")
+    ownership = assignment.get("ownership", [])
+    if not read_only and any(
+        not any(
+            _paths_overlap(changed, owned)
+            and len(PurePosixPath(changed).parts) >= len(PurePosixPath(owned).parts)
+            for owned in ownership
+        )
+        for changed in changed_paths
+    ):
+        raise OrchestrationError("changed_paths exceeds assignment ownership")
+    if status == "completed" and not read_only and not changed_paths:
+        raise OrchestrationError(
+            "completed write assignments require changed paths or explicit no-op"
+        )
+
+    no_op_reason: str | None = None
+    if status == "no-op":
+        if read_only:
+            raise OrchestrationError("only write assignments may report no-op")
+        if changed_paths:
+            raise OrchestrationError("no-op cannot report changed paths")
+        no_op_reason = _string(result, "no_op_reason")
+    elif "no_op_reason" in result:
+        raise OrchestrationError("no_op_reason is only valid for no-op results")
+
+    commands = _commands(result.get("commands"))
+    blockers = _string_list(result.get("blockers"), "blockers", allow_empty=True)
+    risks = _string_list(result.get("risks"), "risks", allow_empty=True)
+    required_commands = [
+        command for command in commands if command["argv"] == assignment["check"]
+    ]
+    if status in {"completed", "no-op", "failed", "confirmed", "rejected"} and not (
+        required_commands
+    ):
+        raise OrchestrationError("result does not include the exact assignment check")
+    if status in {"completed", "no-op", "confirmed"} and (
+        blockers
+        or any(command["exit_code"] != 0 for command in commands)
+        or not any(command["exit_code"] == 0 for command in required_commands)
+    ):
+        raise OrchestrationError(
+            f"{status} requires a zero required check, zero exits, and no blockers"
+        )
+    if status == "failed" and not any(
+        command["exit_code"] != 0 for command in commands
+    ):
+        raise OrchestrationError("failed requires an observed non-zero exit")
+    if status in {"blocked", "inconclusive"} and not blockers:
+        raise OrchestrationError(f"{status} requires at least one blocker")
+
+    actor_id = _string(result, "actor_id")
+    verified: list[str] | None = None
+    if role == "verifier":
+        verified = _string_list(
+            result.get("verified_assignment_ids"), "verified_assignment_ids"
+        )
+        worker_ids = {
+            item["assignment_id"] for item in assignments if item["role"] != "verifier"
+        }
+        if len(verified) != len(set(verified)) or set(verified) != worker_ids:
+            raise OrchestrationError(
+                "verifier must cover every planned worker assignment exactly once"
+            )
+    elif "verified_assignment_ids" in result:
+        raise OrchestrationError("only verifiers may report verified assignments")
+
+    return {
+        "assignment_id": assignment_id,
+        "actor_id": actor_id,
+        "role": role,
+        "status": status,
+        "changed_paths": changed_paths,
+        "commands": commands,
+        "blockers": blockers,
+        "risks": risks,
+        "ownership_bound": ownership_bound,
+        "required_check_observed": bool(required_commands),
+        "no_op_reason": no_op_reason,
+        "verified_assignment_ids": verified,
+    }
+
+
+def _durable_context_blockers(
+    payload: dict[str, Any],
+    *,
+    plan_id: str,
+    assignment: dict[str, Any],
+    assignments: list[dict[str, Any]],
+    normalized: dict[str, Any],
+) -> list[str]:
+    blockers: list[str] = []
+    context = payload.get("execution_context")
+    if context is None:
+        return [
+            "execution_context is required for durable eligibility",
+            "source binding is absent",
+            "actor binding is absent",
+        ]
+    if not isinstance(context, dict):
+        raise OrchestrationError("execution_context must be an object")
+    if context.get("schema_version") is None:
+        blockers.append("execution_context schema_version is absent")
+    elif context.get("schema_version") != 1:
+        raise OrchestrationError("execution_context schema_version must be 1")
+
+    source_sha256 = context.get("source_sha256")
+    if source_sha256 is None:
+        blockers.append("source binding is absent")
+    elif not isinstance(source_sha256, str) or not SHA256_RE.fullmatch(source_sha256):
+        raise OrchestrationError("execution_context source_sha256 must be sha256")
+
+    bindings = context.get("actor_bindings")
+    assignment_ids = {item["assignment_id"] for item in assignments}
+    if bindings is None:
+        blockers.append("actor bindings are absent")
+        bindings = {}
+    elif not isinstance(bindings, dict):
+        raise OrchestrationError("execution_context actor_bindings must be an object")
+    else:
+        for bound_assignment_id, actor_id in bindings.items():
+            if bound_assignment_id not in assignment_ids:
+                raise OrchestrationError(
+                    "execution_context references an unknown assignment"
+                )
+            if not isinstance(actor_id, str) or not actor_id:
+                raise OrchestrationError("execution_context actor_id is invalid")
+
+    current_actor = bindings.get(assignment["assignment_id"])
+    if current_actor is None:
+        blockers.append("current assignment actor binding is absent")
+    elif current_actor != normalized["actor_id"]:
+        raise OrchestrationError("result actor_id does not match execution context")
+    if not normalized["ownership_bound"]:
+        blockers.append("result ownership binding is absent")
+    if not normalized["required_check_observed"]:
+        blockers.append("required assignment check evidence is absent")
+
+    if assignment["role"] != "verifier":
+        return blockers
+
+    worker_assignments = [item for item in assignments if item["role"] != "verifier"]
+    worker_ids = {item["assignment_id"] for item in worker_assignments}
+    worker_actor_ids: set[str] = set()
+    for worker_id in sorted(worker_ids):
+        worker_actor = bindings.get(worker_id)
+        if worker_actor is None:
+            blockers.append(f"worker actor binding is absent: {worker_id}")
+        else:
+            worker_actor_ids.add(worker_actor)
+    if current_actor is not None and current_actor in worker_actor_ids:
+        raise OrchestrationError(
+            "verifier actor must be distinct from every observed worker actor"
+        )
+
+    raw_worker_results = context.get("worker_results")
+    if raw_worker_results is None:
+        blockers.append("prior worker result bundle is absent")
+        return blockers
+    if not isinstance(raw_worker_results, list):
+        raise OrchestrationError("execution_context worker_results must be a list")
+    results_by_id: dict[str, dict[str, Any]] = {}
+    for worker_result in raw_worker_results:
+        if not isinstance(worker_result, dict):
+            raise OrchestrationError("execution_context worker result is invalid")
+        worker_id = worker_result.get("assignment_id")
+        if worker_id not in worker_ids:
+            raise OrchestrationError(
+                "execution_context worker result references an invalid assignment"
+            )
+        if worker_id in results_by_id:
+            raise OrchestrationError(
+                "execution_context worker results must be one-to-one"
+            )
+        results_by_id[worker_id] = worker_result
+    missing_results = sorted(worker_ids - set(results_by_id))
+    if missing_results:
+        blockers.append(
+            "prior worker results are absent: " + ", ".join(missing_results)
+        )
+        return blockers
+
+    assignments_by_id = {item["assignment_id"]: item for item in worker_assignments}
+    for worker_id in sorted(worker_ids):
+        worker_result = _validate_worker_result_body(
+            results_by_id[worker_id],
+            plan_id=plan_id,
+            assignment=assignments_by_id[worker_id],
+            assignments=assignments,
+        )
+        if not worker_result["ownership_bound"]:
+            blockers.append(f"worker ownership binding is absent: {worker_id}")
+        if not worker_result["required_check_observed"]:
+            blockers.append(f"worker required check is absent: {worker_id}")
+        bound_actor = bindings.get(worker_id)
+        if bound_actor is not None and bound_actor != worker_result["actor_id"]:
+            raise OrchestrationError(
+                "worker result actor_id does not match execution context"
+            )
+        if normalized["status"] == "confirmed" and worker_result["status"] not in {
+            "completed",
+            "no-op",
+        }:
+            raise OrchestrationError(
+                "confirmed verifier requires completed or no-op worker results"
+            )
+    return blockers
+
+
 def _validate_worker_result_v2(payload: dict[str, Any]) -> dict[str, Any]:
     plan = payload.get("plan")
     result = payload.get("result")
@@ -993,89 +1248,41 @@ def _validate_worker_result_v2(payload: dict[str, Any]) -> dict[str, Any]:
             "assignment_id does not identify exactly one plan assignment"
         )
     assignment = matches[0]
-    if result.get("plan_id") != plan["plan_id"]:
-        raise OrchestrationError("result plan_id does not match plan")
-    if result.get("assignment_id") != assignment_id:
-        raise OrchestrationError("result assignment_id does not match assignment")
-    for field in ("role", "permissions", "delegation_depth", "dependencies"):
-        if result.get(field) != assignment.get(field):
-            raise OrchestrationError(f"result {field} does not match assignment")
-
-    role = assignment["role"]
-    status = result.get("status")
-    allowed = (
-        {"confirmed", "rejected", "inconclusive"}
-        if role == "verifier"
-        else {"completed", "failed", "blocked"}
+    normalized = _validate_worker_result_body(
+        result,
+        plan_id=plan["plan_id"],
+        assignment=assignment,
+        assignments=assignments,
     )
-    if status not in allowed:
-        raise OrchestrationError("status is incompatible with assignment role")
-    changed_paths = [
-        _normalize_owned_path(item, "changed_paths")
-        for item in _string_list(
-            result.get("changed_paths"), "changed_paths", allow_empty=True
-        )
-    ]
-    if assignment["permissions"] == "read-only" and changed_paths:
-        raise OrchestrationError("read-only assignments cannot report changed paths")
-    ownership = assignment.get("ownership", [])
-    if assignment["permissions"] != "read-only" and any(
-        not any(
-            _paths_overlap(changed, owned)
-            and len(PurePosixPath(changed).parts) >= len(PurePosixPath(owned).parts)
-            for owned in ownership
-        )
-        for changed in changed_paths
-    ):
-        raise OrchestrationError("changed_paths exceeds assignment ownership")
+    durable_blockers = _durable_context_blockers(
+        payload,
+        plan_id=plan["plan_id"],
+        assignment=assignment,
+        assignments=assignments,
+        normalized=normalized,
+    )
 
-    commands = _commands(result.get("commands"))
-    blockers = _string_list(result.get("blockers"), "blockers", allow_empty=True)
-    risks = _string_list(result.get("risks"), "risks", allow_empty=True)
-    if status in {"completed", "confirmed", "rejected"} and not commands:
-        raise OrchestrationError("terminal results require observed commands")
-    if status in {"completed", "confirmed"} and (
-        blockers or any(command["exit_code"] != 0 for command in commands)
-    ):
-        raise OrchestrationError(f"{status} requires zero exits and no blockers")
-    if status == "failed" and not any(
-        command["exit_code"] != 0 for command in commands
-    ):
-        raise OrchestrationError("failed requires an observed non-zero exit")
-    if status in {"blocked", "inconclusive"} and not blockers:
-        raise OrchestrationError(f"{status} requires at least one blocker")
-
-    actor_id = _string(result, "actor_id")
-    if role == "verifier":
-        if actor_id == assignment["id"] or actor_id in assignment.get(
-            "must_be_distinct_from", []
-        ):
-            raise OrchestrationError("verifier must be distinct from every worker")
-        verified = _string_list(
-            result.get("verified_assignment_ids"), "verified_assignment_ids"
-        )
-        worker_ids = {
-            item["assignment_id"] for item in assignments if item["role"] != "verifier"
-        }
-        if not set(verified).issubset(worker_ids):
-            raise OrchestrationError("verifier references an invalid assignment")
-    elif "verified_assignment_ids" in result:
-        raise OrchestrationError("only verifiers may report verified assignments")
-
-    return {
+    validation = {
         "schema_version": 2,
         "kind": "worker_result_validation",
         "valid": True,
-        "durable_claim_eligible": True,
+        "durable_claim_eligible": not durable_blockers,
+        "durable_claim_blockers": durable_blockers,
         "plan_id": plan["plan_id"],
         "assignment_id": assignment_id,
-        "role": role,
-        "status": status,
-        "changed_paths": changed_paths,
-        "commands": commands,
-        "blockers": blockers,
-        "risks": risks,
+        "actor_id": normalized["actor_id"],
+        "role": normalized["role"],
+        "status": normalized["status"],
+        "changed_paths": normalized["changed_paths"],
+        "commands": normalized["commands"],
+        "blockers": normalized["blockers"],
+        "risks": normalized["risks"],
     }
+    if normalized["no_op_reason"] is not None:
+        validation["no_op_reason"] = normalized["no_op_reason"]
+    if normalized["verified_assignment_ids"] is not None:
+        validation["verified_assignment_ids"] = normalized["verified_assignment_ids"]
+    return validation
 
 
 def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:

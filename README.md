@@ -29,9 +29,21 @@ record, stop conditions, and receipt policy. Version 2 requires executable RED
 and verification evidence for delegated writes and supports plan-bound worker
 and verifier results. Invalid semantic signals return an observable `solo`
 plan. The existing v1 `--input`/`--cases` intensity interface and
-`select_intensity()` remain compatible. Parallel modes require at least two
-workers after reserving the main-agent slot; a fresh verifier runs only after
-implementation workers finish.
+`select_intensity()` remain compatible. One host slot always remains with the
+main agent. The other slots are reused by ordered waves, so a verifier planned
+for a later wave does not reduce an earlier worker wave. `spawn_count` is the
+total number of planned non-verifier workers, `total_planned_agents` also
+includes the verifier, and `max_concurrent_workers` is the largest
+non-verification wave. A fresh verifier runs only after implementation workers
+finish.
+
+V2 worker results remain structurally readable without claim context, but they
+are durable-claim-ineligible until an `execution_context` v1 binds the source
+SHA-256, each assignment to its real actor identity, and a verifier to the
+complete prior worker-result bundle. Every terminal result must include the
+assignment's exact declared check. A write that legitimately changes nothing
+uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
+and a successful required check; an empty `completed` write is rejected.
 
 Codex initially sees only these three core entries. The other eleven specialized workflows remain installed and are loaded from the core router only when the task directly matches them. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
 
@@ -110,7 +122,7 @@ The repository is private, so GitHub CLI must be installed and authenticated wit
 & ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.5.0` is enabled. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, adds or refreshes the `cognitive-powers` Git marketplace, installs `cognitive-powers@cognitive-powers`, and verifies that version `1.5.1` is enabled. Restart Codex before starting a new task.
 
 ## Update the local development installation
 
@@ -212,6 +224,12 @@ No product screenshots are claimed because Cognitive Powers currently has no ver
 
 Set `$python` to a working Python 3 executable. In Codex desktop, use the Python path returned by the workspace dependency loader rather than the Microsoft Store alias.
 
+Install the exact validation dependency set before invoking the canonical entrypoint:
+
+```powershell
+& $python -m pip install -r requirements-dev.txt
+```
+
 Run the complete declared offline surface with one command. The JSON receipt must be outside the plugin root so it does not dirty or alter the source identity being validated:
 
 ```text
@@ -219,6 +237,15 @@ Run the complete declared offline surface with one command. The JSON receipt mus
 ```
 
 The command fails closed when Git has no real HEAD, the worktree is dirty, source identity changes during execution, a declared command is missing, or any real exit code is nonzero. It records offline and live status separately and never runs live checks by default.
+
+GitHub Actions treats the blocking `validate_all.py` result as the code check and
+reports receipt publication separately. The workflow always prints the receipt
+SHA-256, bound Git/source identities, and failed-command tails. Artifact upload is
+non-blocking for the PR check because repository quota is external to code
+validation, but it is never relabeled as successful: `receipt_uploaded=false`
+blocks release preparation. A green validation check does not mean release-ready;
+that claim still requires preserving the receipt through a valid channel and
+creating an independent release witness.
 
 The canonical offline surface executed by that entrypoint is listed below and checked against the orchestrator by tests:
 

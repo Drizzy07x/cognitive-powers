@@ -16,7 +16,7 @@ class PluginContractTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.5.0")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.5.1")
         self.assertEqual(manifest["skills"], "./skills-core/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
@@ -252,7 +252,7 @@ class PluginContractTests(unittest.TestCase):
             '$ErrorActionPreference = "Stop"',
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',
-            '$expectedVersion = "1.5.0"',
+            '$expectedVersion = "1.5.1"',
             '"auth", "setup-git"',
             '"plugin", "marketplace", "add"',
             '"plugin", "marketplace", "upgrade"',

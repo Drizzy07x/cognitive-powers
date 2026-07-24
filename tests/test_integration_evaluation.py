@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,35 @@ class IntegrationEvaluationTests(unittest.TestCase):
         self.tasks_path = PLUGIN_ROOT / "benchmarks" / "evaluation_tasks.json"
         self.receipts = json.loads(self.receipts_path.read_text(encoding="utf-8"))
         self.contract = json.loads(self.tasks_path.read_text(encoding="utf-8"))
+
+    def test_artifact_directory_accepts_canonicalized_windows_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "artifact"
+            artifact.mkdir()
+            diff = artifact / "diff.patch"
+            diff.write_bytes(b"patch\n")
+            canonical = root / "canonical-artifact"
+            path_type = type(root)
+            original_resolve = path_type.resolve
+
+            def resolve_alias(path, *args, **kwargs):
+                if path == artifact:
+                    return canonical
+                if path == diff:
+                    return canonical / diff.name
+                return original_resolve(path, *args, **kwargs)
+
+            with mock.patch.object(path_type, "resolve", new=resolve_alias):
+                digest = evaluation._artifact_sha256(artifact)
+
+        file_digest = hashlib.sha256(b"patch\n").hexdigest()
+        manifest = json.dumps(
+            {"diff.patch": file_digest},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        self.assertEqual(digest, hashlib.sha256(manifest).hexdigest())
 
     def _v2_pair(
         self,
