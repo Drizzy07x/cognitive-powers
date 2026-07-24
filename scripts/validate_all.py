@@ -337,6 +337,27 @@ def write_receipt(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def console_summary(payload: dict[str, Any], output: Path) -> dict[str, Any]:
+    failed_commands = [
+        {
+            "name": item["name"],
+            "command": item["command"],
+            "exitCode": item["exitCode"],
+            "stdoutTail": item["stdoutTail"],
+            "stderrTail": item["stderrTail"],
+        }
+        for item in payload["commands"]
+        if not item["passed"]
+    ]
+    return {
+        "output": str(output),
+        "passed": payload["passed"],
+        "offlinePassed": payload["offline"]["passed"],
+        "liveValidated": payload["live"]["validated"],
+        "failedCommands": failed_commands,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -376,17 +397,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, ValidationError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2
-    print(
-        json.dumps(
-            {
-                "output": str(output),
-                "passed": payload["passed"],
-                "offlinePassed": payload["offline"]["passed"],
-                "liveValidated": payload["live"]["validated"],
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(console_summary(payload, output), ensure_ascii=False))
     return 0 if payload["passed"] else 1
 
 

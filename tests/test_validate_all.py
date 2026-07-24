@@ -63,6 +63,28 @@ class ValidateAllTests(unittest.TestCase):
             readme,
         )
 
+    def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        validation_step = workflow.index(
+            "- name: Run the canonical offline validation entrypoint"
+        )
+        upload_step = workflow.index("- name: Preserve validation receipt")
+        summary_step = workflow.index("- name: Report validation and publication status")
+        self.assertLess(validation_step, upload_step)
+        self.assertLess(upload_step, summary_step)
+        self.assertNotIn(
+            "continue-on-error: true",
+            workflow[validation_step:upload_step],
+        )
+        self.assertIn(
+            "continue-on-error: true",
+            workflow[upload_step:summary_step],
+        )
+        self.assertIn("steps.validation.outcome", workflow[summary_step:])
+        self.assertIn("steps.receipt-upload.outcome", workflow[summary_step:])
+
     def test_release_witness_uses_same_offline_command_contract(self) -> None:
         signature = [
             (command.name, command.argv) for command in validator.OFFLINE_COMMANDS
@@ -159,6 +181,30 @@ class ValidateAllTests(unittest.TestCase):
         self.assertFalse(receipt["passed"])
         self.assertFalse(receipt["offline"]["passed"])
         self.assertEqual(receipt["commands"][2]["exitCode"], 7)
+
+    def test_failed_command_is_exposed_in_console_summary(self) -> None:
+        failed = command_result(
+            validator.OFFLINE_COMMANDS[2],
+            "offline",
+            passed=False,
+        )
+        failed["stdoutTail"] = "FAILED: runner-specific assertion"
+        failed["stderrTail"] = "runner stderr"
+        payload = {
+            "passed": False,
+            "offline": {"passed": False},
+            "live": {"validated": False},
+            "commands": [failed],
+        }
+        summary = validator.console_summary(payload, Path("receipt.json"))
+        self.assertEqual(summary["failedCommands"][0]["name"], failed["name"])
+        self.assertEqual(summary["failedCommands"][0]["command"], failed["command"])
+        self.assertEqual(summary["failedCommands"][0]["exitCode"], 7)
+        self.assertEqual(
+            summary["failedCommands"][0]["stdoutTail"],
+            "FAILED: runner-specific assertion",
+        )
+        self.assertEqual(summary["failedCommands"][0]["stderrTail"], "runner stderr")
 
     def test_live_requires_explicit_immutable_argv(self) -> None:
         with self.assertRaises(validator.ValidationError):
