@@ -130,6 +130,17 @@ def repository_identity(root: Path) -> dict[str, Any]:
     return {"sha": sha, "dirty": bool(entries), "status": entries}
 
 
+def release_tag_identity(root: Path, version: str) -> str:
+    expected = f"v{version}"
+    tags = _git(root, "tag", "--points-at", "HEAD")
+    if tags.returncode != 0:
+        raise WitnessError("cannot inspect release tags")
+    exact = sorted(line.strip() for line in tags.stdout.splitlines() if line.strip())
+    if exact != [expected]:
+        raise WitnessError(f"release HEAD must be tagged exactly {expected}")
+    return expected
+
+
 def source_records(root: Path) -> tuple[list[dict[str, Any]], str]:
     files = [
         {
@@ -335,6 +346,7 @@ def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
     git = repository_identity(root)
     if git["dirty"]:
         raise WitnessError("release witness requires a clean Git worktree")
+    release_tag = release_tag_identity(root, manifest["version"])
     files, source_sha256 = source_records(root)
     receipts = [
         _receipt(path.resolve(), git_sha=git["sha"], source_sha256=source_sha256)
@@ -348,6 +360,7 @@ def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
         "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "plugin": manifest["name"],
         "version": manifest["version"],
+        "tag": release_tag,
         "git": {"sha": git["sha"], "dirty": False},
         "files": files,
         "sourceSha256": source_sha256,
@@ -377,6 +390,13 @@ def verify_witness(root: Path, witness: dict[str, Any]) -> list[str]:
         errors.append("witness plugin identity is absent or stale")
     if witness.get("version") != manifest.get("version"):
         errors.append("witness plugin version is absent or stale")
+    try:
+        release_tag = release_tag_identity(root, manifest.get("version", ""))
+    except WitnessError as error:
+        errors.append(str(error))
+        release_tag = None
+    if release_tag is not None and witness.get("tag") != release_tag:
+        errors.append("witness release tag is absent or stale")
     try:
         git = repository_identity(root)
     except WitnessError as error:

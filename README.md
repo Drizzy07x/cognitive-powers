@@ -131,10 +131,16 @@ Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers
 The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api repos/Drizzy07x/cognitive-powers/contents/install.ps1 -H "Accept: application/vnd.github.raw+json" | Out-String)))
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.5.2' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, replaces the `cognitive-powers` marketplace with the immutable `v1.5.2` ref, removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.5.2` entry is enabled. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, preflights the requested immutable tag, creates a local recovery copy before any removal, replaces the `cognitive-powers` marketplace with `v1.5.2`, removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.5.2` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
+
+To roll back immutably to 1.5.1, run the audited 1.5.2 installer with the prior tag. The same recovery transaction protects the currently installed release:
+
+```powershell
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.5.2' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.5.1
+```
 
 ## Update the local development installation
 

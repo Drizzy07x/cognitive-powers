@@ -253,8 +253,9 @@ class PluginContractTests(unittest.TestCase):
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',
             '$pluginName = "cognitive-powers"',
-            '$expectedVersion = "1.5.2"',
-            '$releaseRef = "v$expectedVersion"',
+            '[string]$ReleaseRef = "v1.5.2"',
+            "$releaseRef = $ReleaseRef",
+            "$expectedVersion = $releaseRef.Substring(1)",
             "$allowedSources = @(",
             "[string]::IsNullOrWhiteSpace($configuredSource)",
             "$allowedSources -notcontains $configuredSource",
@@ -264,7 +265,22 @@ class PluginContractTests(unittest.TestCase):
             '"api", "repos/$repository/git/ref/tags/$releaseRef", "--silent"',
             '"plugin", "marketplace", "add"',
             '"plugin", "add", $pluginId',
-            '"plugin", "remove", $duplicate.pluginId',
+            '"plugin", "remove", $previous.pluginId',
+            "$rollbackRoot",
+            "$rollbackMarketplace",
+            "$allowedPreviousPluginIds",
+            "$configuredSourceIsPinnedRepository",
+            "$unknownDuplicates",
+            "$personalMarketplace",
+            "$provisionalMatches",
+            "$restoredMatches.Count -ne $duplicates.Count",
+            "$restoredMarketplace[0].root",
+            "Copy-Item -LiteralPath $configured[0].root",
+            '"plugin", "marketplace", "add", $rollbackMarketplace',
+            '"plugin", "add", $previous.pluginId',
+            "function Read-CodexJsonBestEffort",
+            '$ErrorActionPreference = "SilentlyContinue"',
+            "catch {",
             "$enabledMatches.Count -ne 1",
         ]
         for fragment in required_fragments:
@@ -273,6 +289,17 @@ class PluginContractTests(unittest.TestCase):
         self.assertNotIn("gho_", installer)
         self.assertNotIn("github_pat_", installer)
         self.assertNotIn('"--ref", "main"', installer)
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("rollback", readme.lower())
+        self.assertIn("v1.5.1", readme)
+
+    def test_tag_ci_requires_exact_release_witness(self) -> None:
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("startsWith(github.ref, 'refs/tags/')", workflow)
+        self.assertIn("scripts/release_witness.py", workflow)
+        self.assertIn("--receipt", workflow)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [

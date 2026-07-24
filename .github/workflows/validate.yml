@@ -19,6 +19,8 @@ jobs:
         python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -31,6 +33,12 @@ jobs:
         run: >-
           python scripts/validate_all.py --offline
           --json-output "${{ runner.temp }}/cognitive-powers-validation.json"
+      - name: Verify exact version-tag release identity
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          python scripts/release_witness.py
+          --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
+          --output "${{ runner.temp }}/cognitive-powers-release-witness.json"
       - name: Report validation receipt
         id: receipt-report
         if: always()
@@ -44,7 +52,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: validation-${{ matrix.os }}-py${{ matrix.python }}
-          path: ${{ runner.temp }}/cognitive-powers-validation.json
+          path: |
+            ${{ runner.temp }}/cognitive-powers-validation.json
+            ${{ runner.temp }}/cognitive-powers-release-witness.json
           if-no-files-found: error
       - name: Report validation and artifact publication status
         if: always()

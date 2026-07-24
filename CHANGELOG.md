@@ -5,7 +5,8 @@
 ## 1.5.2 - 2026-07-24
 
 - Prevented adaptive-plan resumptions from rescheduling units already listed in `completed_unit_ids`.
-- Made private and local Codex installations mutually exclusive, pinned the private marketplace to immutable ref `v1.5.2`, enforced a fail-closed exact source allowlist and tag preflight, removed duplicate Cognitive Powers entries, and verified exactly one enabled instance.
+- Made private and local Codex installations mutually exclusive, pinned the private marketplace to immutable refs, enforced a fail-closed exact source allowlist and tag preflight, created an automatic pre-mutation recovery copy, restored the prior installation on failure, documented immutable rollback to `v1.5.1`, removed duplicate Cognitive Powers entries, and verified exactly one enabled instance.
+- Bound release witnesses and tag CI to the sole exact `v<manifest-version>` tag at `HEAD`.
 - Scoped doctor Git cleanliness checks to the diagnosed plugin root so unrelated parent-repository changes cannot contaminate the result.
 - Ignored Codex host-generated `.codex-marketplace-install.json` metadata in source/package identity and Git cleanliness reporting without hiding real tracked changes.
 - Added the host metadata file to the plugin ignore rules so marketplace upgrades remain clean and reproducible.

@@ -40,6 +40,7 @@ def make_repository(parent: Path) -> Path:
     git(root, "config", "user.email", "fixture@example.invalid")
     git(root, "add", ".")
     git(root, "commit", "-qm", "fixture")
+    git(root, "tag", "v1.0.0")
     return root
 
 
@@ -120,6 +121,17 @@ class ReleaseWitnessTests(unittest.TestCase):
             receipt.write_text(json.dumps(passing_receipt(root)), encoding="utf-8")
             (root / "source.txt").write_text("changed\n", encoding="utf-8")
             with self.assertRaisesRegex(witness.WitnessError, "clean Git worktree"):
+                witness.create_witness(root, [receipt])
+
+    def test_wrong_or_missing_release_tag_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = make_repository(parent)
+            receipt = parent / "validation.json"
+            receipt.write_text(json.dumps(passing_receipt(root)), encoding="utf-8")
+            git(root, "tag", "-d", "v1.0.0")
+            git(root, "tag", "v9.9.9")
+            with self.assertRaisesRegex(witness.WitnessError, "tagged exactly v1.0.0"):
                 witness.create_witness(root, [receipt])
 
     def test_missing_sha_and_incomplete_results_are_rejected(self) -> None:
