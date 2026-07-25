@@ -838,6 +838,70 @@ class LiveAbRunnerTests(unittest.TestCase):
                     fixture, fixture / "results", baseline, candidate
                 )
 
+    def test_fixture_copy_budget_fails_before_destination_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "fixture"
+            fixture.mkdir()
+            (fixture / "a.txt").write_text("a", encoding="utf-8")
+            (fixture / "b.txt").write_text("b", encoding="utf-8")
+            destination = root / "copied"
+
+            with self.assertRaisesRegex(
+                runner.LiveEvaluationError, "stopped before copying"
+            ):
+                runner.copy_fixture_tree(
+                    fixture,
+                    destination,
+                    max_files=1,
+                    max_bytes=100,
+                )
+
+            self.assertFalse(destination.exists())
+
+    def test_tree_hashes_follow_shared_exclusion_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "src").mkdir()
+            (root / "src" / "kept.py").write_text("kept\n", encoding="utf-8")
+            for excluded in ("node_modules", "homes", "runs", "storage"):
+                tree = root / excluded
+                tree.mkdir()
+                (tree / "ignored.txt").write_text("ignored\n", encoding="utf-8")
+
+            hashes = runner.tree_hashes(root)
+
+            self.assertEqual(set(hashes), {"src/kept.py"})
+
+    def test_workdir_cleanup_and_failure_debug_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            success = root / "success"
+            success.mkdir()
+            (success / "work.txt").write_text("done", encoding="utf-8")
+
+            self.assertIsNone(
+                runner.finalize_workdir(
+                    success,
+                    succeeded=True,
+                    retain_debug_workdirs=False,
+                )
+            )
+            self.assertFalse(success.exists())
+
+            failed = root / "failed"
+            failed.mkdir()
+            (failed / "debug.txt").write_text("diagnose", encoding="utf-8")
+            receipt = runner.finalize_workdir(
+                failed,
+                succeeded=False,
+                retain_debug_workdirs=False,
+            )
+            self.assertEqual(receipt["path"], str(failed.resolve()))
+            self.assertEqual(receipt["file_count"], 1)
+            self.assertEqual(receipt["total_bytes"], len("diagnose"))
+            self.assertTrue(failed.is_dir())
+
     def test_task_binding_requires_the_frozen_schedule(self) -> None:
         contract_path = PLUGIN_ROOT / "benchmarks" / "evaluation_tasks.json"
         contract = json.loads(contract_path.read_text(encoding="utf-8"))

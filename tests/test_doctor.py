@@ -56,6 +56,10 @@ def make_installable_fixture(parent: Path) -> Path:
     (root / "scripts" / "doctor.py").write_text(
         MODULE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    (root / "scripts" / "storage_policy.py").write_text(
+        (PLUGIN_ROOT / "scripts" / "storage_policy.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     canonical_orchestration = PLUGIN_ROOT / "scripts" / "orchestration_policy.py"
     wrapper_orchestration = (
         PLUGIN_ROOT
@@ -159,6 +163,31 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(before, after_host_metadata)
         self.assertNotEqual(before["sha256"], after["sha256"])
 
+    def test_source_and_package_enumeration_use_shared_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            kept = root / "kept.py"
+            kept.write_text("kept\n", encoding="utf-8")
+            before = doctor.source_identity(root)
+            for name in ("node_modules", ".venv", "homes", "runs", "storage", "dist"):
+                tree = root / name
+                tree.mkdir()
+                (tree / "ignored.bin").write_bytes(b"x" * 100)
+
+            source_files = [
+                path.relative_to(root).as_posix()
+                for path in doctor.iter_source_files(root)
+            ]
+            package_files = [
+                path.relative_to(root).as_posix()
+                for path in doctor.iter_package_files(root)
+            ]
+            after = doctor.source_identity(root)
+
+        self.assertEqual(source_files, ["kept.py"])
+        self.assertEqual(package_files, ["kept.py"])
+        self.assertEqual(before, after)
+
     def test_git_identity_ignores_only_codex_marketplace_metadata(self) -> None:
         completed = doctor.subprocess.CompletedProcess
         with mock.patch.object(
@@ -209,6 +238,21 @@ class DoctorTests(unittest.TestCase):
             )
         )
 
+    def test_release_installation_enforces_budget_before_packaging(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_installable_fixture(Path(temporary))
+            with (
+                mock.patch.object(
+                    doctor.tempfile,
+                    "TemporaryDirectory",
+                    side_effect=AssertionError("package materialized"),
+                ),
+                self.assertRaisesRegex(
+                    doctor.StoragePolicyError, "file count.*package budget"
+                ),
+            ):
+                doctor.validate_release_installation(root, max_files=1)
+
     def test_release_installation_rejects_missing_runtime_assets_and_gates(
         self,
     ) -> None:
@@ -223,6 +267,10 @@ class DoctorTests(unittest.TestCase):
                 "interface-asset:logo",
             ),
             "release-witness": ("scripts/release_witness.py", "release-witness"),
+            "storage-policy-runtime": (
+                "scripts/storage_policy.py",
+                "storage-policy-runtime",
+            ),
             "ci-workflow": (".github/workflows/validate.yml", "ci-workflow"),
             "orchestration-runtime": (
                 "scripts/orchestration_policy.py",

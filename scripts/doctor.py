@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import platform
 import subprocess
@@ -15,20 +14,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+try:
+    from scripts.storage_policy import (
+        DEFAULT_COPY_MAX_BYTES,
+        DEFAULT_COPY_MAX_FILES,
+        EXCLUDED_DIRECTORY_NAMES,
+        EXCLUDED_FILE_NAMES,
+        StoragePolicyError,
+        enforce_budget,
+        iter_tree_files,
+        measure_files,
+        source_identity as shared_source_identity,
+    )
+except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
+    from storage_policy import (
+        DEFAULT_COPY_MAX_BYTES,
+        DEFAULT_COPY_MAX_FILES,
+        EXCLUDED_DIRECTORY_NAMES,
+        EXCLUDED_FILE_NAMES,
+        StoragePolicyError,
+        enforce_budget,
+        iter_tree_files,
+        measure_files,
+        source_identity as shared_source_identity,
+    )
 
-SOURCE_IGNORED_PARTS = {
-    ".git",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    "benchmark-results",
-}
-PACKAGE_IGNORED_PARTS = SOURCE_IGNORED_PARTS | {
-    "blob-report",
-    "playwright-report",
-    "test-results",
-}
-HOST_METADATA_FILES = {".codex-marketplace-install.json"}
+
+SOURCE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
+PACKAGE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
+HOST_METADATA_FILES = set(EXCLUDED_FILE_NAMES)
 
 
 class DoctorError(ValueError):
@@ -45,40 +59,20 @@ def _read_object(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def _iter_files(root: Path, ignored_parts: set[str]) -> Iterable[Path]:
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        relative = path.relative_to(root)
-        if relative.as_posix() in HOST_METADATA_FILES:
-            continue
-        if any(part in ignored_parts for part in relative.parts):
-            continue
-        if path.suffix.lower() in {".pyc", ".pyo"}:
-            continue
-        yield path
+def _iter_files(root: Path) -> Iterable[Path]:
+    yield from iter_tree_files(root)
 
 
 def iter_source_files(root: Path) -> Iterable[Path]:
-    return _iter_files(root, SOURCE_IGNORED_PARTS)
+    return _iter_files(root)
 
 
 def iter_package_files(root: Path) -> Iterable[Path]:
-    return _iter_files(root, PACKAGE_IGNORED_PARTS)
+    return _iter_files(root)
 
 
 def source_identity(root: Path) -> dict[str, Any]:
-    aggregate = hashlib.sha256()
-    count = 0
-    for path in iter_source_files(root):
-        relative = path.relative_to(root).as_posix()
-        file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        aggregate.update(relative.encode("utf-8"))
-        aggregate.update(b"\0")
-        aggregate.update(file_hash.encode("ascii"))
-        aggregate.update(b"\n")
-        count += 1
-    return {"sha256": aggregate.hexdigest(), "fileCount": count}
+    return dict(shared_source_identity(root))
 
 
 def git_identity(root: Path) -> dict[str, Any]:
@@ -348,6 +342,10 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
             "passed": validation["components"]["offlineEntrypoint"],
         },
         {
+            "name": "storage-policy-runtime",
+            "passed": (staged / "scripts" / "storage_policy.py").is_file(),
+        },
+        {
             "name": "release-witness",
             "passed": validation["components"]["releaseWitness"],
         },
@@ -518,10 +516,22 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
     return checks
 
 
-def validate_release_installation(root: Path) -> dict[str, Any]:
+def validate_release_installation(
+    root: Path,
+    *,
+    max_files: int = DEFAULT_COPY_MAX_FILES,
+    max_bytes: int = DEFAULT_COPY_MAX_BYTES,
+) -> dict[str, Any]:
     """Package and inspect a disposable local installation without publishing it."""
     root = root.resolve()
     files = list(iter_package_files(root))
+    measurement = measure_files(files)
+    enforce_budget(
+        measurement,
+        max_files=max_files,
+        max_bytes=max_bytes,
+        label="package",
+    )
     with tempfile.TemporaryDirectory(prefix="cognitive-powers-install-") as temporary:
         temporary_root = Path(temporary)
         archive = temporary_root / "cognitive-powers.zip"
@@ -537,12 +547,19 @@ def validate_release_installation(root: Path) -> dict[str, Any]:
         "temporaryCopy": True,
         "published": False,
         "fileCount": len(files),
+        "totalBytes": measurement.total_bytes,
         "checks": checks,
         "passed": bool(checks) and all(check["passed"] for check in checks),
     }
 
 
-def build_report(root: Path, *, validate_installation: bool = False) -> dict[str, Any]:
+def build_report(
+    root: Path,
+    *,
+    validate_installation: bool = False,
+    max_package_files: int = DEFAULT_COPY_MAX_FILES,
+    max_package_bytes: int = DEFAULT_COPY_MAX_BYTES,
+) -> dict[str, Any]:
     root = root.resolve()
     manifest = _read_object(root / ".codex-plugin" / "plugin.json", "plugin manifest")
     report: dict[str, Any] = {
@@ -568,7 +585,11 @@ def build_report(root: Path, *, validate_installation: bool = False) -> dict[str
         "localUsageCounters": local_usage_counter_policy(),
     }
     if validate_installation:
-        report["installationValidation"] = validate_release_installation(root)
+        report["installationValidation"] = validate_release_installation(
+            root,
+            max_files=max_package_files,
+            max_bytes=max_package_bytes,
+        )
     return report
 
 
@@ -606,6 +627,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="package and inspect a disposable local copy without publishing",
     )
+    parser.add_argument("--max-package-files", type=int, default=DEFAULT_COPY_MAX_FILES)
+    parser.add_argument("--max-package-bytes", type=int, default=DEFAULT_COPY_MAX_BYTES)
     return parser
 
 
@@ -613,9 +636,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         report = build_report(
-            args.root, validate_installation=args.validate_installation
+            args.root,
+            validate_installation=args.validate_installation,
+            max_package_files=args.max_package_files,
+            max_package_bytes=args.max_package_bytes,
         )
-    except DoctorError as error:
+    except (DoctorError, StoragePolicyError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2
     if args.json:

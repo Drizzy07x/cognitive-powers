@@ -8,6 +8,8 @@ EXPORTS = [
     "LOCK_TIMEOUT_SECONDS",
     "LOCK_STALE_SECONDS",
     "OUTPUT_TAIL_CHARS",
+    "LEDGER_CHECKPOINT_INTERVAL",
+    "LEDGER_MAX_EVENTS",
     "IGNORED_DIRECTORIES",
     "IGNORED_SOURCE_SUFFIXES",
     "IGNORED_SOURCE_FILES",
@@ -34,6 +36,10 @@ EXPORTS = [
     "_latest_ledger_snapshot",
     "load_state",
     "_append_ledger",
+    "_state_digest",
+    "_state_delta",
+    "_atomic_write_recovery",
+    "_compact_ledger_unlocked",
 ]
 
 globals().update({name: getattr(_durability, name) for name in EXPORTS})

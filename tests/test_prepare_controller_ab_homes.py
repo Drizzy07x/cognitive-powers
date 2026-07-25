@@ -101,6 +101,52 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
             ):
                 homes._copy_plugin(source, root / "destination")
 
+    def test_copy_plugin_preflights_budgets_before_creating_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            self._write_runtime_source(source)
+            with self.assertRaisesRegex(
+                homes.HomePreparationError, "file count.*budget"
+            ):
+                homes._copy_plugin(
+                    source,
+                    destination,
+                    max_files=1,
+                    max_bytes=1_000_000,
+                )
+            self.assertFalse(destination.exists())
+
+    def test_copy_plugin_rejects_large_excluded_dependency_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            self._write_runtime_source(source)
+            dependencies = source / "skills" / "node_modules"
+            dependencies.mkdir()
+            for index in range(3):
+                (dependencies / f"{index}.js").write_text(
+                    "dependency", encoding="utf-8"
+                )
+            with self.assertRaisesRegex(
+                homes.HomePreparationError,
+                r"excluded large tree.*node_modules.*override",
+            ):
+                homes._copy_plugin(
+                    source,
+                    root / "rejected",
+                    large_tree_file_limit=2,
+                )
+            surface = homes._copy_plugin(
+                source,
+                root / "allowed",
+                allow_large_excluded_trees=True,
+                large_tree_file_limit=2,
+            )
+            self.assertGreater(surface["file_count"], 0)
+            self.assertFalse((root / "allowed" / "skills" / "node_modules").exists())
+
     def test_login_must_be_chatgpt(self) -> None:
         completed = mock.Mock(
             returncode=0, stdout="Logged in using API key\n", stderr=""

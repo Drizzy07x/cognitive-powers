@@ -308,6 +308,19 @@ class ValidateAllTests(unittest.TestCase):
             after = validator.source_identity(root)
         self.assertNotEqual(before["sha256"], after["sha256"])
 
+    def test_source_identity_uses_shared_dependency_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source.py").write_text("kept\n", encoding="utf-8")
+            before = validator.source_identity(root)
+            for name in ("node_modules", ".next", "build", "coverage", "storage"):
+                tree = root / name
+                tree.mkdir()
+                (tree / "ignored.bin").write_bytes(b"generated")
+            after = validator.source_identity(root)
+
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()

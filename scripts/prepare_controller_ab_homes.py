@@ -20,6 +20,14 @@ from live_ab_runner import (
     tree_hashes,
     validate_arm_plugins,
 )
+from storage_policy import (
+    DEFAULT_COPY_MAX_BYTES,
+    DEFAULT_COPY_MAX_FILES,
+    DEFAULT_LARGE_TREE_BYTE_LIMIT,
+    DEFAULT_LARGE_TREE_FILE_LIMIT,
+    StoragePolicyError,
+    bounded_copy_tree,
+)
 
 
 class HomePreparationError(ValueError):
@@ -81,32 +89,42 @@ def _minimal_config(model: str, reasoning_effort: str) -> str:
     )
 
 
-def _copy_plugin(source: Path, destination: Path) -> dict[str, Any]:
+def _copy_plugin(
+    source: Path,
+    destination: Path,
+    *,
+    max_files: int = DEFAULT_COPY_MAX_FILES,
+    max_bytes: int = DEFAULT_COPY_MAX_BYTES,
+    allow_large_excluded_trees: bool = False,
+    large_tree_file_limit: int = DEFAULT_LARGE_TREE_FILE_LIMIT,
+    large_tree_byte_limit: int = DEFAULT_LARGE_TREE_BYTE_LIMIT,
+) -> dict[str, Any]:
     """Copy the runtime surface only, keeping evaluator data outside CODEX_HOME."""
-    ignored = shutil.ignore_patterns(
-        ".git",
-        "__pycache__",
-        ".pytest_cache",
-        ".ruff_cache",
-        "benchmark-results",
-        "*.pyc",
-        "*.pyo",
-    )
-    destination.mkdir(parents=True)
     for relative in INSTALLED_SURFACE_DIRECTORIES:
         source_path = source / relative
         if not source_path.is_dir():
             raise HomePreparationError(
                 f"runtime surface directory is missing: {relative}"
             )
-        shutil.copytree(source_path, destination / relative, ignore=ignored)
     for relative in INSTALLED_SURFACE_FILES:
         source_path = source / relative
         if not source_path.is_file():
             raise HomePreparationError(f"runtime surface file is missing: {relative}")
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, target)
+    manifest = (*INSTALLED_SURFACE_DIRECTORIES, *INSTALLED_SURFACE_FILES)
+    try:
+        measurement = bounded_copy_tree(
+            source,
+            destination,
+            manifest=manifest,
+            max_files=max_files,
+            max_bytes=max_bytes,
+            fixture_mode=True,
+            allow_large_excluded_trees=allow_large_excluded_trees,
+            large_tree_file_limit=large_tree_file_limit,
+            large_tree_byte_limit=large_tree_byte_limit,
+        )
+    except StoragePolicyError as error:
+        raise HomePreparationError(str(error)) from error
 
     hashes = tree_hashes(destination)
     leaked = [
@@ -124,6 +142,7 @@ def _copy_plugin(source: Path, destination: Path) -> dict[str, Any]:
         "included_files": list(INSTALLED_SURFACE_FILES),
         "excluded_development_paths": list(SENSITIVE_DEVELOPMENT_PATHS),
         "file_count": len(hashes),
+        "total_bytes": measurement.total_bytes,
         "sha256": source_sha256(hashes),
     }
 
@@ -152,6 +171,9 @@ def prepare_homes(
     model: str,
     reasoning_effort: str,
     codex: str,
+    max_plugin_files: int = DEFAULT_COPY_MAX_FILES,
+    max_plugin_bytes: int = DEFAULT_COPY_MAX_BYTES,
+    allow_large_excluded_trees: bool = False,
 ) -> dict[str, Any]:
     source_home = source_home.resolve()
     plugin_source = plugin_source.resolve()
@@ -183,7 +205,13 @@ def prepare_homes(
             shutil.copy2(source_home / "auth.json", home / "auth.json")
             shutil.copy2(source_home / "AGENTS.md", home / "AGENTS.md")
             (home / "config.toml").write_text(config, encoding="utf-8")
-            surfaces[arm] = _copy_plugin(plugin_source, cache)
+            surfaces[arm] = _copy_plugin(
+                plugin_source,
+                cache,
+                max_files=max_plugin_files,
+                max_bytes=max_plugin_bytes,
+                allow_large_excluded_trees=allow_large_excluded_trees,
+            )
             homes[arm] = home
         if surfaces["baseline"] != surfaces["candidate"]:
             raise HomePreparationError("experiment runtime surfaces differ")
@@ -236,6 +264,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", required=True)
     parser.add_argument("--reasoning-effort", required=True)
     parser.add_argument("--codex", default="codex")
+    parser.add_argument("--max-plugin-files", type=int, default=DEFAULT_COPY_MAX_FILES)
+    parser.add_argument("--max-plugin-bytes", type=int, default=DEFAULT_COPY_MAX_BYTES)
+    parser.add_argument(
+        "--allow-large-excluded-trees",
+        action="store_true",
+        help="diagnostic override for excluded dependency/generated trees",
+    )
     return parser
 
 
@@ -249,6 +284,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             codex=args.codex,
+            max_plugin_files=args.max_plugin_files,
+            max_plugin_bytes=args.max_plugin_bytes,
+            allow_large_excluded_trees=args.allow_large_excluded_trees,
         )
     except (HomePreparationError, OSError, json.JSONDecodeError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))

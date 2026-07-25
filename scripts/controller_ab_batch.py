@@ -7,8 +7,10 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -18,14 +20,26 @@ try:
         load_controller_protocol,
         validate_task_contract,
     )
-    from scripts.live_ab_runner import arm_order, source_sha256
+    from scripts.live_ab_runner import (
+        DEFAULT_WORK_MAX_BYTES,
+        DEFAULT_WORK_MAX_FILES,
+        arm_order,
+        source_sha256,
+        workdir_receipt,
+    )
 except ModuleNotFoundError:
     from integration_evaluation import (
         compare,
         load_controller_protocol,
         validate_task_contract,
     )
-    from live_ab_runner import arm_order, source_sha256
+    from live_ab_runner import (
+        DEFAULT_WORK_MAX_BYTES,
+        DEFAULT_WORK_MAX_FILES,
+        arm_order,
+        source_sha256,
+        workdir_receipt,
+    )
 
 
 class BatchError(ValueError):
@@ -284,6 +298,23 @@ def load_config(path: Path) -> dict[str, Any]:
         or not isinstance(value["tasks"], dict)
     ):
         raise BatchError("batch tools, slots, or task bindings are invalid")
+    for field, default in (
+        ("max_work_files", DEFAULT_WORK_MAX_FILES),
+        ("max_work_bytes", DEFAULT_WORK_MAX_BYTES),
+    ):
+        configured = value.get(field, default)
+        if (
+            not isinstance(configured, int)
+            or isinstance(configured, bool)
+            or configured < 0
+        ):
+            raise BatchError(f"batch {field} must be a non-negative integer")
+        value[field] = configured
+    for field in ("retain_debug_workdirs", "allow_large_excluded_trees"):
+        configured = value.get(field, False)
+        if not isinstance(configured, bool):
+            raise BatchError(f"batch {field} must be boolean")
+        value[field] = configured
     for task_id, binding in value["tasks"].items():
         if not isinstance(task_id, str) or not isinstance(binding, dict):
             raise BatchError("batch task binding is invalid")
@@ -318,6 +349,13 @@ def load_config(path: Path) -> dict[str, Any]:
             )
             for item in guards
         ]
+        manifest = binding.get("fixture_manifest")
+        if manifest is not None and (
+            not isinstance(manifest, list)
+            or not manifest
+            or not all(isinstance(item, str) and item for item in manifest)
+        ):
+            raise BatchError(f"task {task_id} has invalid fixture_manifest")
     return value
 
 
@@ -741,18 +779,21 @@ def materialize(
     jobs: Sequence[Mapping[str, Any]],
     completed: set[str],
     expected_source_git: Mapping[str, Any] | None = None,
+    *,
+    sessions_root: Path | None = None,
 ) -> None:
     receipts: list[dict[str, Any]] = []
     agents: list[dict[str, Any]] = []
     hidden: list[dict[str, Any]] = []
     quality: list[dict[str, Any]] = []
+    sessions_root = sessions_root or output / "sessions"
     diffs = output / "pre-evaluator-diffs"
     diffs.mkdir(exist_ok=True)
     for job in jobs:
         if job["job_id"] not in completed:
             continue
         validated = validate_job_output(
-            output / "sessions" / job["job_id"], job, expected_source_git
+            sessions_root / job["job_id"], job, expected_source_git
         )
         receipts.extend(validated["receipts"])
         for result in validated["results"]:
@@ -876,6 +917,136 @@ def materialize_invalid_bundle(output: Path, reason: str) -> dict[str, Any]:
     return {**status, "sha256_index": index["sha256"]}
 
 
+def _is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _debug_workdir_path(output: Path) -> Path:
+    return output / "debug-workdir.json"
+
+
+def _active_workdir_path(output: Path) -> Path:
+    return output / "active-workdir.json"
+
+
+def _record_debug_workdir(
+    output: Path, work_root: Path, *, reason: str
+) -> dict[str, Any]:
+    try:
+        receipt = {**workdir_receipt(work_root), "reason": reason}
+    except ValueError as error:
+        raise BatchError(str(error)) from error
+    _write_json(_debug_workdir_path(output), receipt)
+    active = _active_workdir_path(output)
+    if active.exists():
+        active.unlink()
+    return receipt
+
+
+def _load_workdir_receipt(path: Path) -> dict[str, Any]:
+    value = _load_json(path, "external workdir receipt")
+    if (
+        not isinstance(value, dict)
+        or not isinstance(value.get("path"), str)
+        or not value["path"]
+    ):
+        raise BatchError("external workdir receipt is invalid")
+    return value
+
+
+def _prepare_batch_workdir(
+    output: Path,
+    requested: Path | None,
+) -> Path:
+    active_path = _active_workdir_path(output)
+    debug_path = _debug_workdir_path(output)
+    receipt_path = active_path if active_path.is_file() else debug_path
+    if receipt_path.is_file():
+        recorded = Path(_load_workdir_receipt(receipt_path)["path"]).resolve()
+        if requested is not None and requested.resolve() != recorded:
+            raise BatchError("resume workdir differs from the recorded external path")
+        if not recorded.is_dir():
+            raise BatchError(f"recorded external workdir is missing: {recorded}")
+        if receipt_path == debug_path:
+            _write_json(active_path, {"path": str(recorded)})
+            debug_path.unlink()
+        return recorded
+
+    if requested is None:
+        root = Path(tempfile.mkdtemp(prefix="cognitive-powers-controller-ab-"))
+    else:
+        root = requested.expanduser().resolve()
+        if root.exists():
+            raise BatchError(f"external workdir already exists: {root}")
+        root.mkdir(parents=True)
+    root = root.resolve()
+    if _is_within(root, output) or _is_within(output, root):
+        if root.exists():
+            shutil.rmtree(root)
+        raise BatchError(
+            "external workdir and final evidence output must not contain each other"
+        )
+    (root / "sessions").mkdir()
+    (root / "runner-work").mkdir()
+    _write_json(active_path, {"path": str(root)})
+    return root
+
+
+def validate_compact_evidence(output: Path) -> dict[str, Any]:
+    """Validate root evidence and hashes before deleting successful work state."""
+    status = _load_json(output / "batch-status.json", "batch status")
+    index = _load_json(
+        output / "coordinator-sha256-index.json", "coordinator evidence index"
+    )
+    artifacts = index.get("artifacts") if isinstance(index, dict) else None
+    if (
+        not isinstance(status, dict)
+        or status.get("complete") is not True
+        or not isinstance(index, dict)
+        or index.get("sha256")
+        != canonical_sha256(
+            {key: value for key, value in index.items() if key != "sha256"}
+        )
+        or not isinstance(artifacts, dict)
+        or not artifacts
+    ):
+        raise BatchError("compact coordinator evidence is incomplete")
+    for relative, expected_hash in artifacts.items():
+        if not isinstance(relative, str) or not isinstance(expected_hash, str):
+            raise BatchError("compact coordinator evidence index is malformed")
+        path = output / relative
+        if not path.is_file() or file_sha256(path) != expected_hash:
+            raise BatchError(f"compact coordinator evidence changed: {relative}")
+    if any((output / name).exists() for name in ("homes", "runs", "storage")):
+        raise BatchError("ephemeral work trees leaked into final evidence")
+    return status
+
+
+def materialize_final_evidence_measurement(
+    output: Path, status: dict[str, Any]
+) -> None:
+    """Write a converged exact size measurement which includes its own status."""
+    for _ in range(10):
+        _write_json(output / "batch-status.json", status)
+        try:
+            measured = workdir_receipt(output)
+        except ValueError as error:
+            raise BatchError(str(error)) from error
+        receipt = {
+            "scope": "coordinator-evidence-before-independent-verification",
+            "file_count": measured["file_count"],
+            "total_bytes": measured["total_bytes"],
+        }
+        if status.get("final_evidence_measurement") == receipt:
+            return
+        status["final_evidence_measurement"] = receipt
+    raise BatchError("final evidence byte measurement did not converge")
+
+
 def runner_command(
     python: str,
     runner: Path,
@@ -883,6 +1054,7 @@ def runner_command(
     job: Mapping[str, Any],
     binding: Mapping[str, Any],
     destination: Path,
+    work_root: Path,
 ) -> list[str]:
     command = [
         python,
@@ -919,6 +1091,12 @@ def runner_command(
         json.dumps(binding["quality_check"]),
         "--agent-slots",
         str(config["agent_slots"]),
+        "--work-root",
+        str(work_root),
+        "--max-work-files",
+        str(config["max_work_files"]),
+        "--max-work-bytes",
+        str(config["max_work_bytes"]),
     ]
     if config.get("schema_version") == 3:
         command.extend(
@@ -939,6 +1117,14 @@ def runner_command(
         command.extend(("--codex", config["codex"]))
     if config.get("bypass_sandbox") is True:
         command.append("--bypass-sandbox")
+    if config.get("retain_debug_workdirs") is True:
+        command.append("--retain-debug-workdirs")
+    if config.get("allow_large_excluded_trees") is True:
+        command.append("--allow-large-excluded-trees")
+    if binding.get("fixture_manifest") is not None:
+        command.extend(
+            ("--fixture-manifest-json", json.dumps(binding["fixture_manifest"]))
+        )
     if job.get("expected_mode") is not None:
         command.extend(("--preflight-expected-mode", job["expected_mode"]))
     return command
@@ -950,6 +1136,8 @@ def run_batch(
     runner: Path,
     *,
     preflight: bool = False,
+    work_root: Path | None = None,
+    retain_debug_workdirs: bool = False,
     invoke: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     if not runner.resolve().is_file():
@@ -975,6 +1163,9 @@ def run_batch(
         task_id: task["prompt"] for task_id, task in contract["tasks"].items()
     }
     config["claim_eligible"] = claim_eligible
+    config["retain_debug_workdirs"] = bool(
+        retain_debug_workdirs or config["retain_debug_workdirs"]
+    )
     schedule = (
         build_preflight_schedule(contract)
         if preflight
@@ -989,12 +1180,29 @@ def run_batch(
         )
         if frozen != manifest or observed_schedule != schedule:
             raise BatchError("resume configuration differs from frozen batch identity")
+        if (
+            (output / "batch-status.json").is_file()
+            and (output / "coordinator-sha256-index.json").is_file()
+            and not _active_workdir_path(output).exists()
+            and not _debug_workdir_path(output).exists()
+        ):
+            return validate_compact_evidence(output)
     else:
         output.mkdir(parents=True)
-        (output / "sessions").mkdir()
         _write_json(output / "frozen-manifest.json", manifest)
         _write_json(output / "randomized-schedule.json", schedule)
         (output / "batch-journal.jsonl").touch()
+    batch_work_root = _prepare_batch_workdir(output, work_root)
+    sessions_root = batch_work_root / "sessions"
+
+    def preserve_debug(reason: str) -> dict[str, Any]:
+        receipt = _record_debug_workdir(output, batch_work_root, reason=reason)
+        print(
+            json.dumps({"debug_workdir": receipt}, sort_keys=True),
+            file=sys.stderr,
+        )
+        return receipt
+
     jobs = schedule["jobs"]
     known_jobs = {job["job_id"] for job in jobs}
     journal = output / "batch-journal.jsonl"
@@ -1005,21 +1213,24 @@ def run_batch(
             "batch contains an unfinished or failed provider job; refusing duplicate: "
             + ", ".join(sorted(ambiguous))
         )
+        preserve_debug(str(error))
         materialize_invalid_bundle(output, str(error))
         raise error
     completed = set(states)
     for job in jobs:
         job_id = job["job_id"]
-        destination = output / "sessions" / job_id
+        destination = sessions_root / job_id
         if job_id in completed:
             try:
                 validate_job_output(destination, job, config.get("source_git"))
             except BatchError as error:
+                preserve_debug(str(error))
                 materialize_invalid_bundle(output, str(error))
                 raise
             continue
         if destination.exists():
             error = BatchError(f"untracked runner output exists for {job_id}")
+            preserve_debug(str(error))
             materialize_invalid_bundle(output, str(error))
             raise error
         _append_journal(journal, {"job_id": job_id, "state": "started"})
@@ -1030,11 +1241,13 @@ def run_batch(
             job,
             config["tasks"][job["task_id"]],
             destination,
+            batch_work_root / "runner-work" / job_id,
         )
         try:
             result = invoke(command, check=False, text=True)
-        except BaseException:
+        except BaseException as error:
             _append_journal(journal, {"job_id": job_id, "state": "interrupted"})
+            preserve_debug(f"runner interrupted for {job_id}: {type(error).__name__}")
             raise
         if result.returncode not in {0, 1}:
             _append_journal(
@@ -1044,6 +1257,7 @@ def run_batch(
             error = BatchError(
                 f"runner failed closed for {job_id}: exit {result.returncode}"
             )
+            preserve_debug(str(error))
             materialize_invalid_bundle(output, str(error))
             raise error
         try:
@@ -1053,6 +1267,7 @@ def run_batch(
                 journal,
                 {"job_id": job_id, "state": "failed", "reason": str(error)},
             )
+            preserve_debug(str(error))
             materialize_invalid_bundle(output, str(error))
             raise
         _append_journal(
@@ -1066,12 +1281,25 @@ def run_batch(
         )
         completed.add(job_id)
         try:
-            materialize(output, jobs, completed, config.get("source_git"))
+            materialize(
+                output,
+                jobs,
+                completed,
+                config.get("source_git"),
+                sessions_root=sessions_root,
+            )
         except (BatchError, ValueError, OSError) as error:
+            preserve_debug(str(error))
             materialize_invalid_bundle(output, str(error))
             raise
     try:
-        materialize(output, jobs, completed, config.get("source_git"))
+        materialize(
+            output,
+            jobs,
+            completed,
+            config.get("source_git"),
+            sessions_root=sessions_root,
+        )
         analysis = compare(
             json.loads(
                 "["
@@ -1087,6 +1315,7 @@ def run_batch(
             controller_protocol=protocol,
         )
     except (BatchError, ValueError, OSError, json.JSONDecodeError) as error:
+        preserve_debug(str(error))
         materialize_invalid_bundle(output, str(error))
         raise
     _write_json(output / "analysis-with-ci95.json", analysis)
@@ -1100,10 +1329,45 @@ def run_batch(
         "schedule_sha256": schedule["sha256"],
         "analysis_verdict": analysis.get("verdict", "invalid"),
         "independent_verification_pending": True,
+        "ephemeral_cleanup": {
+            "status": "pending-validation",
+            "persistent_file_count": None,
+            "persistent_total_bytes": None,
+        },
     }
     index = materialize_coordinator_index(output)
     status["coordinator_index_sha256"] = index["sha256"]
     _write_json(output / "batch-status.json", status)
+    validate_compact_evidence(output)
+    pre_cleanup = workdir_receipt(batch_work_root)
+    if config["retain_debug_workdirs"]:
+        retained = preserve_debug("retained by --retain-debug-workdirs")
+        status["ephemeral_cleanup"] = {
+            "status": "retained-by-explicit-option",
+            "pre_cleanup_file_count": pre_cleanup["file_count"],
+            "pre_cleanup_total_bytes": pre_cleanup["total_bytes"],
+            "persistent_file_count": retained["file_count"],
+            "persistent_total_bytes": retained["total_bytes"],
+            "path": retained["path"],
+        }
+    else:
+        try:
+            shutil.rmtree(batch_work_root)
+            _active_workdir_path(output).unlink()
+        except OSError as error:
+            preserve_debug(f"successful workdir cleanup failed: {error}")
+            raise BatchError(
+                "validated evidence exists but workdir cleanup failed"
+            ) from error
+        status["ephemeral_cleanup"] = {
+            "status": "removed-after-validation",
+            "pre_cleanup_file_count": pre_cleanup["file_count"],
+            "pre_cleanup_total_bytes": pre_cleanup["total_bytes"],
+            "persistent_file_count": 0,
+            "persistent_total_bytes": 0,
+        }
+    materialize_final_evidence_measurement(output, status)
+    validate_compact_evidence(output)
     return status
 
 
@@ -1121,6 +1385,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="run eight non-scored instrumental sessions, one A/B pair per mode",
     )
+    parser.add_argument(
+        "--work-root",
+        type=Path,
+        help="external resumable work root; never part of final evidence",
+    )
+    parser.add_argument(
+        "--retain-debug-workdirs",
+        action="store_true",
+        help="retain external work state after successful validation",
+    )
     args = parser.parse_args(argv)
     try:
         status = run_batch(
@@ -1128,6 +1402,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.output,
             args.runner.resolve(),
             preflight=args.preflight,
+            work_root=args.work_root,
+            retain_debug_workdirs=args.retain_debug_workdirs,
         )
     except (OSError, BatchError, ValueError) as error:
         print(json.dumps({"error": str(error)}))

@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -46,6 +48,8 @@ MIGRATION_POLICY_SCHEMA_VERSION = _DURABILITY_CORE.MIGRATION_POLICY_SCHEMA_VERSI
 LOCK_TIMEOUT_SECONDS = _DURABILITY_CORE.LOCK_TIMEOUT_SECONDS
 LOCK_STALE_SECONDS = _DURABILITY_CORE.LOCK_STALE_SECONDS
 OUTPUT_TAIL_CHARS = _DURABILITY_CORE.OUTPUT_TAIL_CHARS
+LEDGER_CHECKPOINT_INTERVAL = _DURABILITY_CORE.LEDGER_CHECKPOINT_INTERVAL
+LEDGER_MAX_EVENTS = _DURABILITY_CORE.LEDGER_MAX_EVENTS
 VALID_VERDICTS = _DURABILITY_CORE.VALID_VERDICTS
 RUNNABLE_STATUSES = _DURABILITY_CORE.RUNNABLE_STATUSES
 WorkStateError = _DURABILITY_CORE.WorkStateError
@@ -72,6 +76,10 @@ _read_ledger_events = _DURABILITY_CORE._read_ledger_events
 _latest_ledger_snapshot = _DURABILITY_CORE._latest_ledger_snapshot
 load_state = _DURABILITY_CORE.load_state
 _append_ledger = _DURABILITY_CORE._append_ledger
+_state_digest = _DURABILITY_CORE._state_digest
+_state_delta = _DURABILITY_CORE._state_delta
+_atomic_write_recovery = _DURABILITY_CORE._atomic_write_recovery
+_compact_ledger_unlocked = _DURABILITY_CORE._compact_ledger_unlocked
 time = _DURABILITY_CORE._durability.time
 
 
@@ -81,15 +89,464 @@ def save_state_with_event(
     event_name: str,
     **details: object,
 ) -> dict[str, object]:
-    sequence = int(state.get("last_seq", 0)) + 1
+    previous: dict[str, Any] | None = None
+    ledger_previous: dict[str, Any] | None = None
+    if _state_path(session_dir).exists() or (session_dir / "ledger.jsonl").exists():
+        previous = load_state(session_dir)
+        ledger_previous = _latest_ledger_snapshot(session_dir)
+    previous_sequence = (
+        int(previous.get("last_seq", 0))
+        if previous is not None
+        else int(state.get("last_seq", 0))
+    )
+    sequence = previous_sequence + 1
     timestamp = utc_now()
     state["last_seq"] = sequence
     state["updated_at"] = timestamp
     event = {"seq": sequence, "at": timestamp, "event": event_name, **details}
-    durable_event = {**event, "_state_snapshot": state}
+    state_hash = _state_digest(state)
+    force_checkpoint = (
+        previous is not None
+        and ledger_previous is not None
+        and _state_digest(previous) != _state_digest(ledger_previous)
+    )
+    if (
+        previous is None
+        or force_checkpoint
+        or sequence == 1
+        or sequence % LEDGER_CHECKPOINT_INTERVAL == 0
+    ):
+        durable_event = {
+            **event,
+            "_state_checkpoint": state,
+            "_state_sha256": state_hash,
+        }
+    else:
+        durable_event = {
+            **event,
+            "_base_seq": previous_sequence,
+            "_state_delta": _state_delta(previous, state),
+            "_state_sha256": state_hash,
+        }
     _append_ledger(session_dir, durable_event)
+    if len(_read_ledger_events(session_dir)) > LEDGER_MAX_EVENTS:
+        _compact_ledger_unlocked(session_dir, state)
+    _atomic_write_recovery(session_dir, state)
     _atomic_write_json(_state_path(session_dir), state)
     return event
+
+
+def compact_ledger(session_dir: Path) -> dict[str, object]:
+    """Compact one session only after the replacement can recover exact state."""
+    with session_lock(session_dir):
+        state = load_state(session_dir)
+        report = _compact_ledger_unlocked(session_dir, state)
+        _atomic_write_recovery(session_dir, state)
+        return report
+
+
+def _cas_object_path(data_root: Path, digest: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise WorkStateError(f"invalid content-addressed digest: {digest!r}")
+    return data_root / "objects" / "sha256" / digest[:2] / digest
+
+
+def _copy_artifact_to_cas(
+    data_root: Path, source: Path, destination: Path
+) -> dict[str, object]:
+    """Materialize one immutable hash-addressed object and reuse its allocation."""
+    digest = _sha256_file(source)
+    size = source.stat().st_size
+    object_path = _cas_object_path(data_root, digest)
+    object_path.parent.mkdir(parents=True, exist_ok=True)
+    deduplicated = object_path.exists()
+    if deduplicated:
+        if (
+            not object_path.is_file()
+            or object_path.is_symlink()
+            or object_path.stat().st_size != size
+            or _sha256_file(object_path) != digest
+        ):
+            raise WorkStateError(
+                f"content-addressed object is corrupt or colliding: {object_path}"
+            )
+    else:
+        temporary = object_path.with_name(
+            f".{object_path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        )
+        try:
+            shutil.copyfile(source, temporary)
+            if temporary.stat().st_size != size or _sha256_file(temporary) != digest:
+                raise WorkStateError(f"artifact changed while storing in CAS: {source}")
+            try:
+                os.replace(temporary, object_path)
+            except OSError:
+                if object_path.exists() and _sha256_file(object_path) == digest:
+                    temporary.unlink()
+                    deduplicated = True
+                else:
+                    raise
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                temporary.unlink()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    link_temporary = destination.with_name(
+        f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    )
+    hardlinked = True
+    try:
+        try:
+            os.link(object_path, link_temporary)
+        except OSError:
+            hardlinked = False
+            shutil.copyfile(object_path, link_temporary)
+        os.replace(link_temporary, destination)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            link_temporary.unlink()
+    if destination.stat().st_size != size or _sha256_file(destination) != digest:
+        raise WorkStateError(f"CAS materialization failed verification: {destination}")
+    return {
+        "sha256": digest,
+        "bytes": size,
+        "object": str(object_path),
+        "deduplicated": deduplicated,
+        "hardlinked": hardlinked,
+    }
+
+
+def _iter_storage_files(data_root: Path):
+    if not data_root.exists():
+        return
+
+    def walk_error(error: OSError) -> None:
+        raise WorkStateError(
+            f"cannot enumerate durable storage under {data_root}: {error}"
+        ) from error
+
+    for current, directories, filenames in os.walk(
+        data_root, followlinks=False, onerror=walk_error
+    ):
+        current_path = Path(current)
+        retained = []
+        for directory in sorted(directories):
+            path = current_path / directory
+            if path.is_symlink():
+                raise WorkStateError(
+                    f"durable storage directory cannot be a symlink: {path}"
+                )
+            retained.append(directory)
+        directories[:] = retained
+        for filename in sorted(filenames):
+            path = current_path / filename
+            if path.is_symlink():
+                raise WorkStateError(
+                    f"durable storage file cannot be a symlink: {path}"
+                )
+            if path.is_file():
+                yield path
+
+
+def inspect_storage(data_root: Path, *, largest: int = 10) -> dict[str, object]:
+    if largest < 0:
+        raise WorkStateError("largest directory count must be non-negative")
+    data_root = data_root.expanduser().resolve()
+    directory_totals: dict[Path, list[int]] = {}
+    physical_files: dict[tuple[object, ...], int] = {}
+    file_count = 0
+    logical_bytes = 0
+    for path in _iter_storage_files(data_root) or ():
+        try:
+            stat = path.stat()
+            relative = path.relative_to(data_root)
+        except OSError as error:
+            raise WorkStateError(
+                f"cannot inspect durable file {path}: {error}"
+            ) from error
+        file_count += 1
+        logical_bytes += stat.st_size
+        identity: tuple[object, ...]
+        if stat.st_ino:
+            identity = ("inode", stat.st_dev, stat.st_ino)
+        else:
+            identity = ("path", str(path.resolve()))
+        physical_files.setdefault(identity, stat.st_size)
+        parent = relative.parent
+        while True:
+            totals = directory_totals.setdefault(parent, [0, 0])
+            totals[0] += stat.st_size
+            totals[1] += 1
+            if parent == Path("."):
+                break
+            parent = parent.parent
+    projects_root = data_root / "projects"
+    project_directories = (
+        sorted(
+            path
+            for path in projects_root.iterdir()
+            if path.is_dir() and not path.is_symlink()
+        )
+        if projects_root.is_dir()
+        else []
+    )
+    session_directories = [
+        session
+        for project in project_directories
+        for session in (
+            sorted((project / "sessions").iterdir())
+            if (project / "sessions").is_dir()
+            else []
+        )
+        if session.is_dir() and not session.is_symlink()
+    ]
+    ranked = sorted(
+        (
+            {
+                "path": relative.as_posix(),
+                "bytes": totals[0],
+                "file_count": totals[1],
+            }
+            for relative, totals in directory_totals.items()
+            if relative != Path(".")
+        ),
+        key=lambda item: (-int(item["bytes"]), str(item["path"])),
+    )[:largest]
+    return {
+        "schema_version": 1,
+        "data_root": str(data_root),
+        "file_count": file_count,
+        "bytes": logical_bytes,
+        "logical_bytes": logical_bytes,
+        "physical_bytes": sum(physical_files.values()),
+        "projects": len(project_directories),
+        "sessions": len(session_directories),
+        "largest_directories": ranked,
+    }
+
+
+def _session_lock_status(session_dir: Path) -> str | None:
+    lock_path = session_dir / ".state.lock"
+    if not lock_path.exists():
+        return None
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        pid = payload.get("pid") if isinstance(payload, dict) else None
+        identity = (
+            payload.get("process_identity") if isinstance(payload, dict) else None
+        )
+    except (OSError, json.JSONDecodeError):
+        return "unreadable-lock"
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return "unreadable-lock"
+    if _process_matches_identity(
+        pid, identity if isinstance(identity, str) and identity else None
+    ):
+        return "live-lock"
+    return None
+
+
+def _collect_cas_references(session_directories: Sequence[Path]) -> set[str]:
+    references: set[str] = set()
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if (
+                    key.endswith("cas_sha256")
+                    and isinstance(item, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", item)
+                ):
+                    references.add(item)
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    for session_dir in session_directories:
+        evidence = session_dir / "evidence"
+        if not evidence.is_dir():
+            continue
+        for path in sorted(evidence.rglob("*.json")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                visit(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError):
+                # Malformed evidence cannot justify collection. Protect every
+                # object hardlinked from the session via link-count checks below.
+                continue
+    return references
+
+
+def _storage_session_directories(data_root: Path) -> list[tuple[Path, Path]]:
+    projects_root = data_root / "projects"
+    if not projects_root.is_dir():
+        return []
+    result: list[tuple[Path, Path]] = []
+    for project in sorted(projects_root.iterdir()):
+        sessions = project / "sessions"
+        if project.is_symlink() or not sessions.is_dir():
+            continue
+        for session in sorted(sessions.iterdir()):
+            if session.is_dir() and not session.is_symlink():
+                result.append((project, session))
+    return result
+
+
+def garbage_collect_storage(
+    data_root: Path,
+    *,
+    older_than_days: float = 30,
+    keep_last: int = 5,
+    apply: bool = False,
+) -> dict[str, object]:
+    if older_than_days < 0:
+        raise WorkStateError("older-than-days must be non-negative")
+    if keep_last < 0:
+        raise WorkStateError("keep-last must be non-negative")
+    data_root = data_root.expanduser().resolve()
+    cutoff = time.time() - (older_than_days * 86400)
+    sessions = _storage_session_directories(data_root)
+    inspected: dict[Path, dict[str, object]] = {}
+    completed_by_project: dict[Path, list[Path]] = {}
+    for project, session_dir in sessions:
+        lock_status = _session_lock_status(session_dir)
+        try:
+            state = load_state(session_dir)
+            status = state.get("status")
+        except WorkStateError as error:
+            inspected[session_dir] = {
+                "decision": "protect",
+                "reason": "unreadable-state",
+                "detail": str(error),
+            }
+            continue
+        if lock_status is not None:
+            inspected[session_dir] = {
+                "decision": "protect",
+                "reason": lock_status,
+            }
+            continue
+        if status != "complete":
+            inspected[session_dir] = {
+                "decision": "protect",
+                "reason": "active-session",
+            }
+            continue
+        completed_by_project.setdefault(project, []).append(session_dir)
+    for project, completed in completed_by_project.items():
+        ordered = sorted(
+            completed,
+            key=lambda path: (path.stat().st_mtime, path.name),
+            reverse=True,
+        )
+        kept = set(ordered[:keep_last])
+        for session_dir in ordered:
+            modified = session_dir.stat().st_mtime
+            if session_dir in kept:
+                decision, reason = "keep", "keep-last"
+            elif modified > cutoff:
+                decision, reason = "keep", "younger-than-age"
+            else:
+                decision, reason = "delete", "age-and-keep-policy"
+            inspected[session_dir] = {
+                "decision": decision,
+                "reason": reason,
+                "mtime": modified,
+            }
+    session_decisions = [{"path": str(path), **inspected[path]} for _, path in sessions]
+    deleted_sessions: list[str] = []
+    if apply:
+        for item in session_decisions:
+            if item["decision"] != "delete":
+                continue
+            session_dir = Path(str(item["path"]))
+            tombstone = session_dir.with_name(
+                f".gc-{session_dir.name}-{secrets.token_hex(8)}"
+            )
+            try:
+                with session_lock(session_dir):
+                    state = load_state(session_dir)
+                    if state.get("status") != "complete":
+                        raise WorkStateError(
+                            f"session became active during collection: {session_dir}"
+                        )
+                    os.replace(session_dir, tombstone)
+                shutil.rmtree(tombstone)
+            except Exception as error:
+                if tombstone.exists() and not session_dir.exists():
+                    with contextlib.suppress(OSError):
+                        os.replace(tombstone, session_dir)
+                if isinstance(error, WorkStateError):
+                    raise
+                raise WorkStateError(
+                    f"failed to collect session {session_dir}: {error}"
+                ) from error
+            deleted_sessions.append(str(session_dir))
+    deleting = {
+        Path(str(item["path"]))
+        for item in session_decisions
+        if item["decision"] == "delete"
+    }
+    retained_sessions = [
+        path for _, path in sessions if path not in deleting and path.exists()
+    ]
+    references = _collect_cas_references(retained_sessions)
+    object_root = data_root / "objects" / "sha256"
+    object_decisions: list[dict[str, object]] = []
+    if object_root.is_dir():
+        for path in sorted(object_root.glob("*/*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            digest = path.name
+            try:
+                stat = path.stat()
+            except OSError as error:
+                raise WorkStateError(
+                    f"cannot inspect CAS object {path}: {error}"
+                ) from error
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                decision, reason = "protect", "malformed-object-name"
+            elif digest in references:
+                decision, reason = "protect", "referenced"
+            elif stat.st_mtime > cutoff:
+                decision, reason = "keep", "younger-than-age"
+            else:
+                decision, reason = "delete", "unreferenced-and-old"
+            object_decisions.append(
+                {
+                    "sha256": digest,
+                    "path": str(path),
+                    "bytes": stat.st_size,
+                    "decision": decision,
+                    "reason": reason,
+                }
+            )
+    deleted_objects: list[str] = []
+    if apply:
+        for item in object_decisions:
+            if item["decision"] != "delete":
+                continue
+            path = Path(str(item["path"]))
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+            deleted_objects.append(str(path))
+        if object_root.is_dir():
+            for directory in sorted(object_root.iterdir()):
+                with contextlib.suppress(OSError):
+                    directory.rmdir()
+    return {
+        "schema_version": 1,
+        "data_root": str(data_root),
+        "mode": "apply" if apply else "dry-run",
+        "applied": apply,
+        "older_than_days": older_than_days,
+        "keep_last": keep_last,
+        "session_decisions": session_decisions,
+        "object_decisions": object_decisions,
+        "deleted_sessions": deleted_sessions,
+        "deleted_objects": deleted_objects,
+    }
 
 
 def _criterion(state: dict[str, Any], criterion_id: str) -> dict[str, Any]:
@@ -708,7 +1165,18 @@ def initialize(args: argparse.Namespace) -> tuple[dict[str, object], int]:
 
 def _read_latest_events(session_dir: Path, limit: int = 10) -> list[dict[str, object]]:
     return [
-        {key: value for key, value in event.items() if key != "_state_snapshot"}
+        {
+            key: value
+            for key, value in event.items()
+            if key
+            not in {
+                "_state_snapshot",
+                "_state_checkpoint",
+                "_state_delta",
+                "_state_sha256",
+                "_base_seq",
+            }
+        }
         for event in _read_ledger_events(session_dir)[-limit:]
     ]
 
@@ -808,6 +1276,56 @@ def status(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         "latest_events": _read_latest_events(session_dir),
     }
     return payload, 0
+
+
+def compact_session_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    return {
+        "message": f"session {sanitize_identifier(args.session, 'session')}: compacted",
+        **compact_ledger(session_dir),
+    }, 0
+
+
+def _external_data_root(args: argparse.Namespace) -> Path:
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    if _is_within(data_root, root):
+        raise WorkStateError(
+            f"durable data root must be outside the workspace: {data_root}"
+        )
+    return data_root
+
+
+def storage_inspect_command(
+    args: argparse.Namespace,
+) -> tuple[dict[str, object], int]:
+    report = inspect_storage(_external_data_root(args), largest=args.largest)
+    return {
+        "message": (
+            f"storage: {report['file_count']} files, {report['bytes']} bytes, "
+            f"{report['projects']} projects, {report['sessions']} sessions"
+        ),
+        **report,
+    }, 0
+
+
+def storage_gc_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    report = garbage_collect_storage(
+        _external_data_root(args),
+        older_than_days=args.older_than_days,
+        keep_last=args.keep_last,
+        apply=args.apply,
+    )
+    return {
+        "message": (
+            "storage garbage collection applied"
+            if args.apply
+            else "storage garbage collection dry-run; pass --apply to delete"
+        ),
+        **report,
+    }, 0
 
 
 def _begin_attempt(
@@ -1697,8 +2215,7 @@ def record_artifact(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         Path("evidence") / criterion_id / f"attempt-{attempt}" / f"artifact-{safe_name}"
     )
     copied = session_dir / copied_relative
-    copied.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(artifact, copied)
+    cas = _copy_artifact_to_cas(data_root, artifact, copied)
     fingerprint = source_fingerprint(root, data_root)
     receipt_relative = _receipt_relative_path(criterion_id, attempt)
     receipt = {
@@ -1711,7 +2228,8 @@ def record_artifact(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         "summary": summary,
         "artifact_source": str(artifact),
         "artifact_copy": copied_relative.as_posix(),
-        "artifact_sha256": _sha256_file(copied),
+        "artifact_sha256": cas["sha256"],
+        "artifact_cas_sha256": cas["sha256"],
         "source_fingerprint": fingerprint,
     }
     _atomic_write_json(session_dir / receipt_relative, receipt)
@@ -1877,16 +2395,14 @@ def record_desktop_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
     evidence_base = Path("evidence") / criterion_id / f"attempt-{attempt}" / "desktop"
     copied_receipt_relative = evidence_base / "qcu-receipt.json"
     copied_receipt = session_dir / copied_receipt_relative
-    copied_receipt.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(input_path, copied_receipt)
+    receipt_cas = _copy_artifact_to_cas(data_root, input_path, copied_receipt)
     copied_artifacts: list[dict[str, object]] = []
     for index, (item, source) in enumerate(artifacts, 1):
         safe_name = sanitize_identifier(source.name, "desktop artifact filename")
         copied_relative = evidence_base / "artifacts" / f"{index:03d}-{safe_name}"
         copied = session_dir / copied_relative
-        copied.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, copied)
-        copied_hash = _sha256_file(copied)
+        artifact_cas = _copy_artifact_to_cas(data_root, source, copied)
+        copied_hash = str(artifact_cas["sha256"])
         if copied_hash != item["sha256"]:
             raise WorkStateError(f"desktop artifact changed while copying: {source}")
         copied_artifacts.append(
@@ -1894,6 +2410,7 @@ def record_desktop_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
                 "source_path": source.relative_to(artifact_root).as_posix(),
                 "copy": copied_relative.as_posix(),
                 "sha256": copied_hash,
+                "cas_sha256": copied_hash,
                 "bytes": copied.stat().st_size,
             }
         )
@@ -1919,7 +2436,8 @@ def record_desktop_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
         "verification": payload.get("verification"),
         "summary": payload.get("summary"),
         "desktop_receipt_copy": copied_receipt_relative.as_posix(),
-        "desktop_receipt_sha256": _sha256_file(copied_receipt),
+        "desktop_receipt_sha256": receipt_cas["sha256"],
+        "desktop_receipt_cas_sha256": receipt_cas["sha256"],
         "artifacts": copied_artifacts,
         "source_fingerprint": fingerprint,
     }
@@ -1957,8 +2475,7 @@ def record_browser_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
     evidence_base = Path("evidence") / criterion_id / f"attempt-{attempt}" / "browser"
     copied_receipt_relative = evidence_base / "playwright-receipt.json"
     copied_receipt = session_dir / copied_receipt_relative
-    copied_receipt.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(input_path, copied_receipt)
+    receipt_cas = _copy_artifact_to_cas(data_root, input_path, copied_receipt)
     copied_artifacts: list[dict[str, object]] = []
     for index, (item, source) in enumerate(artifacts, 1):
         source_relative = source.relative_to(artifact_root)
@@ -1969,9 +2486,8 @@ def record_browser_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
             evidence_base / "artifacts" / f"{index:03d}-{safe_artifact_name}"
         )
         copied = session_dir / copied_relative
-        copied.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, copied)
-        copied_hash = _sha256_file(copied)
+        artifact_cas = _copy_artifact_to_cas(data_root, source, copied)
+        copied_hash = str(artifact_cas["sha256"])
         if copied_hash != item["sha256"]:
             raise WorkStateError(f"browser artifact changed while copying: {source}")
         copied_artifacts.append(
@@ -1979,6 +2495,7 @@ def record_browser_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
                 "source_path": source_relative.as_posix(),
                 "copy": copied_relative.as_posix(),
                 "sha256": copied_hash,
+                "cas_sha256": copied_hash,
                 "bytes": copied.stat().st_size,
             }
         )
@@ -1997,7 +2514,8 @@ def record_browser_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
         "exit_code": payload.get("exitCode"),
         "stats": payload.get("stats"),
         "browser_receipt_copy": copied_receipt_relative.as_posix(),
-        "browser_receipt_sha256": _sha256_file(copied_receipt),
+        "browser_receipt_sha256": receipt_cas["sha256"],
+        "browser_receipt_cas_sha256": receipt_cas["sha256"],
         "artifacts": copied_artifacts,
         "source_fingerprint": fingerprint,
     }
@@ -2100,17 +2618,15 @@ def record_navigation_evidence(
     )
     copied_receipt_relative = evidence_base / "skyvern-receipt.json"
     copied_receipt = session_dir / copied_receipt_relative
-    copied_receipt.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(input_path, copied_receipt)
+    receipt_cas = _copy_artifact_to_cas(data_root, input_path, copied_receipt)
     copied_artifacts: list[dict[str, object]] = []
     for index, (item, source) in enumerate(artifacts, 1):
         source_relative = source.relative_to(artifact_root)
         safe_name = sanitize_identifier(source.name, "navigation artifact filename")
         copied_relative = evidence_base / "artifacts" / f"{index:03d}-{safe_name}"
         copied = session_dir / copied_relative
-        copied.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, copied)
-        copied_hash = _sha256_file(copied)
+        artifact_cas = _copy_artifact_to_cas(data_root, source, copied)
+        copied_hash = str(artifact_cas["sha256"])
         if copied_hash != item["sha256"]:
             raise WorkStateError(f"navigation artifact changed while copying: {source}")
         copied_artifacts.append(
@@ -2118,6 +2634,7 @@ def record_navigation_evidence(
                 "source_path": source_relative.as_posix(),
                 "copy": copied_relative.as_posix(),
                 "sha256": copied_hash,
+                "cas_sha256": copied_hash,
                 "bytes": copied.stat().st_size,
             }
         )
@@ -2138,7 +2655,8 @@ def record_navigation_evidence(
         "discovery_completed": True,
         "side_effect_scope": payload.get("sideEffectScope"),
         "navigation_receipt_copy": copied_receipt_relative.as_posix(),
-        "navigation_receipt_sha256": _sha256_file(copied_receipt),
+        "navigation_receipt_sha256": receipt_cas["sha256"],
+        "navigation_receipt_cas_sha256": receipt_cas["sha256"],
         "artifacts": copied_artifacts,
         "source_fingerprint": fingerprint,
     }
@@ -2231,16 +2749,14 @@ def record_design_evidence(args: argparse.Namespace) -> tuple[dict[str, object],
     evidence_base = Path("evidence") / criterion_id / f"attempt-{attempt}" / "design"
     copied_receipt_relative = evidence_base / "design-receipt.json"
     copied_receipt = session_dir / copied_receipt_relative
-    copied_receipt.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(input_path, copied_receipt)
+    receipt_cas = _copy_artifact_to_cas(data_root, input_path, copied_receipt)
     copied_artifacts: list[dict[str, object]] = []
     for index, (item, source) in enumerate(artifacts, 1):
         safe_name = sanitize_identifier(source.name, "design artifact filename")
         copied_relative = evidence_base / "artifacts" / f"{index:03d}-{safe_name}"
         copied = session_dir / copied_relative
-        copied.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, copied)
-        copied_hash = _sha256_file(copied)
+        artifact_cas = _copy_artifact_to_cas(data_root, source, copied)
+        copied_hash = str(artifact_cas["sha256"])
         if copied_hash != item["sha256"]:
             raise WorkStateError(f"design artifact changed while copying: {source}")
         copied_artifacts.append(
@@ -2248,6 +2764,7 @@ def record_design_evidence(args: argparse.Namespace) -> tuple[dict[str, object],
                 "source_path": source.relative_to(artifact_root).as_posix(),
                 "copy": copied_relative.as_posix(),
                 "sha256": copied_hash,
+                "cas_sha256": copied_hash,
                 "bytes": copied.stat().st_size,
             }
         )
@@ -2267,7 +2784,8 @@ def record_design_evidence(args: argparse.Namespace) -> tuple[dict[str, object],
         "mobile_captured": True,
         "desktop_captured": True,
         "design_receipt_copy": copied_receipt_relative.as_posix(),
-        "design_receipt_sha256": _sha256_file(copied_receipt),
+        "design_receipt_sha256": receipt_cas["sha256"],
+        "design_receipt_cas_sha256": receipt_cas["sha256"],
         "artifacts": copied_artifacts,
         "source_fingerprint": source_fingerprint(root, data_root),
     }
@@ -2350,8 +2868,7 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
         Path("evidence") / criterion_id / f"attempt-{attempt}" / "external-context.json"
     )
     copied = session_dir / copied_relative
-    copied.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(artifact, copied)
+    cas = _copy_artifact_to_cas(data_root, artifact, copied)
     fingerprint = source_fingerprint(root, data_root)
     receipt_relative = _receipt_relative_path(criterion_id, attempt)
     receipt = {
@@ -2364,7 +2881,8 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
         "summary": summary,
         "artifact_source": str(artifact),
         "artifact_copy": copied_relative.as_posix(),
-        "artifact_sha256": _sha256_file(copied),
+        "artifact_sha256": cas["sha256"],
+        "artifact_cas_sha256": cas["sha256"],
         "provider": required["provider"],
         "library": required["library"],
         "selected_library_id": required["selected_library_id"],
@@ -2508,9 +3026,10 @@ def record_communication_evidence(
     provider_copy_relative = evidence_base / "provider-usage.json"
     communication_copy = session_dir / communication_copy_relative
     provider_copy = session_dir / provider_copy_relative
-    communication_copy.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(receipt_source, communication_copy)
-    shutil.copyfile(provider_record, provider_copy)
+    communication_cas = _copy_artifact_to_cas(
+        data_root, receipt_source, communication_copy
+    )
+    provider_cas = _copy_artifact_to_cas(data_root, provider_record, provider_copy)
     receipt_relative = _receipt_relative_path(criterion_id, attempt)
     receipt = {
         "schema_version": SCHEMA_VERSION,
@@ -2520,9 +3039,11 @@ def record_communication_evidence(
         "attempt": attempt,
         "at": utc_now(),
         "artifact_copy": communication_copy_relative.as_posix(),
-        "artifact_sha256": _sha256_file(communication_copy),
+        "artifact_sha256": communication_cas["sha256"],
+        "artifact_cas_sha256": communication_cas["sha256"],
         "provider_record_copy": provider_copy_relative.as_posix(),
-        "provider_record_sha256": _sha256_file(provider_copy),
+        "provider_record_sha256": provider_cas["sha256"],
+        "provider_record_cas_sha256": provider_cas["sha256"],
         "task_id": communication.get("taskId"),
         "variant": communication.get("variant"),
         "provider": communication.get("provider"),
@@ -2739,6 +3260,27 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--session", required=True)
     _add_json_flag(status_parser)
 
+    compact_parser = subparsers.add_parser(
+        "compact", help="verify and compact one session ledger"
+    )
+    compact_parser.add_argument("--session", required=True)
+    _add_json_flag(compact_parser)
+
+    inspect_parser = subparsers.add_parser(
+        "storage-inspect", help="report bounded durable storage usage"
+    )
+    inspect_parser.add_argument("--largest", type=int, default=10)
+    _add_json_flag(inspect_parser)
+
+    gc_parser = subparsers.add_parser(
+        "storage-gc",
+        help="dry-run age and keep-last garbage collection unless --apply is passed",
+    )
+    gc_parser.add_argument("--older-than-days", type=float, default=30)
+    gc_parser.add_argument("--keep-last", type=int, default=5)
+    gc_parser.add_argument("--apply", action="store_true")
+    _add_json_flag(gc_parser)
+
     migration_parser = subparsers.add_parser(
         "state-migrate",
         help="inspect the versioned state migration policy without changing state",
@@ -2930,6 +3472,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     handlers = {
         "init": initialize,
         "status": status,
+        "compact": compact_session_command,
+        "storage-inspect": storage_inspect_command,
+        "storage-gc": storage_gc_command,
         "state-migrate": state_migrate,
         "plan-packets": plan_packets,
         "start-packet": start_packet,

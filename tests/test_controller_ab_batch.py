@@ -507,11 +507,76 @@ class ControllerAbBatchTests(unittest.TestCase):
             self.assertEqual(len(calls), count)
             self.assertEqual(count, 10)
 
+    def test_success_compacts_evidence_and_removes_external_workdir(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, _, runner = self._write_batch_inputs(root)
+            output = root / "output"
+            work_root = root / "external-work"
+
+            def invoke(
+                command: list[str], **_: object
+            ) -> subprocess.CompletedProcess[str]:
+                destination = Path(command[command.index("--output") + 1])
+                self.assertFalse(destination.is_relative_to(output))
+                self.assertIn("--work-root", command)
+                self._fake_runner_output(command)
+                return subprocess.CompletedProcess(command, 0)
+
+            protocol = {"protocol_id": "test", "sha256": "d" * 64}
+            with (
+                mock.patch.object(
+                    batch, "validate_task_contract", return_value=self._contract()
+                ),
+                mock.patch.object(
+                    batch, "load_controller_protocol", return_value=protocol
+                ),
+                mock.patch.object(
+                    batch, "compare", return_value={"verdict": "not-proven"}
+                ),
+            ):
+                status = batch.run_batch(
+                    config,
+                    output,
+                    runner,
+                    work_root=work_root,
+                    invoke=invoke,
+                )
+
+            self.assertTrue(status["complete"])
+            self.assertFalse(work_root.exists())
+            self.assertFalse((output / "sessions").exists())
+            self.assertFalse((output / "debug-workdir.json").exists())
+            self.assertTrue((output / "session-receipts.jsonl").is_file())
+            self.assertTrue((output / "coordinator-sha256-index.json").is_file())
+            self.assertEqual(
+                status["ephemeral_cleanup"],
+                {
+                    "status": "removed-after-validation",
+                    "pre_cleanup_file_count": 30,
+                    "pre_cleanup_total_bytes": status["ephemeral_cleanup"][
+                        "pre_cleanup_total_bytes"
+                    ],
+                    "persistent_file_count": 0,
+                    "persistent_total_bytes": 0,
+                },
+            )
+            measured = batch.workdir_receipt(output)
+            self.assertEqual(
+                status["final_evidence_measurement"],
+                {
+                    "scope": "coordinator-evidence-before-independent-verification",
+                    "file_count": measured["file_count"],
+                    "total_bytes": measured["total_bytes"],
+                },
+            )
+
     def test_interrupted_job_blocks_automatic_retry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             config, _, runner = self._write_batch_inputs(root)
             output = root / "output"
+            work_root = root / "external-work"
             protocol = {"protocol_id": "test", "sha256": "d" * 64}
             patches = (
                 mock.patch.object(
@@ -530,15 +595,22 @@ class ControllerAbBatchTests(unittest.TestCase):
                         config,
                         output,
                         runner,
+                        work_root=work_root,
                         invoke=lambda *_args, **_kwargs: (_ for _ in ()).throw(
                             KeyboardInterrupt()
                         ),
                     )
+                debug = json.loads(
+                    (output / "debug-workdir.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(debug["path"], str(work_root.resolve()))
+                self.assertTrue(work_root.is_dir())
                 with self.assertRaisesRegex(batch.BatchError, "refusing duplicate"):
                     batch.run_batch(
                         config,
                         output,
                         runner,
+                        work_root=work_root,
                         invoke=lambda *_args, **_kwargs: self.fail("must not invoke"),
                     )
 

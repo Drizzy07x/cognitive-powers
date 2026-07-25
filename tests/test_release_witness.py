@@ -96,6 +96,19 @@ def passing_receipt(root: Path) -> dict:
 
 
 class ReleaseWitnessTests(unittest.TestCase):
+    def test_release_records_use_the_shared_generated_tree_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_repository(Path(temporary))
+            before = witness.source_records(root)
+            for name in ("node_modules", ".next", "homes", "runs", "storage"):
+                directory = root / name
+                directory.mkdir()
+                (directory / "generated.bin").write_bytes(b"generated")
+
+            after = witness.source_records(root)
+
+        self.assertEqual(after, before)
+
     def test_witness_requires_bound_passing_offline_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)

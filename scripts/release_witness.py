@@ -13,14 +13,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+try:
+    from scripts.storage_policy import (
+        EXCLUDED_DIRECTORY_NAMES,
+        StoragePolicyError,
+        iter_tree_files,
+    )
+except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
+    from storage_policy import (
+        EXCLUDED_DIRECTORY_NAMES,
+        StoragePolicyError,
+        iter_tree_files,
+    )
 
-IGNORED_PARTS = {
-    ".git",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    "benchmark-results",
-}
+
+IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("skills", ("scripts/validate_skills.py",)),
     ("skills-strict", ("scripts/validate_skills.py", "--strict-quality")),
@@ -91,15 +98,10 @@ def sha256_file(path: Path) -> str:
 
 
 def iter_release_files(root: Path) -> Iterable[Path]:
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        relative = path.relative_to(root)
-        if any(part in IGNORED_PARTS for part in relative.parts):
-            continue
-        if path.suffix.lower() in {".pyc", ".pyo"}:
-            continue
-        yield path
+    try:
+        yield from iter_tree_files(root)
+    except StoragePolicyError as error:
+        raise WitnessError(str(error)) from error
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:

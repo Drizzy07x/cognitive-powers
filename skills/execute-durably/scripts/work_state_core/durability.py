@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import ctypes
 import errno
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import secrets
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,33 +29,29 @@ MIGRATION_POLICY_SCHEMA_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 10.0
 LOCK_STALE_SECONDS = 30.0
 OUTPUT_TAIL_CHARS = 8_000
+LEDGER_CHECKPOINT_INTERVAL = 32
+LEDGER_MAX_EVENTS = 128
 
-IGNORED_DIRECTORIES = frozenset(
-    {
-        ".cognitive-powers",
-        ".git",
-        ".hg",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".svn",
-        ".tox",
-        ".venv",
-        "__pycache__",
-        "bin",
-        "build",
-        "coverage",
-        "dist",
-        "node_modules",
-        "obj",
-        "blob-report",
-        "playwright-report",
-        "target",
-        "test-results",
-        "vendor",
-        "venv",
-    }
-)
+
+def _load_storage_policy():
+    plugin_root = Path(__file__).resolve().parents[4]
+    policy_path = plugin_root / "scripts" / "storage_policy.py"
+    identity = hashlib.sha256(str(policy_path).encode("utf-8")).hexdigest()[:16]
+    module_name = f"_cognitive_storage_policy_{identity}"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location(module_name, policy_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load shared storage policy from {policy_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_STORAGE_POLICY = _load_storage_policy()
+IGNORED_DIRECTORIES = frozenset(_STORAGE_POLICY.EXCLUDED_DIRECTORY_NAMES)
 
 IGNORED_SOURCE_SUFFIXES = frozenset(
     {
@@ -171,9 +170,10 @@ def _sha256_file(path: Path) -> str:
 
 
 def _ignored_source_directory(name: str) -> bool:
-    normalized = name.lower()
+    normalized = name.casefold()
     return (
         normalized in IGNORED_DIRECTORIES
+        or normalized == ".cognitive-powers"
         or normalized == ".codegraph"
         or normalized.startswith(".codegraph-")
     )
@@ -204,20 +204,22 @@ def source_fingerprint(root: Path, data_root: Path) -> dict[str, object]:
         )
         for filename in sorted(filenames):
             path = current_path / filename
+            relative = path.relative_to(root)
             if (
-                filename in IGNORED_SOURCE_FILES
+                _STORAGE_POLICY.is_excluded_relative(relative)
+                or filename in IGNORED_SOURCE_FILES
                 or path.suffix.lower() in IGNORED_SOURCE_SUFFIXES
                 or path.is_symlink()
             ):
                 continue
             try:
-                relative = path.relative_to(root).as_posix()
+                relative_text = relative.as_posix()
                 file_digest = _sha256_file(path)
             except OSError as error:
                 raise WorkStateError(
                     f"cannot fingerprint source file {path}: {error}"
                 ) from error
-            aggregate.update(relative.encode("utf-8"))
+            aggregate.update(relative_text.encode("utf-8"))
             aggregate.update(b"\0")
             aggregate.update(file_digest.encode("ascii"))
             aggregate.update(b"\n")
@@ -570,19 +572,9 @@ def state_migration_report(session_dir: Path) -> dict[str, object]:
         )
     _validate_state_payload(payload, path)
     ledger_events = _read_ledger_events(session_dir)
-    for event in ledger_events:
-        snapshot = event.get("_state_snapshot")
-        if snapshot is not None:
-            if not isinstance(snapshot, dict):
-                raise WorkStateError(
-                    f"ledger contains a malformed state snapshot: "
-                    f"{session_dir / 'ledger.jsonl'}"
-                )
-            _validate_state_payload(
-                snapshot,
-                session_dir / "ledger.jsonl",
-                label="ledger state snapshot",
-            )
+    _recover_state_from_events(session_dir, ledger_events)
+    if (session_dir / "recovery.json").exists():
+        _read_recovery_checkpoint(session_dir)
     return {
         "policy_schema_version": MIGRATION_POLICY_SCHEMA_VERSION,
         "mode": "dry-run",
@@ -622,6 +614,116 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
     return events
 
 
+def _state_digest(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _state_delta(
+    before: Any, after: Any, path: tuple[str | int, ...] = ()
+) -> list[dict[str, Any]]:
+    """Return deterministic JSON operations without copying unchanged state."""
+    if type(before) is not type(after):
+        return [{"op": "set", "path": list(path), "value": copy.deepcopy(after)}]
+    if isinstance(before, dict):
+        operations: list[dict[str, Any]] = []
+        for key in sorted(before.keys() - after.keys()):
+            operations.append({"op": "delete", "path": [*path, key]})
+        for key in sorted(after):
+            if key not in before:
+                operations.append(
+                    {
+                        "op": "set",
+                        "path": [*path, key],
+                        "value": copy.deepcopy(after[key]),
+                    }
+                )
+            else:
+                operations.extend(_state_delta(before[key], after[key], (*path, key)))
+        return operations
+    if isinstance(before, list):
+        if len(before) != len(after):
+            return [{"op": "set", "path": list(path), "value": copy.deepcopy(after)}]
+        operations = []
+        for index, (left, right) in enumerate(zip(before, after)):
+            operations.extend(_state_delta(left, right, (*path, index)))
+        return operations
+    if before != after:
+        return [{"op": "set", "path": list(path), "value": copy.deepcopy(after)}]
+    return []
+
+
+def _apply_state_delta(
+    before: dict[str, Any], operations: list[dict[str, Any]]
+) -> dict[str, Any]:
+    payload: Any = copy.deepcopy(before)
+    for index, operation in enumerate(operations, 1):
+        if not isinstance(operation, dict):
+            raise WorkStateError(f"ledger state delta operation {index} is malformed")
+        action = operation.get("op")
+        path = operation.get("path")
+        if action not in {"set", "delete"} or not isinstance(path, list):
+            raise WorkStateError(f"ledger state delta operation {index} is malformed")
+        if not path:
+            if action != "set" or "value" not in operation:
+                raise WorkStateError(
+                    f"ledger state delta operation {index} cannot delete root"
+                )
+            payload = copy.deepcopy(operation["value"])
+            continue
+        parent = payload
+        for component in path[:-1]:
+            if isinstance(parent, dict) and isinstance(component, str):
+                if component not in parent:
+                    raise WorkStateError(
+                        f"ledger state delta operation {index} traverses a missing key"
+                    )
+                parent = parent[component]
+            elif (
+                isinstance(parent, list)
+                and isinstance(component, int)
+                and not isinstance(component, bool)
+                and 0 <= component < len(parent)
+            ):
+                parent = parent[component]
+            else:
+                raise WorkStateError(
+                    f"ledger state delta operation {index} has an invalid path"
+                )
+        leaf = path[-1]
+        if isinstance(parent, dict) and isinstance(leaf, str):
+            if action == "delete":
+                if leaf not in parent:
+                    raise WorkStateError(
+                        f"ledger state delta operation {index} deletes a missing key"
+                    )
+                del parent[leaf]
+            elif "value" in operation:
+                parent[leaf] = copy.deepcopy(operation["value"])
+            else:
+                raise WorkStateError(
+                    f"ledger state delta operation {index} has no value"
+                )
+        elif (
+            isinstance(parent, list)
+            and isinstance(leaf, int)
+            and not isinstance(leaf, bool)
+            and 0 <= leaf < len(parent)
+            and action == "set"
+            and "value" in operation
+        ):
+            parent[leaf] = copy.deepcopy(operation["value"])
+        else:
+            raise WorkStateError(
+                f"ledger state delta operation {index} has an invalid target"
+            )
+    if not isinstance(payload, dict):
+        raise WorkStateError("ledger state delta did not produce a state object")
+    return payload
+
+
 def _state_sequence(payload: dict[str, Any], label: str) -> int:
     sequence = payload.get("last_seq")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
@@ -652,57 +754,204 @@ def _validate_state_payload(
         raise WorkStateError(f"{label} has malformed work_packets: {path}")
 
 
-def _latest_ledger_snapshot(session_dir: Path) -> dict[str, Any] | None:
-    latest: dict[str, Any] | None = None
-    for event in _read_ledger_events(session_dir):
-        candidate = event.get("_state_snapshot")
-        if not isinstance(candidate, dict):
+def _recover_state_from_events(
+    session_dir: Path, events: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    recovered: dict[str, Any] | None = None
+    ledger_path = session_dir / "ledger.jsonl"
+    for line_number, event in enumerate(events, 1):
+        sequence = event.get("seq")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            raise WorkStateError(
+                f"ledger line {line_number} has malformed sequence: {ledger_path}"
+            )
+        checkpoint = event.get("_state_checkpoint", event.get("_state_snapshot"))
+        if checkpoint is not None:
+            if not isinstance(checkpoint, dict):
+                raise WorkStateError(
+                    f"ledger state snapshot is malformed: {ledger_path}"
+                )
+            candidate = copy.deepcopy(checkpoint)
+            _validate_state_payload(
+                candidate, ledger_path, label="ledger state snapshot"
+            )
+            if _state_sequence(candidate, "ledger state snapshot") != sequence:
+                raise WorkStateError(
+                    f"ledger state snapshot sequence mismatch: {ledger_path}"
+                )
+            recovered = candidate
+        elif "_state_delta" in event:
+            operations = event.get("_state_delta")
+            base_sequence = event.get("_base_seq")
+            if not isinstance(operations, list) or recovered is None:
+                raise WorkStateError(
+                    f"ledger line {line_number} has an unusable state delta: "
+                    f"{ledger_path}"
+                )
+            if (
+                base_sequence != _state_sequence(recovered, "ledger recovered state")
+                or sequence != base_sequence + 1
+            ):
+                raise WorkStateError(
+                    f"ledger line {line_number} state delta sequence mismatch: "
+                    f"{ledger_path}"
+                )
+            recovered = _apply_state_delta(recovered, operations)
+            _validate_state_payload(
+                recovered, ledger_path, label="ledger recovered state"
+            )
+            if _state_sequence(recovered, "ledger recovered state") != sequence:
+                raise WorkStateError(
+                    f"ledger line {line_number} recovered sequence mismatch: "
+                    f"{ledger_path}"
+                )
+        else:
+            # Pre-checkpoint legacy events can still be inspected. Once a
+            # recoverable chain starts, every later transition must carry state.
+            if recovered is not None:
+                raise WorkStateError(
+                    f"ledger line {line_number} has no recovery payload: {ledger_path}"
+                )
             continue
-        _validate_state_payload(
-            candidate,
-            session_dir / "ledger.jsonl",
-            label="ledger state snapshot",
-        )
-        if latest is None or _state_sequence(
-            candidate, "ledger state snapshot"
-        ) > _state_sequence(latest, "ledger state snapshot"):
-            latest = candidate
-    return latest
+        expected_hash = event.get("_state_sha256")
+        if expected_hash is not None and (
+            not isinstance(expected_hash, str)
+            or not secrets.compare_digest(expected_hash, _state_digest(recovered))
+        ):
+            raise WorkStateError(
+                f"ledger line {line_number} state hash mismatch: {ledger_path}"
+            )
+    return recovered
+
+
+def _latest_ledger_snapshot(session_dir: Path) -> dict[str, Any] | None:
+    return _recover_state_from_events(session_dir, _read_ledger_events(session_dir))
+
+
+def _recovery_path(session_dir: Path) -> Path:
+    return session_dir / "recovery.json"
+
+
+def _atomic_write_recovery(session_dir: Path, state: dict[str, Any]) -> None:
+    payload = {
+        "schema_version": 1,
+        "last_seq": _state_sequence(state, "state"),
+        "state_sha256": _state_digest(state),
+        "state": state,
+    }
+    _atomic_write_json(_recovery_path(session_dir), payload)
+
+
+def _read_recovery_checkpoint(session_dir: Path) -> dict[str, Any] | None:
+    path = _recovery_path(session_dir)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise WorkStateError(
+            f"recovery checkpoint is unreadable: {path}: {error}"
+        ) from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise WorkStateError(f"recovery checkpoint is malformed: {path}")
+    state = payload.get("state")
+    if not isinstance(state, dict):
+        raise WorkStateError(f"recovery checkpoint has no state: {path}")
+    _validate_state_payload(state, path, label="recovery state")
+    if (
+        payload.get("last_seq") != _state_sequence(state, "recovery state")
+        or not isinstance(payload.get("state_sha256"), str)
+        or not secrets.compare_digest(payload["state_sha256"], _state_digest(state))
+    ):
+        raise WorkStateError(f"recovery checkpoint hash or sequence mismatch: {path}")
+    return state
 
 
 def load_state(session_dir: Path) -> dict[str, Any]:
     path = _state_path(session_dir)
-    payload: dict[str, Any] | None = None
+    candidates: list[tuple[str, dict[str, Any]]] = []
     state_error: OSError | json.JSONDecodeError | None = None
     if path.is_file():
         try:
             candidate = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(candidate, dict):
-                payload = candidate
+                _validate_state_payload(candidate, path)
+                candidates.append(("state", candidate))
         except (OSError, json.JSONDecodeError) as error:
             state_error = error
-    ledger_snapshot = _latest_ledger_snapshot(session_dir)
-    if ledger_snapshot is not None:
-        try:
-            payload_sequence = (
-                _state_sequence(payload, "state") if payload is not None else -1
-            )
-        except WorkStateError:
-            payload_sequence = -1
-        if _state_sequence(ledger_snapshot, "ledger state snapshot") > payload_sequence:
-            payload = ledger_snapshot
-    if payload is None:
+    ledger_state = _latest_ledger_snapshot(session_dir)
+    if ledger_state is not None:
+        candidates.append(("ledger", ledger_state))
+    recovery_state = _read_recovery_checkpoint(session_dir)
+    if recovery_state is not None:
+        candidates.append(("recovery", recovery_state))
+    if not candidates:
         if state_error is not None:
             raise WorkStateError(f"state is unreadable: {path}: {state_error}")
         raise WorkStateError(f"session does not exist: {session_dir}")
-    _validate_state_payload(payload, path)
-    return payload
+    latest_sequence = max(
+        _state_sequence(payload, label) for label, payload in candidates
+    )
+    latest = [
+        (label, payload)
+        for label, payload in candidates
+        if _state_sequence(payload, label) == latest_sequence
+    ]
+    for label, payload in latest:
+        if label == "state":
+            # state.json remains the supported current-state surface. Recovery
+            # sources only supersede it when they contain a newer flushed
+            # transition, preserving legacy lock/run recovery semantics that
+            # intentionally update the current snapshot in place.
+            return copy.deepcopy(payload)
+    expected = _state_digest(latest[0][1])
+    conflicts = [
+        label for label, payload in latest[1:] if _state_digest(payload) != expected
+    ]
+    if conflicts:
+        raise WorkStateError(
+            "durable state sources conflict at sequence "
+            f"{latest_sequence}: {latest[0][0]}, {', '.join(conflicts)}"
+        )
+    return copy.deepcopy(latest[0][1])
 
 
 def _append_ledger(session_dir: Path, event: dict[str, object]) -> None:
     ledger_path = session_dir / "ledger.jsonl"
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    if ledger_path.exists():
+        _recover_state_from_events(session_dir, _read_ledger_events(session_dir))
     with ledger_path.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(json.dumps(event, ensure_ascii=False) + "\n")
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def _compact_ledger_unlocked(
+    session_dir: Path, state: dict[str, Any]
+) -> dict[str, object]:
+    events = _read_ledger_events(session_dir)
+    if not events:
+        raise WorkStateError("cannot compact a session without ledger events")
+    sequence = _state_sequence(state, "state")
+    checkpoint = {
+        "seq": sequence,
+        "at": utc_now(),
+        "event": "compaction_checkpoint",
+        "_state_checkpoint": copy.deepcopy(state),
+        "_state_sha256": _state_digest(state),
+    }
+    recovered = _recover_state_from_events(session_dir, [checkpoint])
+    if recovered is None or _state_digest(recovered) != _state_digest(state):
+        raise WorkStateError("compaction recovery verification failed")
+    content = json.dumps(checkpoint, ensure_ascii=False) + "\n"
+    _atomic_write_text(session_dir / "ledger.jsonl", content)
+    verified = _recover_state_from_events(session_dir, _read_ledger_events(session_dir))
+    if verified is None or _state_digest(verified) != _state_digest(state):
+        raise WorkStateError("compacted ledger failed post-write recovery verification")
+    return {
+        "events_before": len(events),
+        "events_after": 1,
+        "last_seq": sequence,
+        "recovery_verified": True,
+    }

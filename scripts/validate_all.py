@@ -14,14 +14,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+try:
+    from scripts.storage_policy import (
+        EXCLUDED_DIRECTORY_NAMES,
+        StoragePolicyError,
+        iter_tree_files,
+        source_identity as shared_source_identity,
+    )
+except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
+    from storage_policy import (
+        EXCLUDED_DIRECTORY_NAMES,
+        StoragePolicyError,
+        iter_tree_files,
+        source_identity as shared_source_identity,
+    )
 
-IGNORED_PARTS = {
-    ".git",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    "benchmark-results",
-}
+
+IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 TAIL_LIMIT = 4000
 
 
@@ -116,32 +125,18 @@ def _sha256_bytes(value: bytes) -> str:
 
 
 def iter_source_files(root: Path) -> Iterable[Path]:
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        relative = path.relative_to(root)
-        if any(part in IGNORED_PARTS for part in relative.parts):
-            continue
-        if path.suffix.lower() in {".pyc", ".pyo"}:
-            continue
-        yield path
+    yield from iter_tree_files(root)
 
 
 def source_identity(root: Path) -> dict[str, Any]:
     root = root.resolve()
-    aggregate = hashlib.sha256()
-    count = 0
-    for path in iter_source_files(root):
-        relative = path.relative_to(root).as_posix()
-        file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        aggregate.update(relative.encode("utf-8"))
-        aggregate.update(b"\0")
-        aggregate.update(file_hash.encode("ascii"))
-        aggregate.update(b"\n")
-        count += 1
-    if count == 0:
+    try:
+        identity = dict(shared_source_identity(root))
+    except StoragePolicyError as error:
+        raise ValidationError(str(error)) from error
+    if identity["fileCount"] == 0:
         raise ValidationError("plugin root has no source files")
-    return {"sha256": aggregate.hexdigest(), "fileCount": count}
+    return identity
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:

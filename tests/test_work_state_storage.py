@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_state.py"
+
+
+def load_work_state():
+    spec = importlib.util.spec_from_file_location(
+        "test_work_state_storage_module", SCRIPT_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {SCRIPT_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+work_state = load_work_state()
+
+
+class WorkStateStorageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary_directory.name)
+        self.workspace = self.base / "workspace"
+        self.data_root = self.base / "durable-data"
+        self.workspace.mkdir()
+        (self.workspace / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--root",
+                str(self.workspace),
+                "--data-root",
+                str(self.data_root),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def initialize(self, session: str) -> Path:
+        completed = self.cli(
+            "init",
+            "--session",
+            session,
+            "--objective",
+            "Exercise durable storage",
+            "--criterion",
+            "Evidence remains valid",
+            "--json",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        return Path(json.loads(completed.stdout)["session_dir"])
+
+    def record(self, session: str, artifact: Path) -> dict[str, object]:
+        completed = self.cli(
+            "record",
+            "--session",
+            session,
+            "--criterion",
+            "c1",
+            "--executor",
+            "builder",
+            "--artifact",
+            str(artifact),
+            "--summary",
+            "same artifact",
+            "--json",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        return json.loads(completed.stdout)
+
+    def mark_complete(self, session_dir: Path) -> None:
+        with work_state.session_lock(session_dir):
+            state = work_state.load_state(session_dir)
+            state["status"] = "complete"
+            state["completed_at"] = work_state.utc_now()
+            work_state.save_state_with_event(session_dir, state, "test_completed")
+
+    def test_content_addressed_artifacts_share_one_physical_object(self) -> None:
+        self.initialize("first")
+        self.initialize("second")
+        artifact = self.base / "artifact.bin"
+        artifact.write_bytes(b"identical durable artifact\n")
+
+        first = Path(str(self.record("first", artifact)["artifact_copy"]))
+        second = Path(str(self.record("second", artifact)["artifact_copy"]))
+        digest = work_state._sha256_file(artifact)
+        objects = list((self.data_root / "objects" / "sha256").rglob(digest))
+
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(first.read_bytes(), artifact.read_bytes())
+        self.assertEqual(second.read_bytes(), artifact.read_bytes())
+        self.assertEqual(first.stat().st_ino, objects[0].stat().st_ino)
+        self.assertEqual(second.stat().st_ino, objects[0].stat().st_ino)
+        report = work_state.inspect_storage(self.data_root, largest=5)
+        self.assertLess(report["physical_bytes"], report["logical_bytes"])
+
+    def test_shared_cas_corruption_is_observable_in_every_referencing_session(
+        self,
+    ) -> None:
+        self.initialize("first")
+        self.initialize("second")
+        artifact = self.base / "artifact.bin"
+        artifact.write_bytes(b"identical durable artifact\n")
+        first = Path(str(self.record("first", artifact)["artifact_copy"]))
+        self.record("second", artifact)
+
+        first.write_bytes(b"tampered shared allocation\n")
+        second_status = self.cli("status", "--session", "second", "--json")
+
+        self.assertEqual(
+            second_status.returncode, 0, second_status.stdout + second_status.stderr
+        )
+        payload = json.loads(second_status.stdout)
+        self.assertEqual(payload["effective_status"], "invalid-evidence")
+        self.assertIn(
+            "hash no longer matches", payload["criteria"][0]["evidence_error"]
+        )
+
+    def test_source_fingerprint_uses_shared_generated_tree_exclusions(self) -> None:
+        before = work_state.source_fingerprint(self.workspace, self.data_root)
+        for directory in (
+            "homes",
+            "runs",
+            "storage",
+            "node_modules",
+            ".next",
+            "benchmark-output",
+        ):
+            path = self.workspace / directory
+            path.mkdir()
+            (path / "large.bin").write_bytes(b"x" * 4096)
+
+        after = work_state.source_fingerprint(self.workspace, self.data_root)
+
+        self.assertEqual(after, before)
+
+    def test_inspection_reports_counts_bytes_projects_sessions_and_largest(
+        self,
+    ) -> None:
+        self.initialize("one")
+        self.initialize("two")
+
+        report = work_state.inspect_storage(self.data_root, largest=3)
+
+        self.assertEqual(report["projects"], 1)
+        self.assertEqual(report["sessions"], 2)
+        self.assertGreater(report["file_count"], 0)
+        self.assertGreater(report["bytes"], 0)
+        self.assertLessEqual(len(report["largest_directories"]), 3)
+        self.assertTrue(
+            all(
+                {"path", "bytes", "file_count"}.issubset(item)
+                for item in report["largest_directories"]
+            )
+        )
+
+    def test_gc_is_dry_run_and_protects_active_and_keep_last_sessions(self) -> None:
+        active = self.initialize("active")
+        old = self.initialize("old-complete")
+        newest = self.initialize("newest-complete")
+        self.mark_complete(old)
+        self.mark_complete(newest)
+        stale_time = time.time() - (40 * 86400)
+        os.utime(old, (stale_time, stale_time))
+        os.utime(newest, (stale_time + 10, stale_time + 10))
+        os.utime(active, (stale_time, stale_time))
+
+        dry_run = work_state.garbage_collect_storage(
+            self.data_root, older_than_days=30, keep_last=1, apply=False
+        )
+
+        decisions = {
+            Path(item["path"]).name: item for item in dry_run["session_decisions"]
+        }
+        self.assertEqual(decisions["active"]["decision"], "protect")
+        self.assertEqual(decisions["active"]["reason"], "active-session")
+        self.assertEqual(decisions["newest-complete"]["decision"], "keep")
+        self.assertEqual(decisions["newest-complete"]["reason"], "keep-last")
+        self.assertEqual(decisions["old-complete"]["decision"], "delete")
+        self.assertTrue(old.is_dir(), "dry-run must not delete")
+
+        applied = work_state.garbage_collect_storage(
+            self.data_root, older_than_days=30, keep_last=1, apply=True
+        )
+        self.assertTrue(applied["applied"])
+        self.assertFalse(old.exists())
+        self.assertTrue(active.is_dir())
+        self.assertTrue(newest.is_dir())
+
+    def test_gc_protects_completed_session_with_live_lock(self) -> None:
+        session_dir = self.initialize("locked")
+        self.mark_complete(session_dir)
+        stale_time = time.time() - (40 * 86400)
+        os.utime(session_dir, (stale_time, stale_time))
+
+        with work_state.session_lock(session_dir):
+            report = work_state.garbage_collect_storage(
+                self.data_root, older_than_days=30, keep_last=0, apply=False
+            )
+
+        decision = next(
+            item
+            for item in report["session_decisions"]
+            if Path(item["path"]).name == "locked"
+        )
+        self.assertEqual(decision["decision"], "protect")
+        self.assertEqual(decision["reason"], "live-lock")
+
+    def test_gc_collects_only_unreferenced_old_cas_objects(self) -> None:
+        self.initialize("active")
+        artifact = self.base / "artifact.bin"
+        artifact.write_bytes(b"referenced\n")
+        self.record("active", artifact)
+        referenced = work_state._sha256_file(artifact)
+        orphan = self.data_root / "objects" / "sha256" / "00" / ("0" * 64)
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_bytes(b"orphan")
+        stale_time = time.time() - (40 * 86400)
+        os.utime(orphan, (stale_time, stale_time))
+
+        report = work_state.garbage_collect_storage(
+            self.data_root, older_than_days=30, keep_last=0, apply=True
+        )
+
+        object_decisions = {
+            item["sha256"]: item["decision"] for item in report["object_decisions"]
+        }
+        self.assertEqual(object_decisions[referenced], "protect")
+        self.assertEqual(object_decisions["0" * 64], "delete")
+        self.assertFalse(orphan.exists())
+
+    def test_storage_cli_is_supported_and_gc_requires_apply(self) -> None:
+        self.initialize("cli")
+        inspected = self.cli("storage-inspect", "--largest", "2", "--json")
+        collected = self.cli(
+            "storage-gc",
+            "--older-than-days",
+            "0",
+            "--keep-last",
+            "0",
+            "--json",
+        )
+
+        self.assertEqual(inspected.returncode, 0, inspected.stdout + inspected.stderr)
+        self.assertEqual(collected.returncode, 0, collected.stdout + collected.stderr)
+        self.assertFalse(json.loads(collected.stdout)["applied"])
+
+
+if __name__ == "__main__":
+    unittest.main()

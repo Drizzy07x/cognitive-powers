@@ -12,17 +12,40 @@ import re
 import shutil
 import statistics
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 try:
     from scripts.integration_evaluation import validate_task_contract
+    from scripts.storage_policy import (
+        DEFAULT_COPY_MAX_BYTES,
+        DEFAULT_COPY_MAX_FILES,
+        StoragePolicyError,
+        TreeMeasurement,
+        bounded_copy_tree,
+        enforce_budget,
+        iter_tree_files,
+        measure_tree,
+        reject_large_excluded_trees,
+    )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from integration_evaluation import validate_task_contract
+    from storage_policy import (
+        DEFAULT_COPY_MAX_BYTES,
+        DEFAULT_COPY_MAX_FILES,
+        StoragePolicyError,
+        TreeMeasurement,
+        bounded_copy_tree,
+        enforce_budget,
+        iter_tree_files,
+        measure_tree,
+        reject_large_excluded_trees,
+    )
 
 
-IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 INSTALLED_SURFACE_DIRECTORIES = (
     ".codex-plugin",
     "assets",
@@ -60,6 +83,8 @@ SUPPORTED_EVENT_TYPES = {
     "agent.lifecycle",
     "error",
 }
+DEFAULT_WORK_MAX_FILES = DEFAULT_COPY_MAX_FILES * 10
+DEFAULT_WORK_MAX_BYTES = DEFAULT_COPY_MAX_BYTES * 10
 
 
 class LiveEvaluationError(ValueError):
@@ -524,15 +549,196 @@ def validate_layout(
     return fixture, output, baseline_home, candidate_home
 
 
+def copy_fixture_tree(
+    source: Path,
+    destination: Path,
+    *,
+    manifest: Sequence[str] | None = None,
+    tracked_only: bool = False,
+    max_files: int = DEFAULT_COPY_MAX_FILES,
+    max_bytes: int = DEFAULT_COPY_MAX_BYTES,
+    allow_large_excluded_trees: bool = False,
+) -> TreeMeasurement:
+    """Copy one fixture through the shared exclusions and fail before overflow."""
+    try:
+        return bounded_copy_tree(
+            source,
+            destination,
+            manifest=manifest,
+            tracked_only=tracked_only,
+            max_files=max_files,
+            max_bytes=max_bytes,
+            fixture_mode=True,
+            allow_large_excluded_trees=allow_large_excluded_trees,
+        )
+    except StoragePolicyError as error:
+        raise LiveEvaluationError(str(error)) from error
+
+
+def copy_home_tree(
+    source: Path,
+    destination: Path,
+    *,
+    max_files: int,
+    max_bytes: int,
+) -> TreeMeasurement:
+    """Copy one CODEX_HOME through the same bounded generated-tree policy."""
+    try:
+        return bounded_copy_tree(
+            source,
+            destination,
+            max_files=max_files,
+            max_bytes=max_bytes,
+        )
+    except StoragePolicyError as error:
+        raise LiveEvaluationError(str(error)) from error
+
+
+def _raw_workdir_measurement(root: Path) -> TreeMeasurement:
+    """Measure every regular workdir file, including provider-written state."""
+    files = 0
+    total_bytes = 0
+    pending = [root.resolve()]
+    while pending:
+        directory = pending.pop()
+        try:
+            children = list(directory.iterdir())
+        except OSError as error:
+            raise LiveEvaluationError(
+                f"cannot inspect debug workdir {directory}: {error}"
+            ) from error
+        for path in children:
+            if path.is_symlink():
+                continue
+            try:
+                if path.is_dir():
+                    pending.append(path)
+                elif path.is_file():
+                    files += 1
+                    total_bytes += path.stat().st_size
+            except OSError as error:
+                raise LiveEvaluationError(
+                    f"cannot inspect debug workdir path {path}: {error}"
+                ) from error
+    return TreeMeasurement(file_count=files, total_bytes=total_bytes)
+
+
+def workdir_receipt(root: Path) -> dict[str, Any]:
+    measured = _raw_workdir_measurement(root)
+    return {
+        "path": str(root.resolve()),
+        "file_count": measured.file_count,
+        "total_bytes": measured.total_bytes,
+    }
+
+
+def finalize_workdir(
+    root: Path,
+    *,
+    succeeded: bool,
+    retain_debug_workdirs: bool,
+) -> dict[str, Any] | None:
+    """Delete validated success state; preserve and measure diagnostic state."""
+    if succeeded and not retain_debug_workdirs:
+        shutil.rmtree(root)
+        return None
+    return workdir_receipt(root)
+
+
+def create_workdir(output: Path, requested: Path | None = None) -> Path:
+    """Create an external work root which can never be final evidence."""
+    output = output.resolve()
+    if requested is None:
+        return Path(tempfile.mkdtemp(prefix="cognitive-powers-live-ab-")).resolve()
+    workdir = requested.expanduser().resolve()
+    if _is_within(workdir, output) or _is_within(output, workdir):
+        raise LiveEvaluationError(
+            "ephemeral workdir and final evidence output must not contain each other"
+        )
+    if workdir.exists():
+        raise LiveEvaluationError(f"ephemeral workdir already exists: {workdir}")
+    workdir.mkdir(parents=True)
+    return workdir
+
+
+def projected_copy_budget(
+    *,
+    fixture: Path,
+    baseline_home: Path,
+    candidate_home: Path,
+    repetitions: int,
+    fixture_manifest: Sequence[str] | None,
+    fixture_tracked_only: bool,
+    max_files: int,
+    max_bytes: int,
+    allow_large_excluded_trees: bool,
+) -> dict[str, Any]:
+    """Measure every planned tree copy before creating a copy destination."""
+    try:
+        reject_large_excluded_trees(
+            fixture,
+            manifest=fixture_manifest,
+            allow_override=allow_large_excluded_trees,
+        )
+        fixture_measurement = measure_tree(
+            fixture,
+            manifest=fixture_manifest,
+            tracked_only=fixture_tracked_only,
+        )
+        baseline_measurement = measure_tree(baseline_home)
+        candidate_measurement = measure_tree(candidate_home)
+        # Per repetition: two home copies, two actor fixture copies, and two
+        # isolated evaluator copies for each actor (six fixture copies total).
+        projected = TreeMeasurement(
+            file_count=repetitions
+            * (
+                baseline_measurement.file_count
+                + candidate_measurement.file_count
+                + (6 * fixture_measurement.file_count)
+            ),
+            total_bytes=repetitions
+            * (
+                baseline_measurement.total_bytes
+                + candidate_measurement.total_bytes
+                + (6 * fixture_measurement.total_bytes)
+            ),
+        )
+        enforce_budget(
+            projected,
+            max_files=max_files,
+            max_bytes=max_bytes,
+            label="projected workdir copy",
+        )
+    except StoragePolicyError as error:
+        raise LiveEvaluationError(str(error)) from error
+    return {
+        "fixture": fixture_measurement.as_dict(),
+        "baseline_home": baseline_measurement.as_dict(),
+        "candidate_home": candidate_measurement.as_dict(),
+        "projected": projected.as_dict(),
+        "fixture_copy_strategy": (
+            "manifest"
+            if fixture_manifest is not None
+            else "git-tracked"
+            if fixture_tracked_only
+            else "shared-policy-tree"
+        ),
+    }
+
+
 def tree_hashes(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
-            continue
-        if path.suffix in {".pyc", ".pyo"}:
-            continue
-        relative = path.relative_to(root).as_posix()
-        result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        for path in iter_tree_files(root):
+            relative = path.relative_to(root).as_posix()
+            try:
+                result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError as error:
+                raise LiveEvaluationError(
+                    f"cannot hash source-oriented file {relative}: {error}"
+                ) from error
+    except StoragePolicyError as error:
+        raise LiveEvaluationError(str(error)) from error
     return result
 
 
@@ -1874,6 +2080,9 @@ def _run_one(
     allowed_changes: Sequence[str],
     bypass_sandbox: bool,
     session_timeout_seconds: int,
+    copy_max_files: int,
+    copy_max_bytes: int,
+    allow_large_excluded_trees: bool,
     preflight_expected_mode: str | None = None,
 ) -> dict[str, Any]:
     if controller_mode not in CONTROLLER_MODES:
@@ -1945,8 +2154,20 @@ def _run_one(
 
     hidden_fixture = Path(f"{artifact_prefix}-hidden-fixture")
     quality_fixture = Path(f"{artifact_prefix}-quality-fixture")
-    shutil.copytree(fixture, hidden_fixture)
-    shutil.copytree(fixture, quality_fixture)
+    copy_fixture_tree(
+        fixture,
+        hidden_fixture,
+        max_files=copy_max_files,
+        max_bytes=copy_max_bytes,
+        allow_large_excluded_trees=allow_large_excluded_trees,
+    )
+    copy_fixture_tree(
+        fixture,
+        quality_fixture,
+        max_files=copy_max_files,
+        max_bytes=copy_max_bytes,
+        allow_large_excluded_trees=allow_large_excluded_trees,
+    )
     measured_hashes = tree_hashes(fixture)
     pre_evaluation_diff = {
         path: measured_hashes.get(path, "<deleted>") for path in changed
@@ -2109,15 +2330,64 @@ def _run_one(
             "complete": decision["complete"],
         },
         "pre_evaluation_diff_sha256": source_sha256(pre_evaluation_diff),
-        "evaluation_fixtures": {
-            "hidden": str(hidden_fixture),
-            "quality": str(quality_fixture),
+        "execution_artifacts": {
+            "events_sha256": hashlib.sha256(events.read_bytes()).hexdigest(),
+            "stderr_sha256": hashlib.sha256(stderr.read_bytes()).hexdigest(),
+            "message_sha256": hashlib.sha256(message.read_bytes()).hexdigest(),
         },
         "elapsed_seconds": round(elapsed, 3),
-        "events": str(events),
-        "stderr": str(stderr),
-        "message": str(message),
     }
+
+
+def validate_materialized_evidence(
+    output: Path, *, expected_result_count: int
+) -> dict[str, str]:
+    """Re-read compact runner evidence before permitting workdir deletion."""
+    decoded: dict[str, Any] = {}
+    hashes: dict[str, str] = {}
+    for name in ("results.json", "receipts.json", "summary.json"):
+        path = output / name
+        try:
+            decoded[name] = json.loads(path.read_text(encoding="utf-8"))
+            hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except (OSError, json.JSONDecodeError) as error:
+            raise LiveEvaluationError(
+                f"materialized runner evidence is invalid: {name}"
+            ) from error
+    results = decoded["results.json"]
+    receipts = decoded["receipts.json"]
+    summary = decoded["summary.json"]
+    if (
+        not isinstance(results, list)
+        or len(results) != expected_result_count
+        or not isinstance(receipts, list)
+        or len(receipts) != expected_result_count
+        or not isinstance(summary, dict)
+        or summary.get("results") != str(output / "results.json")
+        or summary.get("receipts") != str(output / "receipts.json")
+    ):
+        raise LiveEvaluationError("materialized runner evidence is incomplete")
+    result_keys = {
+        (row.get("case_id"), row.get("variant"))
+        for row in results
+        if isinstance(row, dict)
+    }
+    receipt_keys = {
+        (row.get("case_id"), row.get("variant"))
+        for row in receipts
+        if isinstance(row, dict)
+    }
+    if (
+        len(result_keys) != expected_result_count
+        or result_keys != receipt_keys
+        or any(
+            not isinstance(row, dict)
+            or not isinstance(row.get("execution_artifacts"), dict)
+            for row in results
+        )
+    ):
+        raise LiveEvaluationError("materialized runner evidence identities are invalid")
+    return hashes
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2163,11 +2433,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bypass-sandbox", action="store_true")
     parser.add_argument("--session-timeout-seconds", type=int, default=1800)
     parser.add_argument("--preflight-expected-mode", choices=sorted(AGENT_PLAN_MODES))
+    parser.add_argument(
+        "--work-root",
+        type=Path,
+        help="external ephemeral work root; must not exist or overlap --output",
+    )
+    parser.add_argument(
+        "--retain-debug-workdirs",
+        action="store_true",
+        help="retain external work state after a validated run (default: false)",
+    )
+    parser.add_argument(
+        "--max-work-files",
+        "--max-copy-files",
+        dest="max_work_files",
+        type=int,
+        default=DEFAULT_WORK_MAX_FILES,
+    )
+    parser.add_argument(
+        "--max-work-bytes",
+        "--max-copy-bytes",
+        dest="max_work_bytes",
+        type=int,
+        default=DEFAULT_WORK_MAX_BYTES,
+    )
+    parser.add_argument(
+        "--fixture-manifest-json",
+        help="explicit JSON array of fixture-relative files or directories",
+    )
+    parser.add_argument(
+        "--allow-large-excluded-trees",
+        action="store_true",
+        help="diagnostic override for excluded bulky fixture dependency trees",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    work_root: Path | None = None
+    work_succeeded = False
+    exit_code = 2
     try:
         fixture, output, baseline_home, candidate_home = validate_layout(
             args.fixture, args.output, args.baseline_home, args.candidate_home
@@ -2197,6 +2503,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise LiveEvaluationError("session timeout must be positive")
         if args.agent_slots < 1:
             raise LiveEvaluationError("agent slots must be positive")
+        if args.max_work_files < 0 or args.max_work_bytes < 0:
+            raise LiveEvaluationError("workdir budgets must be non-negative")
+        fixture_manifest = None
+        if args.fixture_manifest_json is not None:
+            try:
+                fixture_manifest = json.loads(args.fixture_manifest_json)
+            except json.JSONDecodeError as error:
+                raise LiveEvaluationError(
+                    "fixture manifest must be a JSON array"
+                ) from error
+            if (
+                not isinstance(fixture_manifest, list)
+                or not fixture_manifest
+                or not all(
+                    isinstance(value, str) and value for value in fixture_manifest
+                )
+            ):
+                raise LiveEvaluationError(
+                    "fixture manifest must be a non-empty string array"
+                )
         binding = (
             load_task_binding(
                 args.task_contract,
@@ -2256,6 +2582,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixture_hashes = tree_hashes(fixture)
         fixture_sha = source_sha256(fixture_hashes)
         fixture_git = git_identity(fixture, required=binding is not None)
+        scheduled_repetitions = (
+            [(binding["batch_repetition"], binding["batch_arm_order"])]
+            if binding is not None and "batch_repetition" in binding
+            else list(enumerate(arm_order(args.repetitions, args.seed), start=1))
+        )
+        fixture_tracked_only = binding is not None and fixture_manifest is None
+        copy_budget = projected_copy_budget(
+            fixture=fixture,
+            baseline_home=baseline_home,
+            candidate_home=candidate_home,
+            repetitions=len(scheduled_repetitions),
+            fixture_manifest=fixture_manifest,
+            fixture_tracked_only=fixture_tracked_only,
+            max_files=args.max_work_files,
+            max_bytes=args.max_work_bytes,
+            allow_large_excluded_trees=args.allow_large_excluded_trees,
+        )
         allowed_changes_sha256 = hashlib.sha256(
             json.dumps(sorted(args.allow_change), separators=(",", ":")).encode("utf-8")
         ).hexdigest()
@@ -2291,27 +2634,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     host_identity, sort_keys=True, separators=(",", ":")
                 ).encode()
             ).hexdigest(),
+            "copy_budget": copy_budget,
         }
         experiment_sha256 = hashlib.sha256(
             json.dumps(
                 experiment_identity, sort_keys=True, separators=(",", ":")
             ).encode("utf-8")
         ).hexdigest()
+        work_root = create_workdir(output, args.work_root)
         output.mkdir(parents=True)
-        artifacts = output / "artifacts"
-        runs_root = output / "runs"
-        homes_root = output / "homes"
-        storage_root = output / "storage"
+        artifacts = work_root / "artifacts"
+        runs_root = work_root / "runs"
+        homes_root = work_root / "homes"
+        storage_root = work_root / "storage"
         artifacts.mkdir()
         runs_root.mkdir()
         homes_root.mkdir()
         storage_root.mkdir()
         results: list[dict[str, Any]] = []
-        scheduled_repetitions = (
-            [(binding["batch_repetition"], binding["batch_arm_order"])]
-            if binding is not None and "batch_repetition" in binding
-            else list(enumerate(arm_order(args.repetitions, args.seed), start=1))
-        )
         source_homes = {"baseline": baseline_home, "candidate": candidate_home}
         controller_modes = {
             "baseline": args.baseline_controller_mode,
@@ -2321,7 +2661,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             homes: dict[str, Path] = {}
             for arm in ("baseline", "candidate"):
                 run_home = homes_root / f"rep{repetition}-{arm}"
-                shutil.copytree(source_homes[arm], run_home)
+                copy_home_tree(
+                    source_homes[arm],
+                    run_home,
+                    max_files=args.max_work_files,
+                    max_bytes=args.max_work_bytes,
+                )
                 homes[arm] = run_home
             run_plugin_identity = validate_arm_plugins(
                 args.codex, homes["baseline"], homes["candidate"]
@@ -2340,7 +2685,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
             for arm in order:
                 run_root = runs_root / f"rep{repetition}-{arm}"
-                shutil.copytree(fixture, run_root)
+                copy_fixture_tree(
+                    fixture,
+                    run_root,
+                    manifest=fixture_manifest,
+                    tracked_only=fixture_tracked_only,
+                    max_files=args.max_work_files,
+                    max_bytes=args.max_work_bytes,
+                    allow_large_excluded_trees=args.allow_large_excluded_trees,
+                )
                 copied_hashes = tree_hashes(run_root)
                 if copied_hashes != fixture_hashes:
                     raise LiveEvaluationError(
@@ -2366,6 +2719,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     allowed_changes=args.allow_change,
                     bypass_sandbox=args.bypass_sandbox,
                     session_timeout_seconds=args.session_timeout_seconds,
+                    copy_max_files=args.max_work_files,
+                    copy_max_bytes=args.max_work_bytes,
+                    allow_large_excluded_trees=args.allow_large_excluded_trees,
                     preflight_expected_mode=(
                         args.preflight_expected_mode if arm == "candidate" else None
                     ),
@@ -2503,6 +2859,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "host_identity": host_identity,
             "hidden_check": hidden_identity,
             "quality_check": quality_identity,
+            "copy_budget": copy_budget,
             "guarded_roots": guard_receipts,
             "all_runs_successful": all(result["success"] for result in results),
             "comparison": aggregate_results(results),
@@ -2513,11 +2870,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         (output / "summary.json").write_text(
             json.dumps(summary, indent=2) + "\n", encoding="utf-8"
         )
+        validate_materialized_evidence(
+            output, expected_result_count=len(scheduled_repetitions) * 2
+        )
+        work_succeeded = True
         print(json.dumps(summary, ensure_ascii=False))
-        return 0 if summary["all_runs_successful"] else 1
+        exit_code = 0 if summary["all_runs_successful"] else 1
     except (OSError, LiveEvaluationError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
-        return 2
+        exit_code = 2
+    finally:
+        if work_root is not None and work_root.exists():
+            try:
+                debug_receipt = finalize_workdir(
+                    work_root,
+                    succeeded=work_succeeded,
+                    retain_debug_workdirs=args.retain_debug_workdirs,
+                )
+            except (OSError, LiveEvaluationError) as error:
+                retained: dict[str, Any] = {"path": str(work_root.resolve())}
+                try:
+                    retained.update(workdir_receipt(work_root))
+                except (OSError, LiveEvaluationError) as measurement_error:
+                    retained["measurement_error"] = str(measurement_error)
+                print(
+                    json.dumps(
+                        {
+                            "debug_workdir_error": str(error),
+                            "debug_workdir": retained,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
+                exit_code = 2
+            else:
+                if debug_receipt is not None:
+                    print(
+                        json.dumps(
+                            {"debug_workdir": debug_receipt},
+                            ensure_ascii=False,
+                        ),
+                        file=sys.stderr,
+                    )
+    return exit_code
 
 
 if __name__ == "__main__":
