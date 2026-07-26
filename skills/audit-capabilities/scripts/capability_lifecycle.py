@@ -292,7 +292,7 @@ def main() -> int:
         if not isinstance(payload, dict):
             raise LifecycleError("input must be a JSON object")
         result = transition(payload)
-    except (LifecycleError, json.JSONDecodeError, OSError) as error:
+    except (LifecycleError, UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))

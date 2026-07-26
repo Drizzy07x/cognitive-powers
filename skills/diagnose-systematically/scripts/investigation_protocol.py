@@ -199,7 +199,12 @@ def main() -> int:
     try:
         payload = _read_json(args.input)
         result = route(payload) if args.command == "route" else synthesize(payload)
-    except (InvestigationError, json.JSONDecodeError, OSError) as error:
+    except (
+        InvestigationError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        OSError,
+    ) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))

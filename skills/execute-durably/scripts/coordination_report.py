@@ -146,7 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = read_json(args.state)
         events = read_events(args.ledger or args.state.with_name("ledger.jsonl"))
         report = render_report(state, events)
-    except (OSError, json.JSONDecodeError, ReportError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ReportError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2
     print(json.dumps(report, indent=2, ensure_ascii=False))

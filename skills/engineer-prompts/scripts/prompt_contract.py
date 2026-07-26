@@ -119,7 +119,7 @@ def main() -> int:
             )
         else:
             print(render_prompt(contract), end="")
-    except ContractError as error:
+    except (ContractError, UnicodeDecodeError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2
     return 0

@@ -312,7 +312,7 @@ def main() -> int:
         result = (
             preregister(payload) if args.command == "preregister" else evaluate(payload)
         )
-    except (ResearchError, json.JSONDecodeError, OSError) as error:
+    except (ResearchError, UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))

@@ -268,7 +268,7 @@ def main() -> int:
         result = (
             select_angles(payload) if args.command == "select" else synthesize(payload)
         )
-    except (ReviewError, json.JSONDecodeError, OSError) as error:
+    except (ReviewError, UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))

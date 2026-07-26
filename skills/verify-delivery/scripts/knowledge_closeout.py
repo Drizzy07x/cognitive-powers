@@ -140,7 +140,7 @@ def main() -> int:
         if not isinstance(payload, dict):
             raise CloseoutError("input must be a JSON object")
         result = assess(payload)
-    except (CloseoutError, json.JSONDecodeError, OSError) as error:
+    except (CloseoutError, UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))
