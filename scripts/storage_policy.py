@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import unicodedata
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ POLICY_VERSION = 1
 # Bump when the source-identity digest scheme changes. Digests are not
 # comparable across schemes, so consumers must reject an unexpected value
 # instead of reporting a content change.
-SOURCE_IDENTITY_ALGORITHM = "sha256-text-normalized-v2"
+SOURCE_IDENTITY_ALGORITHM = "sha256-text-normalized-v3"
 
 # Component names are matched case-insensitively at every depth. Keep source
 # benchmark definitions ("benchmarks") distinct from generated benchmark output.
@@ -118,8 +119,19 @@ class _CopyEntry:
     size: int
 
 
+def identity_name(value: str) -> str:
+    """Return one spelling of a path component across filesystems.
+
+    macOS stores filenames decomposed while Linux and Windows keep what was
+    written, so a checkout of one commit presents ``café.py`` as different
+    strings per platform. Any ordering or digest built from the raw name is
+    therefore a property of the checkout rather than of the commit.
+    """
+    return unicodedata.normalize("NFC", value)
+
+
 def _normalized_name(value: str) -> str:
-    return value.casefold()
+    return identity_name(value).casefold()
 
 
 def is_excluded_relative(relative: Path | PurePosixPath | str) -> bool:
@@ -150,7 +162,11 @@ def _require_directory(root: Path) -> Path:
 def _iter_directory_files(root: Path, directory: Path) -> Iterator[Path]:
     try:
         entries = sorted(
-            directory.iterdir(), key=lambda item: (item.name.casefold(), item.name)
+            directory.iterdir(),
+            key=lambda item: (
+                _normalized_name(item.name),
+                identity_name(item.name),
+            ),
         )
     except OSError as error:
         raise StoragePolicyError(
@@ -540,7 +556,10 @@ def source_identity(root: Path) -> dict[str, int | str]:
     aggregate = hashlib.sha256()
     count = 0
     for path in iter_tree_files(root):
-        relative = path.relative_to(root).as_posix()
+        # Compose the recorded path for the same reason content is folded to
+        # LF: otherwise the digest describes how this filesystem spells the
+        # name rather than what the commit contains.
+        relative = identity_name(path.relative_to(root).as_posix())
         try:
             file_hash = hashlib.sha256(identity_bytes(path.read_bytes())).hexdigest()
         except OSError as error:

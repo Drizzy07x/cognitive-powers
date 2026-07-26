@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -364,6 +365,75 @@ class StoragePolicyTests(unittest.TestCase):
             ]
 
         self.assertEqual(selected, ["tracked.py"])
+
+
+class SourceIdentityFilenameNormalizationTests(unittest.TestCase):
+    """A filename's Unicode form is a property of the filesystem, not the commit.
+
+    macOS stores names decomposed while Linux and Windows keep what was
+    written, so the same commit presents ``café.py`` as different strings per
+    platform. Line endings were already folded for this reason; the recorded
+    path and the traversal order need the same treatment.
+    """
+
+    def _tree(self, root: Path, form: str) -> None:
+        (root / "pkg").mkdir()
+        for stem in ("café", "ñandú", "plain"):
+            name = unicodedata.normalize(form, f"{stem}.py")
+            (root / "pkg" / name).write_bytes(b"value = 1\n")
+
+    def test_both_filename_forms_share_one_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            composed = base / "composed"
+            decomposed = base / "decomposed"
+            composed.mkdir()
+            decomposed.mkdir()
+            self._tree(composed, "NFC")
+            self._tree(decomposed, "NFD")
+            self.assertEqual(
+                storage_policy.source_identity(composed)["sha256"],
+                storage_policy.source_identity(decomposed)["sha256"],
+            )
+
+    def test_traversal_order_does_not_depend_on_the_form(self) -> None:
+        """Order feeds the digest, so it must not vary with the spelling."""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            composed = base / "composed"
+            decomposed = base / "decomposed"
+            composed.mkdir()
+            decomposed.mkdir()
+            self._tree(composed, "NFC")
+            self._tree(decomposed, "NFD")
+
+            def order(root: Path) -> list[str]:
+                return [
+                    unicodedata.normalize("NFC", path.relative_to(root).as_posix())
+                    for path in storage_policy.iter_tree_files(root)
+                ]
+
+            self.assertEqual(order(composed), order(decomposed))
+
+    def test_a_real_rename_still_changes_the_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            first = base / "first"
+            second = base / "second"
+            first.mkdir()
+            second.mkdir()
+            (first / "a.py").write_bytes(b"value = 1\n")
+            (second / "b.py").write_bytes(b"value = 1\n")
+            self.assertNotEqual(
+                storage_policy.source_identity(first)["sha256"],
+                storage_policy.source_identity(second)["sha256"],
+            )
+
+    def test_the_algorithm_names_the_current_scheme(self) -> None:
+        """Digests are incomparable across schemes, so the name must change."""
+        self.assertEqual(
+            storage_policy.SOURCE_IDENTITY_ALGORITHM, "sha256-text-normalized-v3"
+        )
 
 
 if __name__ == "__main__":

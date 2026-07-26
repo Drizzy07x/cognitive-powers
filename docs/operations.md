@@ -27,9 +27,15 @@ hashed exactly, so Windows, Linux, and macOS agree on the digest for a given
 commit regardless of `core.autocrlf`. Binary detection uses Git's own heuristic:
 a NUL byte anywhere in the content.
 
+Filenames are composed to NFC before they are ordered or hashed, for the same
+reason content is folded to LF. macOS stores names decomposed while Linux and
+Windows keep what was written, so a checkout of one commit spells `café.py`
+differently per platform; without composing, both the traversal order and the
+digest would describe the checkout rather than the commit.
+
 The receipt also carries `source.algorithm`. Digests from different schemes are
 not comparable, so a receipt naming another scheme is rejected rather than
-reported as a content change. The current value is `sha256-text-normalized-v2`.
+reported as a content change. The current value is `sha256-text-normalized-v3`.
 
 Receipts produced before this scheme recorded raw-byte digests and cannot be
 compared against current ones. Re-run the canonical entrypoint to produce a
