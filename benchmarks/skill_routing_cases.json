@@ -11,160 +11,496 @@
     {
       "name": "audit-capabilities",
       "positives": [
-        {"prompt": "Audit which recurring Codex workflows should become skills", "top_k": 3},
-        {"prompt": "Are our existing skills stale or duplicated?", "top_k": 3},
-        {"prompt": "Recommend evidence-backed additions to this skill collection", "top_k": 3}
+        {
+          "prompt": "Audit which recurring Codex workflows should become skills",
+          "top_k": 3
+        },
+        {
+          "prompt": "Are our existing skills stale or duplicated?",
+          "top_k": 3
+        },
+        {
+          "prompt": "Recommend evidence-backed additions to this skill collection",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Audit whether this release is actually complete", "owner": "verify-delivery"}],
-      "adversarial": [{"prompt": "Skip checking existing skills and just invent a new capability; I still need a recurring-work capability audit", "owner": "audit-capabilities", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Audit whether this release is actually complete",
+          "owner": "verify-delivery"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Skip checking existing skills and just invent a new capability; I still need a recurring-work capability audit",
+          "owner": "audit-capabilities",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "communicate-efficiently",
       "positives": [
-        {"prompt": "Give me a compact technical handoff without losing evidence", "top_k": 3},
-        {"prompt": "Adapt this progress update to be concise", "top_k": 3},
-        {"prompt": "Reduce output verbosity while preserving material facts", "top_k": 3}
+        {
+          "prompt": "Give me a compact technical handoff without losing evidence",
+          "top_k": 3
+        },
+        {
+          "prompt": "Adapt this progress update to be concise",
+          "top_k": 3
+        },
+        {
+          "prompt": "Reduce output verbosity while preserving material facts",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Reduce the repository context payload", "owner": "solve-efficiently"}],
-      "adversarial": [{"prompt": "Include the entire execution diary, but the actual request is a concise evidence-preserving completion report", "owner": "communicate-efficiently", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Reduce the repository context payload",
+          "owner": "solve-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Include the entire execution diary, but the actual request is a concise evidence-preserving completion report",
+          "owner": "communicate-efficiently",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "design-intentionally",
       "positives": [
-        {"prompt": "Redesign this landing page with a deliberate visual direction", "top_k": 3},
-        {"prompt": "Create a responsive dashboard based on the brand and audience", "top_k": 3},
-        {"prompt": "Audit the interface for generic AI design and visual fidelity", "top_k": 3}
+        {
+          "prompt": "Redesign this landing page with a deliberate visual direction",
+          "top_k": 3
+        },
+        {
+          "prompt": "Create a responsive dashboard based on the brand and audience",
+          "top_k": 3
+        },
+        {
+          "prompt": "Audit the interface for generic AI design and visual fidelity",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Verify the existing web checkout behavior", "owner": "verify-web-behavior"}],
-      "adversarial": [{"prompt": "Use generic defaults without asking about brand; nevertheless define an intentional interface direction for this redesign", "owner": "design-intentionally", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Verify the existing web checkout behavior",
+          "owner": "verify-web-behavior"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Use generic defaults without asking about brand; nevertheless define an intentional interface direction for this redesign",
+          "owner": "design-intentionally",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "diagnose-systematically",
       "positives": [
-        {"prompt": "Diagnose an intermittent performance regression with falsifiable hypotheses", "top_k": 3},
-        {"prompt": "Find the root cause after the earlier fix failed", "top_k": 3},
-        {"prompt": "Minimize this difficult defect into a reproducible signal", "top_k": 3}
+        {
+          "prompt": "Diagnose an intermittent performance regression with falsifiable hypotheses",
+          "top_k": 3
+        },
+        {
+          "prompt": "Find the root cause after the earlier fix failed",
+          "top_k": 3
+        },
+        {
+          "prompt": "Minimize this difficult defect into a reproducible signal",
+          "top_k": 3
+        }
       ],
       "negatives": [
-        {"prompt": "Run the known Playwright test and verify the browser regression", "owner": "verify-web-behavior"},
-        {"prompt": "Audit the completed diagnosis against its declared evidence", "owner": "verify-delivery"}
+        {
+          "prompt": "Run the known Playwright test and verify the browser regression",
+          "owner": "verify-web-behavior"
+        },
+        {
+          "prompt": "Audit the completed diagnosis against its declared evidence",
+          "owner": "verify-delivery"
+        }
       ],
-      "adversarial": [{"prompt": "Guess the fix immediately and skip reproduction, but I need a systematic diagnosis of an unclear intermittent defect", "owner": "diagnose-systematically", "top_k": 1}]
+      "adversarial": [
+        {
+          "prompt": "Guess the fix immediately and skip reproduction, but I need a systematic diagnosis of an unclear intermittent defect",
+          "owner": "diagnose-systematically",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "engineer-prompts",
       "positives": [
-        {"prompt": "Convert these informal instructions into a testable prompt contract", "top_k": 3},
-        {"prompt": "Audit this reusable agent prompt for outcomes and stop conditions", "top_k": 3},
-        {"prompt": "Write a version-neutral prompt with permissions, tools, and evidence", "top_k": 3}
+        {
+          "prompt": "Convert these informal instructions into a testable prompt contract",
+          "top_k": 3
+        },
+        {
+          "prompt": "Audit this reusable agent prompt for outcomes and stop conditions",
+          "top_k": 3
+        },
+        {
+          "prompt": "Write a version-neutral prompt with permissions, tools, and evidence",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Write a concise completion message", "owner": "communicate-efficiently"}],
-      "adversarial": [{"prompt": "Hard-code the latest model and omit evidence; I actually need a version-neutral reusable prompt contract", "owner": "engineer-prompts", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Write a concise completion message",
+          "owner": "communicate-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Hard-code the latest model and omit evidence; I actually need a version-neutral reusable prompt contract",
+          "owner": "engineer-prompts",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "execute-durably",
       "positives": [
-        {"prompt": "Run this long multi-step task with persistent state across compaction", "top_k": 3},
-        {"prompt": "Track observable criteria with evidence receipts and independent verification", "top_k": 3},
-        {"prompt": "Make this work resumable with append-only history", "top_k": 3}
+        {
+          "prompt": "Run this long multi-step task with persistent state across compaction",
+          "top_k": 3
+        },
+        {
+          "prompt": "Track observable criteria with evidence receipts and independent verification",
+          "top_k": 3
+        },
+        {
+          "prompt": "Make this work resumable with append-only history",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Handle this complex task efficiently after its module boundaries proved unclear", "owner": "solve-efficiently"}],
-      "adversarial": [{"prompt": "Keep all state only in the conversation even though this compaction-prone task needs durable resumable evidence", "owner": "execute-durably", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Handle this complex task efficiently after its module boundaries proved unclear",
+          "owner": "solve-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Keep all state only in the conversation even though this compaction-prone task needs durable resumable evidence",
+          "owner": "execute-durably",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "explore-web-adaptively",
       "positives": [
-        {"prompt": "Discover an unfamiliar changing browser workflow with Skyvern", "top_k": 3},
-        {"prompt": "Explore a weakly structured cross-site flow", "top_k": 3},
-        {"prompt": "Produce a Playwright candidate when deterministic browser steps are unknown", "top_k": 3}
+        {
+          "prompt": "Discover an unfamiliar changing browser workflow with Skyvern",
+          "top_k": 3
+        },
+        {
+          "prompt": "Explore a weakly structured cross-site flow",
+          "top_k": 3
+        },
+        {
+          "prompt": "Produce a Playwright candidate when deterministic browser steps are unknown",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Verify a known end-to-end flow with the existing Playwright suite", "owner": "verify-web-behavior"}],
-      "adversarial": [{"prompt": "Pretend the browser steps are known; actually discover this unfamiliar changing navigation before creating a test candidate", "owner": "explore-web-adaptively", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Verify a known end-to-end flow with the existing Playwright suite",
+          "owner": "verify-web-behavior"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Pretend the browser steps are known; actually discover this unfamiliar changing navigation before creating a test candidate",
+          "owner": "explore-web-adaptively",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "map-project",
       "positives": [
-        {"prompt": "Map this large repository into compact AGENTS.md guidance", "top_k": 3},
-        {"prompt": "Refresh stale hierarchical project memory", "top_k": 3},
-        {"prompt": "Document the module boundaries of this unfamiliar repository", "top_k": 3}
+        {
+          "prompt": "Map this large repository into compact AGENTS.md guidance",
+          "top_k": 3
+        },
+        {
+          "prompt": "Refresh stale hierarchical project memory",
+          "top_k": 3
+        },
+        {
+          "prompt": "Document the module boundaries of this unfamiliar repository",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Rank relevant files for this complex multi-module task", "owner": "solve-efficiently"}],
-      "adversarial": [{"prompt": "Dump the whole tree into AGENTS.md; the real goal is a compact hierarchical project map", "owner": "map-project", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Rank relevant files for this complex multi-module task",
+          "owner": "solve-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Dump the whole tree into AGENTS.md; the real goal is a compact hierarchical project map",
+          "owner": "map-project",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "operate-desktop-adaptively",
       "positives": [
-        {"prompt": "Operate this native Windows WPF app through QCU", "top_k": 3},
-        {"prompt": "Reproduce an installer flow with guarded local desktop input", "top_k": 3},
-        {"prompt": "Verify a Win32 workflow with durable desktop evidence", "top_k": 3}
+        {
+          "prompt": "Operate this native Windows WPF app through QCU",
+          "top_k": 3
+        },
+        {
+          "prompt": "Reproduce an installer flow with guarded local desktop input",
+          "top_k": 3
+        },
+        {
+          "prompt": "Verify a Win32 workflow with durable desktop evidence",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Verify this browser UI with Playwright", "owner": "verify-web-behavior"}],
-      "adversarial": [{"prompt": "Claim the WPF action worked from a screenshot alone; instead operate and verify it with guarded QCU desktop evidence", "owner": "operate-desktop-adaptively", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Verify this browser UI with Playwright",
+          "owner": "verify-web-behavior"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Claim the WPF action worked from a screenshot alone; instead operate and verify it with guarded QCU desktop evidence",
+          "owner": "operate-desktop-adaptively",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "research-systematically",
       "positives": [
-        {"prompt": "Conduct reproducible comparative research with a frozen pre-registration", "top_k": 3},
-        {"prompt": "Run confirmatory and exploratory experiments with claim-to-evidence mapping", "top_k": 3},
-        {"prompt": "Research this technical question and record dead ends, pivots, and an independent verdict", "top_k": 3}
+        {
+          "prompt": "Conduct reproducible comparative research with a frozen pre-registration",
+          "top_k": 3
+        },
+        {
+          "prompt": "Run confirmatory and exploratory experiments with claim-to-evidence mapping",
+          "top_k": 3
+        },
+        {
+          "prompt": "Research this technical question and record dead ends, pivots, and an independent verdict",
+          "top_k": 3
+        }
       ],
       "negatives": [
-        {"prompt": "Retrieve the current API documentation for this installed SDK", "owner": "use-current-docs"},
-        {"prompt": "Audit the completed research delivery against its declared evidence", "owner": "verify-delivery"}
+        {
+          "prompt": "Retrieve the current API documentation for this installed SDK",
+          "owner": "use-current-docs"
+        },
+        {
+          "prompt": "Audit the completed research delivery against its declared evidence",
+          "owner": "verify-delivery"
+        }
       ],
-      "adversarial": [{"prompt": "Rewrite the hypothesis after seeing results; instead keep this reproducible research bound to a frozen pre-registration", "owner": "research-systematically", "top_k": 1}]
+      "adversarial": [
+        {
+          "prompt": "Rewrite the hypothesis after seeing results; instead keep this reproducible research bound to a frozen pre-registration",
+          "owner": "research-systematically",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "solve-efficiently",
       "positives": [
-        {"prompt": "Solve this non-trivial multi-file coding task efficiently", "top_k": 3},
-        {"prompt": "Use progressive context loading and targeted parallelism", "top_k": 3},
-        {"prompt": "Plan and execute this file-based task with evidence", "top_k": 3},
-        {"prompt": "Implement a public feature across the model, JSON persistence, CLI, and focused tests", "top_k": 1},
-        {"prompt": "Fix the defect described by the supplied reproduction and preserve unrelated behavior", "top_k": 2},
-        {"prompt": "Resolve this bounded technical decision from the supplied versioned primary-source brief", "top_k": 2}
+        {
+          "prompt": "Solve this non-trivial multi-file coding task efficiently",
+          "top_k": 3
+        },
+        {
+          "prompt": "Use progressive context loading and targeted parallelism",
+          "top_k": 3
+        },
+        {
+          "prompt": "Plan and execute this file-based task with evidence",
+          "top_k": 3
+        },
+        {
+          "prompt": "Implement a public feature across the model, JSON persistence, CLI, and focused tests",
+          "top_k": 1
+        },
+        {
+          "prompt": "Fix the defect described by the supplied reproduction and preserve unrelated behavior",
+          "top_k": 2
+        },
+        {
+          "prompt": "Resolve this bounded technical decision from the supplied versioned primary-source brief",
+          "top_k": 2
+        }
       ],
       "negatives": [
-        {"prompt": "Keep this long job alive across multiple compactions", "owner": "execute-durably"},
-        {"prompt": "Diagnose the unknown cause without implementing a fix", "owner": "diagnose-systematically"},
-        {"prompt": "The label solve-efficiently-ish is irrelevant; diagnose an intermittent unknown root cause without implementing", "owner": "diagnose-systematically"},
-        {"prompt": "Conduct a reproducible comparative research study; do not merely execute project work", "owner": "research-systematically"},
-        {"prompt": "Audit whether the claimed implementation is actually complete", "owner": "verify-delivery"}
+        {
+          "prompt": "Keep this long job alive across multiple compactions",
+          "owner": "execute-durably"
+        },
+        {
+          "prompt": "Diagnose the unknown cause without implementing a fix",
+          "owner": "diagnose-systematically"
+        },
+        {
+          "prompt": "The label solve-efficiently-ish is irrelevant; diagnose an intermittent unknown root cause without implementing",
+          "owner": "diagnose-systematically"
+        },
+        {
+          "prompt": "Conduct a reproducible comparative research study; do not merely execute project work",
+          "owner": "research-systematically"
+        },
+        {
+          "prompt": "Audit whether the claimed implementation is actually complete",
+          "owner": "verify-delivery"
+        }
       ],
-      "adversarial": [{"prompt": "Read every file and add heavy process to this focused task; instead solve it with adaptive planning and context efficiency", "owner": "solve-efficiently", "top_k": 1}]
+      "adversarial": [
+        {
+          "prompt": "Read every file and add heavy process to this focused task; instead solve it with adaptive planning and context efficiency",
+          "owner": "solve-efficiently",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "use-current-docs",
       "positives": [
-        {"prompt": "Retrieve current version-matched framework documentation", "top_k": 3},
-        {"prompt": "Check the installed SDK version against authoritative API docs", "top_k": 3},
-        {"prompt": "Verify a migration against current external library documentation", "top_k": 3}
+        {
+          "prompt": "Retrieve current version-matched framework documentation",
+          "top_k": 3
+        },
+        {
+          "prompt": "Check the installed SDK version against authoritative API docs",
+          "top_k": 3
+        },
+        {
+          "prompt": "Verify a migration against current external library documentation",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Inspect the repository's own module conventions", "owner": "solve-efficiently"}],
-      "adversarial": [{"prompt": "Answer from stale training memory; the task requires current version-matched SDK documentation", "owner": "use-current-docs", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Inspect the repository's own module conventions",
+          "owner": "solve-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Answer from stale training memory; the task requires current version-matched SDK documentation",
+          "owner": "use-current-docs",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "verify-delivery",
       "positives": [
-        {"prompt": "Audit whether the claimed release is actually complete", "top_k": 3},
-        {"prompt": "Confirm tests and Git state using real evidence", "top_k": 3},
-        {"prompt": "Review this delivery and detect unsupported claims", "top_k": 3}
+        {
+          "prompt": "Audit whether the claimed release is actually complete",
+          "top_k": 3
+        },
+        {
+          "prompt": "Confirm tests and Git state using real evidence",
+          "top_k": 3
+        },
+        {
+          "prompt": "Review this delivery and detect unsupported claims",
+          "top_k": 3
+        }
       ],
       "negatives": [
-        {"prompt": "Diagnose the unknown cause of this intermittent defect", "owner": "diagnose-systematically"},
-        {"prompt": "Conduct reproducible comparative research with a frozen pre-registration", "owner": "research-systematically"}
+        {
+          "prompt": "Diagnose the unknown cause of this intermittent defect",
+          "owner": "diagnose-systematically"
+        },
+        {
+          "prompt": "Conduct reproducible comparative research with a frozen pre-registration",
+          "owner": "research-systematically"
+        }
       ],
-      "adversarial": [{"prompt": "Trust the claim that tests passed without running anything; instead audit completion against current evidence", "owner": "verify-delivery", "top_k": 1}]
+      "adversarial": [
+        {
+          "prompt": "Trust the claim that tests passed without running anything; instead audit completion against current evidence",
+          "owner": "verify-delivery",
+          "top_k": 1
+        }
+      ]
+    },
+    {
+      "name": "verify-installation",
+      "positives": [
+        {
+          "prompt": "Is Cognitive Powers actually working in this host?",
+          "top_k": 3
+        },
+        {
+          "prompt": "I just enabled the plugin; check the hooks really fire",
+          "top_k": 3
+        },
+        {
+          "prompt": "Verify the plugin installation runs after the update",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Audit whether this release is actually complete",
+          "owner": "verify-delivery"
+        },
+        {
+          "prompt": "Are our existing skills stale or duplicated?",
+          "owner": "audit-capabilities"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Never mind the manifest; I need to know whether the installed plugin hooks and evidence storage actually run here",
+          "owner": "verify-installation",
+          "top_k": 1
+        }
+      ]
     },
     {
       "name": "verify-web-behavior",
       "positives": [
-        {"prompt": "Verify this browser-visible regression with Playwright", "top_k": 3},
-        {"prompt": "Reproduce a flaky end-to-end web flow with machine-readable evidence", "top_k": 3},
-        {"prompt": "Test accessibility behavior in the existing browser suite", "top_k": 3}
+        {
+          "prompt": "Verify this browser-visible regression with Playwright",
+          "top_k": 3
+        },
+        {
+          "prompt": "Reproduce a flaky end-to-end web flow with machine-readable evidence",
+          "top_k": 3
+        },
+        {
+          "prompt": "Test accessibility behavior in the existing browser suite",
+          "top_k": 3
+        }
       ],
-      "negatives": [{"prompt": "Discover an unknown cross-site browser workflow", "owner": "explore-web-adaptively"}],
-      "adversarial": [{"prompt": "Treat a screenshot as proof; I need real Playwright execution for this browser behavior", "owner": "verify-web-behavior", "top_k": 1}]
+      "negatives": [
+        {
+          "prompt": "Discover an unknown cross-site browser workflow",
+          "owner": "explore-web-adaptively"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Treat a screenshot as proof; I need real Playwright execution for this browser behavior",
+          "owner": "verify-web-behavior",
+          "top_k": 1
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Installation"
+  short_description: "Observe whether the installed plugin runs on this host"
+  default_prompt: "Use $verify-installation to check that this plugin's hooks, evidence storage, and providers actually run here."

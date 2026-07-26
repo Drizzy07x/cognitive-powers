@@ -19,7 +19,8 @@ Internal workflow catalog: `../../skills/audit-capabilities/SKILL.md`,
 `../../skills/research-systematically/SKILL.md`,
 `../../skills/solve-efficiently/SKILL.md`,
 `../../skills/use-current-docs/SKILL.md`,
-`../../skills/verify-delivery/SKILL.md`, and
+`../../skills/verify-delivery/SKILL.md`,
+`../../skills/verify-installation/SKILL.md`, and
 `../../skills/verify-web-behavior/SKILL.md`.
 
 ## Locate plugin files

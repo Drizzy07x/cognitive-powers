@@ -68,7 +68,7 @@ assignment's exact declared check. A write that legitimately changes nothing
 uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
 and a successful required check; an empty `completed` write is rejected.
 
-The two hosts reach the other eleven specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all fourteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
+The two hosts reach the other twelve specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all fifteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
 
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
@@ -200,7 +200,7 @@ every platform. On Windows, `python3` resolves to the Microsoft Store alias in
 Hooks are invoked in exec form, so this path is passed as an argument vector and
 is never expanded by a shell.
 
-Claude may load any of the fourteen workflows when its trigger contract matches,
+Claude may load any of the fifteen workflows when its trigger contract matches,
 and every one of them stays directly invocable as `/solve-efficiently`,
 `/map-project`, `/verify-web-behavior`, and so on. Only the listing text, a
 description plus `when_to_use` per skill, is held in context; a workflow body
@@ -209,6 +209,15 @@ loads when it is used.
 The plugin's three agent roles register under plugin-scoped names such as
 `cognitive-powers:verifier`. The verifier declares a read-only tool set, so the
 host enforces the independence contract instead of merely stating it.
+
+To find out whether an installed copy actually runs on your host rather than
+merely being packaged correctly, invoke `/verify-installation`. It executes the
+interpreter, both hooks, the shared evidence root, and a durable receipt round
+trip, reports optional providers honestly, and asks the model to add the two
+facts no script can see from outside the host: which of these skills appear in
+its own listing, and whether the agent roles registered. `scripts/doctor.py`
+remains the packaging diagnostic; it describes declarations on disk and never
+claims anything ran.
 
 A `SessionStart` hook refreshes the optional semantic index when Graphify is
 already installed and the working directory is a checkout, so navigation reads

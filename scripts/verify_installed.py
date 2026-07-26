@@ -175,7 +175,7 @@ def _claude_surface(installed_root: Path, version: str) -> dict[str, Any]:
             # skills delegate to the specialized ones by name, and Claude Code
             # cannot invoke a skill it was never shown.
             and automatic == installed_skills
-            and len(installed_skills) == 14
+            and len(installed_skills) == 15
         ),
         "host": "claude-code",
         "exposedSkills": automatic,

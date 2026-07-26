@@ -41,6 +41,7 @@ SPECIALIZED_SKILLS = {
     "operate-desktop-adaptively",
     "research-systematically",
     "use-current-docs",
+    "verify-installation",
     "verify-web-behavior",
 }
 # Claude Code truncates description plus when_to_use in the skill listing.
@@ -447,7 +448,7 @@ class ClaudeVerifyInstalledTests(unittest.TestCase):
             sorted(surface["exposedSkills"]),
             sorted(CORE_SKILLS | SPECIALIZED_SKILLS),
         )
-        self.assertEqual(len(surface["internalWorkflows"]), 14)
+        self.assertEqual(len(surface["internalWorkflows"]), 15)
 
     def test_surface_fails_closed_on_version_drift(self) -> None:
         surface = self.module._claude_surface(PLUGIN_ROOT, "0.0.0")
