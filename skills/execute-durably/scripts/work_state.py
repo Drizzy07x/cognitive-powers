@@ -58,6 +58,7 @@ WorkStateError = _DURABILITY_CORE.WorkStateError
 EvidenceStaleError = _DURABILITY_CORE.EvidenceStaleError
 utc_now = _DURABILITY_CORE.utc_now
 sanitize_identifier = _DURABILITY_CORE.sanitize_identifier
+canonical_session_name = _DURABILITY_CORE.canonical_session_name
 resolve_root = _DURABILITY_CORE.resolve_root
 resolve_data_root = _DURABILITY_CORE.resolve_data_root
 project_key = _DURABILITY_CORE.project_key
@@ -980,7 +981,9 @@ def initialize(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         raise WorkStateError("at least one non-empty criterion is required")
     if len(set(criteria)) != len(criteria):
         raise WorkStateError("criteria must be unique")
-    session_dir = session_directory(root, data_root, session_id)
+    # Pass the caller's own name: the collision guard compares against what
+    # was stored, not against the folded identifier.
+    session_dir = session_directory(root, data_root, args.session)
     with session_lock(session_dir):
         if _state_path(session_dir).exists() or (session_dir / "brief.md").exists():
             raise WorkStateError(
@@ -990,6 +993,10 @@ def initialize(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         state: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "session_id": session_id,
+            # The caller's name before identifier folding. Several distinct
+            # names reduce to one session_id, so this is what later requests
+            # are checked against.
+            "session_name": canonical_session_name(args.session),
             "project_key": project_key(root),
             "workspace_root": str(root),
             "objective": objective,

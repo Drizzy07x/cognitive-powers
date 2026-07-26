@@ -162,18 +162,54 @@ def _is_within(path: Path, directory: Path) -> bool:
         return False
 
 
+def canonical_session_name(value: str) -> str:
+    """Return the caller's session name as stored, before identifier folding."""
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def _assert_session_name(directory: Path, requested: str) -> None:
+    """Refuse a name that merely collides with the stored session.
+
+    ``sanitize_identifier`` is deliberately lossy, so distinct names share one
+    directory: ``release/alpha``, ``release alpha`` and ``release:alpha`` all
+    reduce to ``release-alpha``, as do any two names sharing an 80-character
+    prefix. Without this check the caller silently reads, and then mutates,
+    another session's durable state.
+
+    Sessions written before this field existed carry no stored name; those are
+    accepted unchanged rather than being made unreadable.
+    """
+    try:
+        stored = json.loads((directory / "state.json").read_text(encoding="utf-8")).get(
+            "session_name"
+        )
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return
+    if not isinstance(stored, str):
+        return
+    canonical = canonical_session_name(requested)
+    if stored != canonical:
+        raise WorkStateError(
+            f"session {canonical!r} collides with the stored session {stored!r}: "
+            "both reduce to the same identifier, so this request would act on "
+            "the wrong session"
+        )
+
+
 def session_directory(root: Path, data_root: Path, session_id: str) -> Path:
     if _is_within(data_root, root):
         raise WorkStateError(
             f"durable data root must be outside the workspace: {data_root}"
         )
-    return (
+    directory = (
         data_root
         / "projects"
         / project_key(root)
         / "sessions"
         / sanitize_identifier(session_id, "session")
     )
+    _assert_session_name(directory, session_id)
+    return directory
 
 
 def _sha256_file(path: Path) -> str:

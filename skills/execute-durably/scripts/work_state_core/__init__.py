@@ -21,6 +21,7 @@ EXPORTS = [
     "EvidenceStaleError",
     "utc_now",
     "sanitize_identifier",
+    "canonical_session_name",
     "resolve_root",
     "resolve_data_root",
     "project_key",

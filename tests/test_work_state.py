@@ -2559,6 +2559,91 @@ class ActorIdentityTests(unittest.TestCase):
         self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
 
 
+class SessionNameCollisionTests(unittest.TestCase):
+    """Distinct session names must not silently share one durable session.
+
+    ``sanitize_identifier`` is deliberately lossy, so ``release/alpha``,
+    ``release alpha`` and ``release:alpha`` all reduce to ``release-alpha``, as
+    do any two names sharing an 80-character prefix. Reading another session's
+    state and then mutating it would defeat the point of durable resumption.
+    """
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary_directory.name)
+        self.workspace = self.base / "workspace"
+        self.data_root = self.base / "durable-data"
+        self.workspace.mkdir()
+        (self.workspace / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+        self.addCleanup(self.temporary_directory.cleanup)
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--root",
+                str(self.workspace),
+                "--data-root",
+                str(self.data_root),
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _init(self, session: str) -> subprocess.CompletedProcess[str]:
+        return self.cli(
+            "init",
+            "--session",
+            session,
+            "--objective",
+            f"work for {session}",
+            "--criterion",
+            "c1 holds",
+        )
+
+    def test_a_colliding_name_cannot_read_another_session(self) -> None:
+        self.assertEqual(self._init("release/alpha").returncode, 0)
+        for other in ("release alpha", "release:alpha", "release+alpha"):
+            with self.subTest(session=other):
+                status = self.cli("status", "--session", other, "--json")
+                self.assertNotEqual(status.returncode, 0)
+                self.assertIn("collides", status.stdout + status.stderr)
+
+    def test_a_colliding_name_cannot_initialize_over_another_session(self) -> None:
+        self.assertEqual(self._init("release/alpha").returncode, 0)
+        second = self._init("release alpha")
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("collides", second.stdout + second.stderr)
+
+    def test_the_stored_session_stays_reachable_by_its_own_name(self) -> None:
+        self.assertEqual(self._init("release/alpha").returncode, 0)
+        status = self.cli("status", "--session", "release/alpha", "--json")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        self.assertEqual(
+            json.loads(status.stdout)["objective"], "work for release/alpha"
+        )
+
+    def test_names_sharing_a_long_prefix_are_distinguished(self) -> None:
+        prefix = "release-" + "x" * 75
+        self.assertEqual(self._init(prefix + "-alpha").returncode, 0)
+        collided = self.cli("status", "--session", prefix + "-beta", "--json")
+        self.assertNotEqual(collided.returncode, 0)
+        self.assertIn("collides", collided.stdout + collided.stderr)
+
+    def test_a_session_written_before_the_field_existed_still_opens(self) -> None:
+        """Older sessions carry no stored name and must not become unreadable."""
+        self.assertEqual(self._init("legacy").returncode, 0)
+        state_path = next(self.data_root.glob("projects/*/sessions/legacy/state.json"))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["session_name"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        status = self.cli("status", "--session", "legacy", "--json")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+
+
 class OwnedPathFoldingTests(unittest.TestCase):
     def test_composed_and_decomposed_owned_paths_overlap(self) -> None:
         """macOS resolves both spellings to one file, so both name one owner."""
