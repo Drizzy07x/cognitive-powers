@@ -54,6 +54,11 @@ def make_installable_fixture(parent: Path) -> Path:
         json.dumps({"hooks": {"Stop": []}}), encoding="utf-8"
     )
     (root / "hooks" / "selective_hooks.py").write_text("", encoding="utf-8")
+    # Declared by the Claude manifest's SessionStart hook, and resolved at
+    # runtime by two skill scripts, so the package must carry both.
+    (root / "hooks" / "semantic_index.py").write_text("", encoding="utf-8")
+    (root / "scripts" / "provider_usage.py").write_text("", encoding="utf-8")
+    (root / "scripts" / "skill_frontmatter.py").write_text("", encoding="utf-8")
     (root / "scripts" / "doctor.py").write_text(
         MODULE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
     )

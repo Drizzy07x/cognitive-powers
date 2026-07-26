@@ -127,13 +127,6 @@ def assess_output(case: dict[str, Any], output: str) -> dict[str, Any]:
     return result
 
 
-def _usage_int(usage: dict[str, Any], key: str) -> int:
-    value = usage.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ContractError(f"usage.{key} must be a non-negative integer")
-    return value
-
-
 def _provider_usage():
     """Load the shared conversion from the plugin root."""
     path = Path(__file__).resolve().parents[3] / "scripts" / "provider_usage.py"

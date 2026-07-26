@@ -18,6 +18,12 @@ Review follow-ups, all against defects introduced earlier in this release:
 - Limited the session-start refresh to an index that already exists, and skipped it when Git reports the worktree unchanged. It was creating a generated tree in any checkout opened and re-extracting an untouched repository on every start.
 - Decoded subprocess output as UTF-8 and rejected a non-finite timeout, both of which could raise out of a hook documented never to raise.
 - Made the self-check exercise the Claude-shaped `Stop` output and the real refresh path; both assertions passed by construction before.
+- Inventoried Claude Code slash commands in the capability audit. `.claude/commands` was added as a location but the walk globbed only `*/SKILL.md`, and a command is a bare `<name>.md`, so the location contributed nothing and installed capabilities still read as missing.
+- Refused a boolean schema version in `select_intensity`, which the equivalent guard in `select_agent_plan` already rejected, and refused a float, since `2.0` hashes equal to `2` and a version is not a measurement.
+- Read skill frontmatter through one implementation in the two release gates that are checked against each other. The second parser could not read a quoted or spaced value the first accepts, so they could disagree about whether a skill is routable.
+- Resolved optional providers in the self-check the way the skills that use them resolve them, instead of probing a single executable name. A machine with `ctx7` or `pnpm` but no `npx` was reported as missing documentation support that in fact works.
+- Guarded the two runtime files added this release in the staged-package checks, so a packaging change that dropped either fails the diagnostic rather than a later receipt.
+- Removed the now-dead usage validator left behind when the conversion moved to the shared module.
 
 - Added a second host surface for Claude Code from the same source tree: a `.claude-plugin/plugin.json` manifest, a marketplace entry, plugin-root agent definitions, and a hook configuration that keeps the existing Codex packaging unchanged.
 - Declared the hook interpreter as a required `userConfig` file value and invoked it through exec form, because no interpreter name resolves correctly on every platform; on Windows the `python3` alias resolves to a Microsoft Store stub that exits without running Python.

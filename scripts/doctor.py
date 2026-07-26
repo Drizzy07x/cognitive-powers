@@ -43,6 +43,12 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
     )
 
 
+try:
+    from scripts import skill_frontmatter as _FRONTMATTER
+except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
+    import skill_frontmatter as _FRONTMATTER
+
+
 SOURCE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 PACKAGE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 HOST_METADATA_FILES = set(EXCLUDED_FILE_NAMES)
@@ -466,6 +472,23 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
             "passed": (staged / "scripts" / "orchestration_policy.py").is_file(),
         },
         {
+            # Two skill scripts resolve this by absolute path at runtime, so a
+            # packaging change that dropped it would only surface when a
+            # receipt is written.
+            "name": "provider-usage-runtime",
+            "passed": (staged / "scripts" / "provider_usage.py").is_file(),
+        },
+        {
+            # Loaded by both release gates so they read frontmatter alike.
+            "name": "skill-frontmatter-runtime",
+            "passed": (staged / "scripts" / "skill_frontmatter.py").is_file(),
+        },
+        {
+            # Declared by the Claude manifest's SessionStart hook.
+            "name": "semantic-index-hook",
+            "passed": (staged / "hooks" / "semantic_index.py").is_file(),
+        },
+        {
             "name": "orchestration-wrapper",
             "passed": (
                 staged
@@ -669,27 +692,12 @@ def validate_release_installation(
 
 def _skill_frontmatter(path: Path) -> dict[str, str]:
     """Read flat scalar frontmatter keys without importing a YAML parser."""
-    fields: dict[str, str] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").split("\n")
-    except OSError:
-        return fields
-    if not lines or lines[0].strip() != "---":
-        return fields
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        match = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$", line)
-        if match:
-            fields[match.group(1)] = match.group(2).strip()
-    return fields
+    return _FRONTMATTER.read(path)
 
 
 def _is_truthy(value: str | None) -> bool:
     """Match every boolean spelling Claude Code accepts in frontmatter."""
-    if value is None:
-        return False
-    return value.strip().strip("\"'").lower() in {"true", "yes", "on", "1"}
+    return _FRONTMATTER.is_truthy(value)
 
 
 def _unroutable_referenced_skills(root: Path, manual: set[str]) -> list[str]:

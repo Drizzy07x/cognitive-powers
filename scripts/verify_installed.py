@@ -4,11 +4,29 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
-import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Sequence
+
+
+def _load_frontmatter_reader():
+    """Load the reader shared with the sibling release gate.
+
+    Dependency-free and loaded by path, so this script keeps working when it is
+    executed standalone from a staged package.
+    """
+    path = Path(__file__).resolve().with_name("skill_frontmatter.py")
+    spec = importlib.util.spec_from_file_location("cp_skill_frontmatter", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load the shared frontmatter reader: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_FRONTMATTER = _load_frontmatter_reader()
 
 EXIT_IDENTITY = 10
 EXIT_CONTENT = 11
@@ -115,32 +133,20 @@ def _json_command(run: Run, argv: list[str]) -> Any:
 
 
 def _model_invocable_skills(installed_root: Path) -> list[str]:
-    """Return installed skills Claude Code may load automatically."""
+    """Return installed skills Claude Code may load automatically.
+
+    The reader and the truthy test are shared with ``doctor.py`` on purpose.
+    These two scripts are release gates checked against each other, and a
+    second parser here diverged from that one: its ``(\\S+)`` capture could not
+    read a quoted or spaced value the other accepts, so one would report a
+    skill routable while the other called it an error.
+    """
     automatic: list[str] = []
     for skill in sorted((installed_root / "skills").glob("*/SKILL.md")):
-        try:
-            lines = skill.read_text(encoding="utf-8").split("\n")
-        except OSError:
+        fields = _FRONTMATTER.read(skill)
+        if not fields:
             continue
-        if not lines or lines[0].strip() != "---":
-            continue
-        disabled = False
-        for line in lines[1:]:
-            if line.strip() == "---":
-                break
-            match = re.match(r"^disable-model-invocation:\s*(\S+)\s*$", line)
-            # Claude Code accepts yes/on/1 as well as true, in any case. Read
-            # every truthy spelling, so a skill can never be reported routable
-            # while the host refuses to route to it.
-            if match and match.group(1).strip("\"'").lower() in {
-                "true",
-                "yes",
-                "on",
-                "1",
-            }:
-                disabled = True
-                break
-        if not disabled:
+        if not _FRONTMATTER.is_truthy(fields.get("disable-model-invocation")):
             automatic.append(skill.parent.name)
     return automatic
 

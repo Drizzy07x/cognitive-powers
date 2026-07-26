@@ -223,5 +223,46 @@ class CapabilityAuditTests(unittest.TestCase):
         self.assertEqual(report["recommendations"][0]["id"], "release-check")
 
 
+class CapabilityInventoryTests(unittest.TestCase):
+    """Both installed layouts count as existing coverage.
+
+    A skill is a directory holding SKILL.md; a Claude Code slash command is a
+    bare <name>.md. Globbing only for SKILL.md made every command location
+    contribute nothing, so already-installed capabilities read as missing.
+    """
+
+    def test_slash_commands_are_inventoried_alongside_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands = root / ".claude" / "commands"
+            commands.mkdir(parents=True)
+            (commands / "deploy.md").write_text(
+                "---\nname: deploy\ndescription: ship it\n---\n\nbody\n",
+                encoding="utf-8",
+            )
+            (commands / "review").mkdir()
+            (commands / "review" / "security.md").write_text(
+                "---\nname: security\ndescription: audit\n---\n\nbody\n",
+                encoding="utf-8",
+            )
+            skill = root / ".claude" / "skills" / "probe"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: probe\ndescription: look\n---\n\nbody\n",
+                encoding="utf-8",
+            )
+            found = {entry["name"] for entry in auditor.inventory_skills(root)}
+        self.assertEqual(found, {"deploy", "security", "probe"})
+
+    def test_a_command_without_frontmatter_still_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands = root / ".claude" / "commands"
+            commands.mkdir(parents=True)
+            (commands / "commit.md").write_text("Commit the work.\n", encoding="utf-8")
+            found = {entry["name"] for entry in auditor.inventory_skills(root)}
+        self.assertEqual(found, {"commit"})
+
+
 if __name__ == "__main__":
     unittest.main()

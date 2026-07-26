@@ -1500,6 +1500,17 @@ class HostileInputTests(unittest.TestCase):
         with self.assertRaises(policy.OrchestrationError):
             policy.select_intensity(signals(request_mode=[]))
 
+    def test_intensity_selection_refuses_a_boolean_schema_version(self) -> None:
+        """The guard in select_agent_plan left this adjacent one open."""
+        with self.assertRaises(policy.OrchestrationError):
+            policy.select_intensity(signals(schema_version=True))
+
+    def test_a_float_is_not_a_schema_version(self) -> None:
+        """2.0 hashes equal to 2; a version is not a measurement."""
+        plan = policy.select_agent_plan(agent_signals_v2(schema_version=2.0))
+        self.assertEqual(plan["mode"], "solo")
+        self.assertFalse(plan["valid_input"])
+
     def test_the_cli_reports_bad_input_instead_of_a_traceback(self) -> None:
         payload = json.dumps(agent_signals_v2(authorization=[]))
         completed = subprocess.run(

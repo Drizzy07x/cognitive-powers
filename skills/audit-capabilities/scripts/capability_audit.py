@@ -62,15 +62,34 @@ def _frontmatter(path: Path) -> dict[str, str]:
     return metadata
 
 
+def _capability_files(base: Path) -> list[Path]:
+    """Return the capability definitions under one location, either layout.
+
+    A skill is a directory holding ``SKILL.md``; a Claude Code slash command is
+    a bare ``<name>.md``, optionally inside a namespace directory. Globbing only
+    for ``SKILL.md`` finds none of the latter, so a command location contributes
+    nothing and its capabilities read as missing.
+    """
+    files = list(base.glob("*/SKILL.md"))
+    files.extend(path for path in base.glob("*.md"))
+    files.extend(path for path in base.glob("*/*.md") if path.name != "SKILL.md")
+    return sorted(dict.fromkeys(files))
+
+
 def inventory_skills(root: Path) -> list[dict[str, str]]:
     found: dict[str, dict[str, str]] = {}
     for location in SKILL_LOCATIONS:
         base = root / location
         if not base.is_dir():
             continue
-        for skill_file in sorted(base.glob("*/SKILL.md")):
+        for skill_file in _capability_files(base):
             metadata = _frontmatter(skill_file)
-            name = metadata.get("name", skill_file.parent.name)
+            default = (
+                skill_file.parent.name
+                if skill_file.name == "SKILL.md"
+                else skill_file.stem
+            )
+            name = metadata.get("name", default)
             found.setdefault(
                 name,
                 {

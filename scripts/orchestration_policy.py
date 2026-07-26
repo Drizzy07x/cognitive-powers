@@ -43,9 +43,11 @@ def _member(value: object, allowed: Any) -> bool:
     never crash the caller.
 
     Booleans are refused outright: Python treats ``True`` as ``1``, so an enum
-    of integers would otherwise accept ``True`` as schema version 1.
+    of integers would otherwise accept ``True`` as schema version 1. Floats are
+    refused for the same reason, since ``2.0 == 2`` hashes equal and a version
+    is not a measurement.
     """
-    if isinstance(value, bool):
+    if isinstance(value, bool) or isinstance(value, float):
         return False
     try:
         return value in allowed
@@ -87,7 +89,9 @@ def _string_list(value: object, field: str, *, allow_empty: bool = False) -> lis
 
 def select_intensity(payload: dict[str, Any]) -> dict[str, Any]:
     """Return the stable v1 execution policy and its observable reasons."""
-    if payload.get("schema_version") != 1:
+    # _member rather than !=: Python evaluates True == 1, so a boolean would
+    # otherwise be accepted here as schema version 1.
+    if not _member(payload.get("schema_version"), {1}):
         raise OrchestrationError("schema_version must be 1")
     request_mode = payload.get("request_mode")
     if not _member(request_mode, REQUEST_MODES):

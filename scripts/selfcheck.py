@@ -31,8 +31,8 @@ WORK_STATE = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_stat
 MINIMUM_PYTHON = (3, 11)
 SUBPROCESS_TIMEOUT_SECONDS = 120.0
 
-# Optional providers. Absence is a supported configuration, never a failure.
-OPTIONAL_PROVIDERS = ("graphify", "codegraph", "npx")
+# Optional providers are resolved the way the skills that use them resolve
+# them. Absence is a supported configuration, never a failure.
 
 
 class CheckResult(dict):
@@ -304,11 +304,41 @@ def check_durable_round_trip() -> CheckResult:
     )
 
 
+def _which(*names: str) -> str | None:
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def _resolve_documentation_cli() -> str | None:
+    """Resolve the docs CLI the way use-current-docs actually does.
+
+    Probing a single executable name would report the provider absent on a
+    machine where the skill resolves it through another launcher, which turns
+    this observation back into a declaration.
+    """
+    direct = _which("ctx7", "ctx7.cmd")
+    if direct:
+        return direct
+    launcher = _which("npx", "npx.cmd", "pnpm", "pnpm.cmd")
+    return f"{launcher} (launcher for ctx7)" if launcher else None
+
+
 def check_optional_providers() -> list[CheckResult]:
     """Report provider availability without treating absence as a fault."""
+    resolvers = {
+        "graphify": lambda: _which("graphify", "graphify.exe"),
+        "codegraph": lambda: (
+            os.environ.get("CODEGRAPH_EXECUTABLE")
+            or _which("codegraph", "codegraph.exe")
+        ),
+        "documentation": _resolve_documentation_cli,
+    }
     results = []
-    for name in OPTIONAL_PROVIDERS:
-        location = shutil.which(name)
+    for name, resolve in resolvers.items():
+        location = resolve()
         results.append(
             CheckResult(
                 f"provider.{name}",
