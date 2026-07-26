@@ -4,6 +4,9 @@
 
 Review follow-ups, all against defects introduced earlier in this release:
 
+- Removed the `agents` declaration from the Claude manifest, which `claude plugin validate --strict` rejects: the field takes agent files and replaces the default scan, while `agents/` is scanned automatically, so pointing it at that directory was both redundant and invalid. The validator had only ever run in CI, and CI has been unavailable, so the error shipped undetected; the suite now runs the host validator directly whenever the CLI is installed. Verified against a real install: all three roles register from the default directory.
+- Gave the marketplace manifest the description the strict validator asks for.
+
 - Let a session be addressed by the identifier `init` reports. The collision guard compared the caller's name against the stored pre-fold name, but the hook and the tool's own output use the folded id, so it rejected the right session. `record-validation` died with an uncaught traceback and the `Stop` gate emitted nothing at all, for any name containing a space, slash, colon, or accent.
 - Stopped an unreadable `state.json` from becoming a traceback. `UnicodeDecodeError` is a `ValueError`, not a `JSONDecodeError`, so a truncated write escaped both the collision guard and `load_state`, defeating the ledger and recovery candidates that exist to survive exactly that corruption.
 - Kept sessions and actor identities recorded before the composition change reachable, by falling back to the pre-composition directory when it is the one that exists.

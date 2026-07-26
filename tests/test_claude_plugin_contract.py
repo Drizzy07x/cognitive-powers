@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,7 +87,7 @@ class ClaudeManifestTests(unittest.TestCase):
 
     def test_declared_component_paths_are_relative_and_present(self) -> None:
         manifest = load(CLAUDE_MANIFEST)
-        for field in ("agents", "hooks"):
+        for field in ("hooks",):
             value = manifest[field]
             self.assertIsInstance(value, str, f"{field} must be a single path")
             self.assertTrue(value.startswith("./"), f"{field} must start with ./")
@@ -94,6 +95,16 @@ class ClaudeManifestTests(unittest.TestCase):
                 (PLUGIN_ROOT / value.removeprefix("./")).exists(),
                 f"{field} points at a missing path: {value}",
             )
+
+    def test_agents_come_from_the_default_directory(self) -> None:
+        """`claude plugin validate --strict` rejects a directory here.
+
+        The field takes agent files and replaces the default scan, while
+        `agents/` is already scanned automatically, so declaring it was both
+        redundant and malformed.
+        """
+        self.assertNotIn("agents", load(CLAUDE_MANIFEST))
+        self.assertTrue(any((PLUGIN_ROOT / "agents").glob("*.md")))
 
     def test_skills_are_discovered_from_the_plugin_root(self) -> None:
         manifest = load(CLAUDE_MANIFEST)
@@ -796,6 +807,35 @@ class ClaudeSemanticIndexTests(unittest.TestCase):
         finally:
             sys.stdin = stdin
         self.assertEqual(code, 0)
+
+
+class ClaudeOfficialValidatorTests(unittest.TestCase):
+    """Run the host's own validator when the CLI is present.
+
+    CI is the only place this ran until now, and while CI was unavailable a
+    malformed `agents` declaration sat in the manifest undetected: the field
+    takes agent files and replaces the default scan, so pointing it at the
+    directory that is already scanned was both redundant and invalid.
+    """
+
+    def test_the_host_validator_accepts_this_tree(self) -> None:
+        executable = shutil.which("claude")
+        if not executable:
+            self.skipTest("the claude CLI is not installed on this machine")
+        completed = subprocess.run(
+            [executable, "plugin", "validate", ".", "--strict"],
+            cwd=str(PLUGIN_ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            (completed.stdout or "") + (completed.stderr or ""),
+        )
 
 
 class ClaudeCiTests(unittest.TestCase):

@@ -21,7 +21,6 @@
     "browser-automation",
     "desktop-automation"
   ],
-  "agents": "./agents/",
   "hooks": "./hooks/hooks.claude.json",
   "userConfig": {
     "python_executable": {
