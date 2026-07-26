@@ -1390,6 +1390,66 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
 
+class OwnershipFoldingTests(unittest.TestCase):
+    """Two owners must not reach the same file through different spellings."""
+
+    def test_composed_and_decomposed_names_are_the_same_path(self) -> None:
+        import unicodedata
+
+        composed = unicodedata.normalize("NFC", "src/café.py")
+        decomposed = unicodedata.normalize("NFD", "src/café.py")
+        self.assertNotEqual(composed, decomposed)
+        plan = policy.select_agent_plan(
+            agent_signals_v2(
+                request_mode="change",
+                authorization="change",
+                phase="implement",
+                packet_plan_valid=True,
+                units=[
+                    unit(
+                        "writer-a",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=[composed],
+                    ),
+                    unit(
+                        "writer-b",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=[decomposed],
+                    ),
+                ],
+            )
+        )
+        self.assertEqual(plan["mode"], "solo")
+        self.assertIn("ownership overlaps", " ".join(plan["reasons"]))
+
+    def test_distinct_files_still_run_in_parallel(self) -> None:
+        plan = policy.select_agent_plan(
+            agent_signals_v2(
+                request_mode="change",
+                authorization="change",
+                phase="implement",
+                packet_plan_valid=True,
+                units=[
+                    unit(
+                        "writer-a",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=["src/café.py"],
+                    ),
+                    unit(
+                        "writer-b",
+                        role="executor",
+                        read_only=False,
+                        owned_paths=["src/cafe.py"],
+                    ),
+                ],
+            )
+        )
+        self.assertNotEqual(plan["mode"], "solo")
+
+
 class HostileInputTests(unittest.TestCase):
     """The planner promises solo on bad input, so it must not raise instead.
 

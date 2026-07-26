@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -282,7 +283,10 @@ def _content_id(prefix: str, value: object) -> str:
 
 
 def _normalize_owned_path(value: str, field: str) -> str:
-    raw = value.strip()
+    # Compose combining marks first. macOS and Windows resolve the composed and
+    # decomposed spellings of a name to one file, so two owners could otherwise
+    # claim the same path in different forms and pass the overlap check.
+    raw = unicodedata.normalize("NFC", value).strip()
     if raw.startswith(("\\\\", "//")) or re.match(r"^[A-Za-z]:", raw):
         raise OrchestrationError(f"{field} contains an unsafe path")
     normalized = raw.replace("\\", "/").rstrip("/")
@@ -297,9 +301,14 @@ def _normalize_owned_path(value: str, field: str) -> str:
     return str(path)
 
 
+def _fold(value: str) -> str:
+    """Fold a path component the way a case-insensitive filesystem would."""
+    return unicodedata.normalize("NFC", value).casefold()
+
+
 def _paths_overlap(left: str, right: str) -> bool:
-    left_parts = tuple(part.casefold() for part in PurePosixPath(left).parts)
-    right_parts = tuple(part.casefold() for part in PurePosixPath(right).parts)
+    left_parts = tuple(_fold(part) for part in PurePosixPath(left).parts)
+    right_parts = tuple(_fold(part) for part in PurePosixPath(right).parts)
     shortest = min(len(left_parts), len(right_parts))
     return left_parts[:shortest] == right_parts[:shortest]
 
