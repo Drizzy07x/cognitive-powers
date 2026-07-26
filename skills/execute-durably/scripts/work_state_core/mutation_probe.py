@@ -29,6 +29,64 @@ MUTATIONS = (
 )
 
 
+def _materialize_variant(
+    variant_root: Path,
+    source: str,
+    *,
+    work_state: Path,
+    plugin_root: Path,
+) -> Path:
+    scripts_root = variant_root / "skills" / "execute-durably" / "scripts"
+    scripts_root.mkdir(parents=True)
+    variant = scripts_root / "work_state.py"
+    variant.write_text(source, encoding="utf-8")
+    shutil.copytree(
+        work_state.with_name("work_state_core"),
+        scripts_root / "work_state_core",
+    )
+    policy_source = plugin_root / "scripts" / "storage_policy.py"
+    if not policy_source.is_file():
+        raise FileNotFoundError(f"storage policy is missing: {policy_source}")
+    policy_target = variant_root / "scripts" / "storage_policy.py"
+    policy_target.parent.mkdir(parents=True)
+    shutil.copy2(policy_source, policy_target)
+    return variant
+
+
+def _run_test(
+    root: Path,
+    work_state: Path,
+    python: str,
+    test: str,
+) -> subprocess.CompletedProcess[str]:
+    environment = dict(os.environ)
+    environment["COGNITIVE_WORK_STATE_SCRIPT"] = str(work_state)
+    return subprocess.run(
+        [python, "-m", "unittest", test, "-q"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _assertion_failure(completed: subprocess.CompletedProcess[str]) -> bool:
+    output = completed.stdout + completed.stderr
+    infrastructure_markers = (
+        "FileNotFoundError",
+        "ModuleNotFoundError",
+        "ImportError",
+        "FAILED (errors=",
+    )
+    return (
+        completed.returncode != 0
+        and not any(marker in output for marker in infrastructure_markers)
+        and ("AssertionError" in output or "FAILED (failures=" in output)
+    )
+
+
 def run_mutations(root: Path, work_state: Path, python: str) -> dict[str, object]:
     source = work_state.read_text(encoding="utf-8")
     results = []
@@ -46,33 +104,35 @@ def run_mutations(root: Path, work_state: Path, python: str) -> dict[str, object
                 continue
             mutation_root = temporary_root / mutation["id"]
             mutation_root.mkdir()
-            mutant = mutation_root / "work_state.py"
-            mutant.write_text(
+            baseline = _materialize_variant(
+                mutation_root / "baseline",
+                source,
+                work_state=work_state,
+                plugin_root=root,
+            )
+            mutant = _materialize_variant(
+                mutation_root / "mutant",
                 source.replace(mutation["old"], mutation["new"], 1),
-                encoding="utf-8",
+                work_state=work_state,
+                plugin_root=root,
             )
-            shutil.copytree(
-                work_state.with_name("work_state_core"),
-                mutation_root / "work_state_core",
+            baseline_completed = _run_test(
+                root, baseline, python, str(mutation["test"])
             )
-            environment = dict(os.environ)
-            environment["COGNITIVE_WORK_STATE_SCRIPT"] = str(mutant)
-            completed = subprocess.run(
-                [python, "-m", "unittest", mutation["test"], "-q"],
-                cwd=root,
-                env=environment,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+            completed = _run_test(root, mutant, python, str(mutation["test"]))
+            baseline_output = baseline_completed.stdout + baseline_completed.stderr
+            output = completed.stdout + completed.stderr
             results.append(
                 {
                     "id": mutation["id"],
                     "test": mutation["test"],
-                    "killed": completed.returncode != 0,
+                    "baseline_passed": baseline_completed.returncode == 0,
+                    "baseline_exit_code": baseline_completed.returncode,
+                    "killed": baseline_completed.returncode == 0
+                    and _assertion_failure(completed),
                     "test_exit_code": completed.returncode,
-                    "output_tail": (completed.stdout + completed.stderr)[-1000:],
+                    "baseline_output_tail": baseline_output[-1000:],
+                    "output_tail": output[-1000:],
                 }
             )
     return {

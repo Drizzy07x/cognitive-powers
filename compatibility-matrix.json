@@ -1,0 +1,901 @@
+{
+  "axes": {
+    "codexCli": [
+      "0.145.0",
+      "0.146.0-alpha.3.1"
+    ],
+    "os": [
+      "ubuntu-latest",
+      "windows-latest",
+      "macos-latest"
+    ],
+    "python": [
+      "3.11",
+      "3.13"
+    ]
+  },
+  "generatedFrom": "ci-receipts",
+  "rows": [
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "ubuntu-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "windows-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.11",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.145.0",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "clean-install",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "upgrade-v1.5.2",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "rollback",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "corrupt-state",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "legacy-copy",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "checkout-without-git",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "crlf-lf",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "symlink",
+      "status": "unknown"
+    },
+    {
+      "codexCli": "0.146.0-alpha.3.1",
+      "evidence": [],
+      "os": "macos-latest",
+      "python": "3.13",
+      "scenario": "unicode-space-path",
+      "status": "unknown"
+    }
+  ],
+  "scenarios": [
+    "clean-install",
+    "upgrade-v1.5.2",
+    "rollback",
+    "corrupt-state",
+    "legacy-copy",
+    "checkout-without-git",
+    "crlf-lf",
+    "symlink",
+    "unicode-space-path"
+  ],
+  "schemaVersion": 1,
+  "summary": {
+    "compatible": 0,
+    "incompatible": 0,
+    "unknown": 108
+  }
+}

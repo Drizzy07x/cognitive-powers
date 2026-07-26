@@ -25,6 +25,7 @@ DURABLE_SIGNALS = _MODULE.DURABLE_SIGNALS
 OrchestrationError = _MODULE.OrchestrationError
 select_intensity = _MODULE.select_intensity
 select_agent_plan = _MODULE.select_agent_plan
+explain_agent_plan = _MODULE.explain_agent_plan
 validate_worker_result = _MODULE.validate_worker_result
 evaluate_cases = _MODULE.evaluate_cases
 evaluate_agent_cases = _MODULE.evaluate_agent_cases

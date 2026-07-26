@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "axes": {
+    "os": ["ubuntu-latest", "windows-latest", "macos-latest"],
+    "python": ["3.11", "3.13"],
+    "codexCli": ["0.145.0", "0.146.0-alpha.3.1"]
+  },
+  "scenarios": [
+    "clean-install",
+    "upgrade-v1.5.2",
+    "rollback",
+    "corrupt-state",
+    "legacy-copy",
+    "checkout-without-git",
+    "crlf-lf",
+    "symlink",
+    "unicode-space-path"
+  ]
+}

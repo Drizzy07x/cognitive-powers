@@ -15,8 +15,8 @@ class PluginContractTests(unittest.TestCase):
         manifest_path = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        self.assertIn(manifest["name"], {PLUGIN_ROOT.name, PLUGIN_ROOT.parent.name})
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.5.2")
+        self.assertEqual(manifest["name"], "cognitive-powers")
+        self.assertEqual(manifest["version"].split("+", 1)[0], "1.6.0")
         self.assertEqual(manifest["skills"], "./skills-core/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
@@ -35,6 +35,8 @@ class PluginContractTests(unittest.TestCase):
             [],
             "screenshots require a verified public host surface",
         )
+        ignored = (PLUGIN_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("graphify-out/", ignored)
 
     def test_private_marketplace_points_to_plugin_root(self) -> None:
         marketplace_path = PLUGIN_ROOT / ".agents" / "plugins" / "marketplace.json"
@@ -155,6 +157,7 @@ class PluginContractTests(unittest.TestCase):
             "scripts/external_catalog.py",
             "scripts/integration_adapters.py",
             "scripts/integration_evaluation.py",
+            "scripts/finalize_controller_ab_evidence.py",
             "scripts/release_witness.py",
             "scripts/validate_all.py",
             "scripts/doctor.py",
@@ -253,14 +256,16 @@ class PluginContractTests(unittest.TestCase):
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',
             '$pluginName = "cognitive-powers"',
-            '[string]$ReleaseRef = "v1.5.2"',
+            '[string]$ReleaseRef = "v1.6.0"',
             "$releaseRef = $ReleaseRef",
             "$expectedVersion = $releaseRef.Substring(1)",
             "$allowedSources = @(",
             "[string]::IsNullOrWhiteSpace($configuredSource)",
             "$allowedSources -notcontains $configuredSource",
             '"plugin", "marketplace", "remove", $marketplace',
-            '"plugin", "marketplace", "add", $repository, "--ref", $releaseRef',
+            '"plugin", "marketplace", "add", $repository, "--ref", $releaseCommit',
+            '& gh api "repos/$repository/commits/$releaseRef"',
+            "$releaseCommit -notmatch '^[0-9a-f]{40}$'",
             '"auth", "setup-git"',
             '"api", "repos/$repository/git/ref/tags/$releaseRef", "--silent"',
             '"plugin", "marketplace", "add"',
@@ -291,7 +296,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertNotIn('"--ref", "main"', installer)
         readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("rollback", readme.lower())
-        self.assertIn("v1.5.1", readme)
+        self.assertIn("v1.5.2", readme)
 
     def test_tag_ci_requires_exact_release_witness(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
@@ -299,7 +304,73 @@ class PluginContractTests(unittest.TestCase):
         )
         self.assertIn("startsWith(github.ref, 'refs/tags/')", workflow)
         self.assertIn("scripts/release_witness.py", workflow)
+        self.assertIn("./install.ps1 -ReleaseRef", workflow)
+        self.assertIn("scripts/verify_installed.py --source-root", workflow)
+        self.assertIn("--installation", workflow)
+        self.assertIn("--verified-receipt-sha256", workflow)
+        self.assertIn('identity.get("runId")', workflow)
         self.assertIn("--receipt", workflow)
+        self.assertIn("npm ci --prefix", workflow)
+        self.assertIn("--require-hashes", workflow)
+        self.assertIn("merge-multiple: false", workflow)
+        self.assertIn("aggregate_release_artifacts.py", workflow)
+        self.assertIn('test "${#receipts[@]}" -eq 108', workflow)
+        self.assertIn("'compatible': 108", workflow)
+        self.assertIn("$marketplaceState.marketplaces", workflow)
+        self.assertIn(
+            "validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}.json",
+            workflow,
+        )
+        self.assertTrue(
+            (PLUGIN_ROOT / "ci" / "codex-0.145.0" / "package-lock.json").is_file()
+        )
+        self.assertTrue(
+            (
+                PLUGIN_ROOT / "ci" / "codex-0.146.0-alpha.3.1" / "package-lock.json"
+            ).is_file()
+        )
+        self.assertNotRegex(workflow, r"actions/[a-z-]+@v[0-9]+")
+        for action_sha in (
+            "11d5960a326750d5838078e36cf38b85af677262",
+            "a26af69be951a213d495a4c3e4e4022e16d87065",
+            "49933ea5288caeca8642d1e84afbd3f7d6820020",
+            "ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            "e8998f949152b193b063cb0ec769d69d929409be",
+        ):
+            self.assertIn(action_sha, workflow)
+        post_release = (
+            PLUGIN_ROOT / ".github" / "workflows" / "verify-release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("gh release download", post_release)
+        self.assertIn("sha256sum --check", post_release)
+        self.assertIn("gh attestation verify", post_release)
+        self.assertIn("len(matrix['rows']) == 108", post_release)
+        self.assertIn("find release-download -maxdepth 1", post_release)
+        self.assertNotRegex(post_release, r"actions/[a-z-]+@v[0-9]+")
+        publication = (
+            PLUGIN_ROOT / ".github" / "workflows" / "publish-release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("gh release create", publication)
+        self.assertIn("gh run download", publication)
+        self.assertIn("head_sha", publication)
+        self.assertIn("gh attestation verify", publication)
+        self.assertNotRegex(publication, r"actions/[a-z-]+@v[0-9]+")
+
+        gitignore = (PLUGIN_ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("ci/*/node_modules/", gitignore.splitlines())
+
+        installer = (PLUGIN_ROOT / "install.ps1").read_text(encoding="utf-8")
+        lifecycle = (
+            PLUGIN_ROOT / "scripts" / "run_real_upgrade_rollback.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'Join-Path $PSScriptRoot "scripts/verify_installed.py"', installer
+        )
+        self.assertIn('Join-Path $root "scripts/verify_installed.py"', lifecycle)
+        self.assertNotIn(
+            'Join-Path $MarketplaceRoot "scripts/verify_installed.py"', lifecycle
+        )
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [

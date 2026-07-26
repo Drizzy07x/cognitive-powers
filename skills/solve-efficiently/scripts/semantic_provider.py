@@ -46,9 +46,234 @@ def _inside(root: Path, rel: str) -> Path:
     return path
 
 
-def probe_graphify(
-    root: str | Path, graphify_dir: str | Path | None = None
-) -> dict[str, Any]:
+def _graph_health(payload: dict[str, Any]) -> dict[str, Any]:
+    nodes = payload.get("nodes")
+    edges = payload.get("edges") if "edges" in payload else payload.get("links")
+    issues: list[str] = []
+    identifiers: set[str] = set()
+    if not isinstance(nodes, list):
+        issues.append("nodes must be a list")
+        nodes = []
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            issues.append(f"nodes[{index}] must be an object")
+            continue
+        raw_identifier = node.get("id")
+        identifier = str(raw_identifier).strip() if raw_identifier is not None else ""
+        if not identifier:
+            issues.append(f"nodes[{index}] has no non-empty id")
+        elif identifier in identifiers:
+            issues.append(f"nodes[{index}] duplicates id {identifier}")
+        else:
+            identifiers.add(identifier)
+    if not isinstance(edges, list):
+        issues.append("edges or links must be a list")
+        edges = []
+    for index, edge in enumerate(edges):
+        if not isinstance(edge, dict):
+            issues.append(f"edges[{index}] must be an object")
+            continue
+        source = str(edge.get("source", "")).strip()
+        target = str(edge.get("target", "")).strip()
+        if not source or not target:
+            issues.append(f"edges[{index}] has no source or target")
+        elif source not in identifiers or target not in identifiers:
+            issues.append(f"edges[{index}] has a missing endpoint")
+        elif source == target:
+            issues.append(f"edges[{index}] is a self-loop")
+    return {
+        "status": "ok" if not issues else "invalid",
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "issue_count": len(issues),
+        "issues": issues[:20],
+    }
+
+
+def _detector_paths(value: Any) -> set[str]:
+    values: list[Any] = []
+    if isinstance(value, dict):
+        for group in value.values():
+            if isinstance(group, list):
+                values.extend(group)
+    elif isinstance(value, list):
+        values.extend(value)
+    return {str(item) for item in values if isinstance(item, (str, Path))}
+
+
+def _within_index(root: Path, index: Path, value: str) -> bool:
+    path = Path(value)
+    if not path.is_absolute():
+        path = root / path
+    try:
+        path.resolve().relative_to(index)
+    except ValueError:
+        return False
+    return True
+
+
+def _display_path(root: Path, value: str) -> str:
+    path = Path(value)
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _graphify_completeness(
+    root: Path,
+    index: Path,
+    manifest: Path,
+    *,
+    runner,
+    timeout_seconds: float,
+) -> tuple[dict[str, Any], str | None]:
+    python_marker = index / ".graphify_python"
+    try:
+        executable_text = python_marker.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            f"graphify detector interpreter is unavailable: {exc}",
+        )
+    executable = Path(executable_text).expanduser()
+    if not executable.is_absolute():
+        executable = (index / executable).resolve()
+    if not executable.is_file():
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            "graphify detector interpreter is unavailable",
+        )
+    script = (
+        "from graphify.detect import detect_incremental;"
+        "import json,sys;"
+        "from pathlib import Path;"
+        "print(json.dumps(detect_incremental(Path(sys.argv[1]), sys.argv[2])))"
+    )
+    argv = [
+        str(executable),
+        "-X",
+        "utf8",
+        "-c",
+        script,
+        str(root),
+        str(manifest),
+    ]
+    try:
+        completed = runner(
+            argv,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            f"graphify detector failed closed: {exc}",
+        )
+    if completed.returncode != 0:
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            f"graphify detector failed with exit code {completed.returncode}",
+        )
+    try:
+        detected = json.loads(completed.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            f"graphify detector returned invalid JSON: {exc}",
+        )
+    if not isinstance(detected, dict) or "files" not in detected:
+        return (
+            {
+                "status": "invalid",
+                "pending_file_count": 0,
+                "deleted_file_count": 0,
+                "walk_error_count": 0,
+            },
+            "graphify detector returned an unsupported schema",
+        )
+    files = {
+        value
+        for value in _detector_paths(detected.get("files"))
+        if not _within_index(root, index, value)
+    }
+    unchanged = {
+        value
+        for value in _detector_paths(detected.get("unchanged_files"))
+        if not _within_index(root, index, value)
+    }
+    explicit_new = {
+        value
+        for value in _detector_paths(detected.get("new_files"))
+        if not _within_index(root, index, value)
+    }
+    pending = (files - unchanged) | explicit_new
+    deleted = {
+        value
+        for value in _detector_paths(detected.get("deleted_files"))
+        if not _within_index(root, index, value)
+    }
+    raw_walk_errors = detected.get("walk_errors", [])
+    walk_errors = (
+        raw_walk_errors if isinstance(raw_walk_errors, list) else [raw_walk_errors]
+    )
+    warnings = sorted(
+        {
+            *(_display_path(root, value) for value in pending),
+            *(_display_path(root, value) for value in deleted),
+        }
+    )[:20]
+    complete = not pending and not deleted and not walk_errors
+    return (
+        {
+            "status": "complete" if complete else "incomplete",
+            "corpus_file_count": len(files),
+            "pending_file_count": len(pending),
+            "deleted_file_count": len(deleted),
+            "walk_error_count": len(walk_errors),
+            "warnings": warnings,
+        },
+        None if complete else "graphify index is incomplete",
+    )
+
+
+def _inspect_graphify(
+    root: str | Path,
+    graphify_dir: str | Path | None = None,
+    *,
+    runner=subprocess.run,
+    timeout_seconds: float = 10.0,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     root = _root(root)
     out = Path(graphify_dir).resolve() if graphify_dir else root / "graphify-out"
     graph, manifest, marker = (
@@ -65,10 +290,20 @@ def probe_graphify(
         "root": str(root),
         "index": str(out),
         "warnings": [],
+        "node_count": 0,
+        "edge_count": 0,
+        "manifest_file_count": 0,
+        "health": {"status": "unknown", "issue_count": 0, "issues": []},
+        "completeness": {
+            "status": "unknown",
+            "pending_file_count": 0,
+            "deleted_file_count": 0,
+            "walk_error_count": 0,
+        },
     }
     if not graph.is_file() or not manifest.is_file():
         base["reason"] = "graphify graph or manifest missing"
-        return base
+        return base, None
     try:
         marker_root = (
             Path(marker.read_text(encoding="utf-8").strip()).resolve()
@@ -77,20 +312,29 @@ def probe_graphify(
         )
     except OSError as exc:
         base["reason"] = f"invalid graphify root marker: {exc}"
-        return base
+        return base, None
     if marker_root != root:
         base["reason"] = "graphify index is not bound to this worktree"
-        return base
+        return base, None
     base["worktree_bound"] = True
     try:
         records = json.loads(manifest.read_text(encoding="utf-8"))
         payload = json.loads(graph.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         base["reason"] = f"invalid graphify index: {exc}"
-        return base
+        return base, None
     if not isinstance(records, dict) or not isinstance(payload, dict):
         base["reason"] = "unsupported graphify schema"
-        return base
+        return base, None
+    base["manifest_file_count"] = len(records)
+    health = _graph_health(payload)
+    base["health"] = health
+    base["node_count"] = health["node_count"]
+    base["edge_count"] = health["edge_count"]
+    if health["status"] != "ok":
+        base["reason"] = "graphify graph health check failed"
+        base["warnings"] = health["issues"]
+        return base, None
     stale = []
     for rel, item in records.items():
         if not isinstance(item, dict):
@@ -115,9 +359,37 @@ def probe_graphify(
     if stale:
         base["reason"] = f"graphify index is stale for {len(stale)} file(s)"
         base["warnings"] = stale[:20]
-        return base
-    base.update(usable=True, fresh=True, reason=None, graph=payload)
-    return base
+        return base, None
+    completeness, completeness_error = _graphify_completeness(
+        root,
+        out,
+        manifest,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
+    base["completeness"] = completeness
+    if completeness_error is not None:
+        base["reason"] = completeness_error
+        base["warnings"] = completeness.get("warnings", [])[:20]
+        return base, None
+    base.update(usable=True, fresh=True, reason=None)
+    return base, payload
+
+
+def probe_graphify(
+    root: str | Path,
+    graphify_dir: str | Path | None = None,
+    *,
+    runner=subprocess.run,
+    timeout_seconds: float = 10.0,
+) -> dict[str, Any]:
+    status, _payload = _inspect_graphify(
+        root,
+        graphify_dir,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
+    return status
 
 
 def _lexical(root: Path, query: str, reason: str | None) -> dict[str, Any]:
@@ -230,6 +502,7 @@ def search(
     codegraph_executable=None,
     graphify_dir=None,
     runner=subprocess.run,
+    graphify_runner=subprocess.run,
 ):
     root = _root(root)
     query = query.strip()
@@ -246,7 +519,7 @@ def search(
         if provider == "codegraph":
             return _lexical(root, query, str(p["reason"]))
     if provider in ("auto", "graphify"):
-        p = probe_graphify(root, graphify_dir)
+        p, graph = _inspect_graphify(root, graphify_dir, runner=graphify_runner)
         if p["usable"]:
             return _result(
                 root,
@@ -255,7 +528,7 @@ def search(
                 True,
                 True,
                 True,
-                _graph_candidates(p["graph"], query),
+                _graph_candidates(graph or {}, query),
             )
         if provider == "graphify":
             return _lexical(root, query, str(p["reason"]))
@@ -290,10 +563,14 @@ def affected(root: str | Path, changed_files: Sequence[str], **kwargs):
             return _result(
                 root, "codegraph", "affected", True, True, True, candidates, raw=raw
             )
-    p = (
-        probe_graphify(root, kwargs.get("graphify_dir"))
+    p, graph = (
+        _inspect_graphify(
+            root,
+            kwargs.get("graphify_dir"),
+            runner=kwargs.get("graphify_runner", subprocess.run),
+        )
         if provider in ("auto", "graphify")
-        else {"usable": False, "reason": "not selected"}
+        else ({"usable": False, "reason": "not selected"}, None)
     )
     if p["usable"]:
         return _result(
@@ -303,7 +580,7 @@ def affected(root: str | Path, changed_files: Sequence[str], **kwargs):
             True,
             True,
             True,
-            _graph_candidates(p["graph"], " ".join(changed), changed),
+            _graph_candidates(graph or {}, " ".join(changed), changed),
         )
     result = search(root, " ".join(Path(x).stem for x in changed), **kwargs)
     result["mode"] = "affected"
@@ -318,7 +595,11 @@ def probe(root: str | Path, **kwargs):
             executable=kwargs.get("codegraph_executable"),
             runner=kwargs.get("runner", subprocess.run),
         ),
-        "graphify": probe_graphify(root, kwargs.get("graphify_dir")),
+        "graphify": probe_graphify(
+            root,
+            kwargs.get("graphify_dir"),
+            runner=kwargs.get("graphify_runner", subprocess.run),
+        ),
         "lexical": {
             "available": True,
             "usable": True,

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+import hashlib
 from pathlib import Path
 from unittest import mock
 
@@ -79,6 +80,7 @@ def make_installable_fixture(parent: Path) -> Path:
     for name in (
         "controller_ab_fixtures.py",
         "controller_ab_batch.py",
+        "finalize_controller_ab_evidence.py",
         "prepare_controller_ab_homes.py",
     ):
         (root / "scripts" / name).write_text("", encoding="utf-8")
@@ -105,6 +107,70 @@ def make_installable_fixture(parent: Path) -> Path:
 
 
 class DoctorTests(unittest.TestCase):
+    def test_forged_semantic_state_and_ledger_are_reported_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_root = Path(temporary) / "data"
+            session = data_root / "projects" / "p" / "sessions" / "forged"
+            session.mkdir(parents=True)
+            (session / "state.json").write_text(
+                json.dumps({"schema_version": 1}), encoding="utf-8"
+            )
+            (session / "ledger.jsonl").write_text(
+                json.dumps({"forged": True}) + "\n", encoding="utf-8"
+            )
+            report = doctor.build_report(PLUGIN_ROOT, data_root=data_root)
+        codes = {item["code"] for item in report["findings"]}
+        self.assertIn("durable.state-invalid", codes)
+        self.assertIn("durable.ledger-invalid", codes)
+
+    def test_structured_findings_are_stable_and_durable_diagnostics_are_read_only(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_root = Path(temporary) / "data"
+            session = data_root / "projects" / "project" / "sessions" / "broken"
+            session.mkdir(parents=True)
+            (session / "state.json").write_text("{broken", encoding="utf-8")
+            (session / "ledger.jsonl").write_text("not-json\n", encoding="utf-8")
+            (session / ".state.lock").write_text("unknown-owner", encoding="utf-8")
+            (session / ".state.json.interrupted.tmp").write_text(
+                "partial", encoding="utf-8"
+            )
+
+            def fingerprint() -> str:
+                digest = hashlib.sha256()
+                for path in sorted(data_root.rglob("*")):
+                    if path.is_file():
+                        digest.update(path.relative_to(data_root).as_posix().encode())
+                        digest.update(path.read_bytes())
+                return digest.hexdigest()
+
+            before = fingerprint()
+            first = doctor.build_report(PLUGIN_ROOT, data_root=data_root)
+            second = doctor.build_report(PLUGIN_ROOT, data_root=data_root)
+            after = fingerprint()
+
+        self.assertEqual(first["schemaVersion"], 2)
+        self.assertTrue(first["readOnly"])
+        self.assertEqual(before, after)
+        self.assertEqual(
+            [item["code"] for item in first["findings"]],
+            [item["code"] for item in second["findings"]],
+        )
+        self.assertEqual(
+            {item["code"] for item in first["findings"]},
+            {
+                "durable.ledger-invalid",
+                "durable.lock-unidentified",
+                "durable.state-invalid",
+                "durable.write-interrupted",
+            },
+        )
+        for finding in first["findings"]:
+            self.assertEqual(
+                set(finding), {"code", "severity", "evidence", "recommendedAction"}
+            )
+
     def test_current_checkout_report_is_read_only_and_truthful(self) -> None:
         report = doctor.build_report(PLUGIN_ROOT)
         manifest = json.loads(

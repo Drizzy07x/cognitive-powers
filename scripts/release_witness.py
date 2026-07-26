@@ -26,7 +26,6 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
         iter_tree_files,
     )
 
-
 IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("skills", ("scripts/validate_skills.py",)),
@@ -40,6 +39,7 @@ EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_controller_ab_protocol",
             "tests.test_controller_ab_fixtures",
             "tests.test_controller_ab_batch",
+            "tests.test_controller_ab_evidence",
         ),
     ),
     ("tests", ("-m", "unittest", "discover", "-s", "tests", "-v")),
@@ -76,6 +76,23 @@ EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "skills/execute-durably/scripts/work_state_core/mutation_probe.py",
             "--root",
             ".",
+        ),
+    ),
+    (
+        "verify-installed-fixture",
+        ("tests/fixtures/run_verify_installed_fixture.py",),
+    ),
+    (
+        "compatibility-contract",
+        (
+            "scripts/build_compatibility_matrix.py",
+            "--contract",
+            "compatibility-contract.json",
+            "--json-output",
+            "compatibility-matrix.json",
+            "--markdown-output",
+            "docs/compatibility.md",
+            "--check",
         ),
     ),
     (
@@ -341,7 +358,11 @@ def _is_python_executable(value: Any) -> bool:
     )
 
 
-def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
+def create_witness(
+    root: Path,
+    receipt_paths: Sequence[Path],
+    release_manifest_path: Path | None = None,
+) -> dict[str, Any]:
     root = root.resolve()
     manifest_path = root / ".codex-plugin" / "plugin.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -357,6 +378,22 @@ def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
     live_validated = bool(receipts) and all(
         receipt.get("live", {}).get("validated") is True for receipt in receipts
     )
+    release_manifest = None
+    if release_manifest_path is not None:
+        raw = release_manifest_path.resolve().read_bytes()
+        value = json.loads(raw)
+        if (
+            not isinstance(value, dict)
+            or value.get("commit") != git["sha"]
+            or value.get("tag") != release_tag
+            or not _is_sha256(value.get("archive", {}).get("sha256"))
+        ):
+            raise WitnessError("release manifest is absent, malformed, or stale")
+        release_manifest = {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "archiveSha256": value["archive"]["sha256"],
+            "filesSha256": value.get("filesSha256"),
+        }
     return {
         "schemaVersion": 1,
         "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -366,6 +403,7 @@ def create_witness(root: Path, receipt_paths: Sequence[Path]) -> dict[str, Any]:
         "git": {"sha": git["sha"], "dirty": False},
         "files": files,
         "sourceSha256": source_sha256,
+        "releaseManifest": release_manifest,
         "validations": receipts,
         "releaseReady": bool(receipts) and all(item["passed"] for item in receipts),
         "liveIntegrationsValidated": live_validated,
@@ -420,6 +458,14 @@ def verify_witness(root: Path, witness: dict[str, Any]) -> list[str]:
         errors.append("witness file inventory is stale or incomplete")
     if witness.get("sourceSha256") != source_sha256:
         errors.append("witness source identity is stale")
+    release_manifest = witness.get("releaseManifest")
+    if release_manifest is not None and (
+        not isinstance(release_manifest, dict)
+        or not _is_sha256(release_manifest.get("sha256"))
+        or not _is_sha256(release_manifest.get("archiveSha256"))
+        or not _is_sha256(release_manifest.get("filesSha256"))
+    ):
+        errors.append("witness release manifest binding is malformed")
     validations = witness.get("validations")
     if not isinstance(validations, list):
         errors.append("witness validations are malformed")
@@ -463,6 +509,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--receipt", action="append", type=Path, default=[])
+    parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
@@ -474,7 +521,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             pass
         else:
             raise WitnessError("release witness output must be outside the plugin root")
-        payload = create_witness(root, args.receipt)
+        payload = create_witness(root, args.receipt, args.release_manifest)
         output.parent.mkdir(parents=True, exist_ok=True)
         temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
         temporary.write_text(

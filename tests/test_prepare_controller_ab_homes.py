@@ -155,6 +155,55 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
             with self.assertRaisesRegex(homes.HomePreparationError, "ChatGPT"):
                 homes._login_status("codex", Path("home"))
 
+    def test_prepared_homes_validate_against_explicit_plugin_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_home = root / "source-home"
+            plugin_source = root / "source"
+            output = root / "homes"
+            source_home.mkdir()
+            (source_home / "auth.json").write_text("{}\n", encoding="utf-8")
+            (source_home / "AGENTS.md").write_text("test\n", encoding="utf-8")
+            self._write_runtime_source(plugin_source)
+            manifest = plugin_source / ".codex-plugin" / "plugin.json"
+            manifest.write_text('{"version":"1.0"}\n', encoding="utf-8")
+            source_git = {
+                "head": "a" * 40,
+                "status_sha256": "b" * 64,
+                "sha256": "c" * 64,
+            }
+            plugin_identity = {"source_sha256": "d" * 64}
+            host_identity = {"version": "codex-test"}
+
+            with (
+                mock.patch.object(homes, "_git_identity", return_value=source_git),
+                mock.patch.object(homes, "_login_status", return_value="chatgpt"),
+                mock.patch.object(
+                    homes,
+                    "validate_arm_plugins",
+                    return_value=plugin_identity,
+                ) as validate,
+                mock.patch.object(
+                    homes, "codex_host_identity", return_value=host_identity
+                ),
+            ):
+                receipt = homes.prepare_homes(
+                    source_home=source_home,
+                    plugin_source=plugin_source,
+                    output_root=output,
+                    model="gpt-test",
+                    reasoning_effort="medium",
+                    codex="codex",
+                )
+
+            validate.assert_called_once_with(
+                "codex",
+                (output / "baseline").resolve(),
+                (output / "candidate").resolve(),
+                canonical_source=plugin_source.resolve(),
+            )
+            self.assertEqual(receipt["source_git"], source_git)
+
 
 if __name__ == "__main__":
     unittest.main()

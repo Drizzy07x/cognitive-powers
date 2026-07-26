@@ -72,6 +72,29 @@ class StoragePolicyTests(unittest.TestCase):
             ["a/first.txt", "z/second.txt"],
         )
 
+    def test_graphify_generated_state_never_changes_identity_or_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "copy"
+            source.mkdir()
+            (source / "kept.py").write_text("kept", encoding="utf-8")
+            before = storage_policy.source_identity(source)
+            generated = source / "GrApHiFy-OuT"
+            generated.mkdir()
+            (generated / "graph.json").write_text("first", encoding="utf-8")
+            after_create = storage_policy.source_identity(source)
+            (generated / "graph.json").write_text("second", encoding="utf-8")
+            after_change = storage_policy.source_identity(source)
+            storage_policy.bounded_copy_tree(
+                source, destination, max_files=10, max_bytes=100
+            )
+
+        self.assertEqual(before, after_create)
+        self.assertEqual(before, after_change)
+        self.assertFalse((destination / "GrApHiFy-OuT").exists())
+        self.assertIn("graphify-out", storage_policy.EXCLUDED_DIRECTORY_NAMES)
+
     def test_bounded_copy_stops_before_file_or_byte_budget_is_exceeded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -220,7 +220,12 @@ def prepare_homes(
             raise HomePreparationError(
                 "experiment homes use different authentication methods"
             )
-        plugin = validate_arm_plugins(codex, homes["baseline"], homes["candidate"])
+        plugin = validate_arm_plugins(
+            codex,
+            homes["baseline"],
+            homes["candidate"],
+            canonical_source=plugin_source,
+        )
         try:
             host_identity = codex_host_identity(codex)
         except ValueError as error:

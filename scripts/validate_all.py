@@ -29,7 +29,6 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
         source_identity as shared_source_identity,
     )
 
-
 IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 TAIL_LIMIT = 4000
 
@@ -57,6 +56,7 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
             "tests.test_controller_ab_protocol",
             "tests.test_controller_ab_fixtures",
             "tests.test_controller_ab_batch",
+            "tests.test_controller_ab_evidence",
         ),
     ),
     ValidationCommand("tests", ("-m", "unittest", "discover", "-s", "tests", "-v")),
@@ -107,6 +107,23 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
             "skills/execute-durably/scripts/work_state_core/mutation_probe.py",
             "--root",
             ".",
+        ),
+    ),
+    ValidationCommand(
+        "verify-installed-fixture",
+        ("tests/fixtures/run_verify_installed_fixture.py",),
+    ),
+    ValidationCommand(
+        "compatibility-contract",
+        (
+            "scripts/build_compatibility_matrix.py",
+            "--contract",
+            "compatibility-contract.json",
+            "--json-output",
+            "compatibility-matrix.json",
+            "--markdown-output",
+            "docs/compatibility.md",
+            "--check",
         ),
     ),
     ValidationCommand(

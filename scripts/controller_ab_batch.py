@@ -16,27 +16,37 @@ from typing import Any, Callable, Mapping, Sequence
 
 try:
     from scripts.integration_evaluation import (
+        _analysis_binding_from_report,
+        _canonical_sha256,
         compare,
         load_controller_protocol,
+        normalize_receipt,
         validate_task_contract,
     )
     from scripts.live_ab_runner import (
         DEFAULT_WORK_MAX_BYTES,
         DEFAULT_WORK_MAX_FILES,
         arm_order,
+        finalize_workdir,
+        git_identity,
         source_sha256,
         workdir_receipt,
     )
 except ModuleNotFoundError:
     from integration_evaluation import (
+        _analysis_binding_from_report,
+        _canonical_sha256,
         compare,
         load_controller_protocol,
+        normalize_receipt,
         validate_task_contract,
     )
     from live_ab_runner import (
         DEFAULT_WORK_MAX_BYTES,
         DEFAULT_WORK_MAX_FILES,
         arm_order,
+        finalize_workdir,
+        git_identity,
         source_sha256,
         workdir_receipt,
     )
@@ -245,8 +255,11 @@ def load_config(path: Path) -> dict[str, Any]:
         "agent_slots",
         "tasks",
     }
+    if value["schema_version"] == 3:
+        required.add("plugin_source")
     if not required.issubset(value):
-        raise BatchError("batch config is incomplete")
+        missing = ", ".join(sorted(required.difference(value)))
+        raise BatchError(f"batch config is incomplete: {missing}")
     if value["schema_version"] == 3:
         source_git = value.get("source_git")
         if (
@@ -272,6 +285,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "controller_protocol",
         "baseline_home",
         "candidate_home",
+        *(("plugin_source",) if value["schema_version"] == 3 else ()),
     ):
         target = Path(value[field])
         value[field] = str(
@@ -282,6 +296,22 @@ def load_config(path: Path) -> dict[str, Any]:
         or not Path(value["controller_protocol"]).is_file()
     ):
         raise BatchError("task contract or controller protocol is missing")
+    if value["schema_version"] == 3:
+        plugin_source = Path(value["plugin_source"])
+        if not plugin_source.is_dir():
+            raise BatchError("canonical plugin_source is missing")
+        if not Path(value["controller_protocol"]).is_relative_to(plugin_source):
+            raise BatchError(
+                "controller protocol must belong to canonical plugin_source"
+            )
+        try:
+            observed_source_git = git_identity(plugin_source, required=True)
+        except ValueError as error:
+            raise BatchError("cannot validate canonical source Git identity") from error
+        if observed_source_git != value["source_git"]:
+            raise BatchError(
+                "batch source Git identity differs from canonical plugin_source"
+            )
     if (
         not Path(value["baseline_home"]).is_dir()
         or not Path(value["candidate_home"]).is_dir()
@@ -786,6 +816,7 @@ def materialize(
     agents: list[dict[str, Any]] = []
     hidden: list[dict[str, Any]] = []
     quality: list[dict[str, Any]] = []
+    experiment_runners: set[str] = set()
     sessions_root = sessions_root or output / "sessions"
     diffs = output / "pre-evaluator-diffs"
     diffs.mkdir(exist_ok=True)
@@ -796,31 +827,99 @@ def materialize(
             sessions_root / job["job_id"], job, expected_source_git
         )
         receipts.extend(validated["receipts"])
+        receipt_by_key = {
+            (receipt["case_id"], receipt["variant"]): receipt
+            for receipt in validated["receipts"]
+        }
+        for receipt in validated["receipts"]:
+            telemetry = receipt.get("agent_telemetry")
+            execution = (
+                telemetry.get("agent_execution_receipt")
+                if isinstance(telemetry, dict)
+                else None
+            )
+            if not isinstance(execution, dict):
+                raise BatchError("runner receipt lacks an agent execution receipt")
+            parent_thread_id = execution.get("parent_thread_id")
+            if not isinstance(parent_thread_id, str) or not parent_thread_id:
+                raise BatchError(
+                    "runner receipt lacks a persistent parent thread identity"
+                )
+            if parent_thread_id not in experiment_runners:
+                experiment_runners.add(parent_thread_id)
+                agents.append(
+                    {
+                        "type": "agent.lifecycle",
+                        "provenance": "host",
+                        "scope": "experiment",
+                        "actor_id": parent_thread_id,
+                        "role": "experiment-runner",
+                    }
+                )
+            planned_assignments = execution.get("planned_assignments")
+            observations = execution.get("lifecycle_bindings")
+            if not isinstance(planned_assignments, list) or not isinstance(
+                observations, list
+            ):
+                raise BatchError("runner receipt lacks lifecycle semantic bindings")
+            planned_roles = {
+                item.get("assignment_id"): item.get("role")
+                for item in planned_assignments
+                if isinstance(item, dict)
+            }
+            for observation in observations:
+                if not isinstance(observation, dict):
+                    raise BatchError("runner lifecycle binding must be an object")
+                assignment_id = observation.get("assignment_id")
+                role_observed = observation.get(
+                    "role_observed", observation.get("role")
+                )
+                planned_role = planned_roles.get(assignment_id)
+                if role_observed is not None and role_observed != planned_role:
+                    raise BatchError("runner lifecycle role contradicts its assignment")
+                role = role_observed or planned_role
+                if (
+                    not isinstance(assignment_id, str)
+                    or not assignment_id
+                    or not isinstance(observation.get("actor_id"), str)
+                    or not observation["actor_id"]
+                    or not isinstance(role, str)
+                    or not role
+                ):
+                    raise BatchError("runner lifecycle identity is incomplete")
+                agents.append(
+                    {
+                        "type": "agent.lifecycle",
+                        "provenance": "host",
+                        "scope": "task",
+                        "case_id": receipt["case_id"],
+                        "variant": receipt["variant"],
+                        "assignment_id": assignment_id,
+                        "actor_id": observation["actor_id"],
+                        "role": role,
+                        "parent_id": observation.get("parent_id"),
+                        "delegation_depth": observation.get("delegation_depth"),
+                    }
+                )
         for result in validated["results"]:
             key = f"{result['case_id']}-{result['variant']}"
-            agents.append(
-                {
-                    "case_id": result["case_id"],
-                    "variant": result["variant"],
-                    "agent_telemetry": result.get("agent_telemetry"),
-                }
-            )
+            receipt = receipt_by_key.get((result["case_id"], result["variant"]))
+            if receipt is None:
+                raise BatchError("runner result lacks a matching receipt")
             hidden.append(
                 {
                     "case_id": result["case_id"],
                     "variant": result["variant"],
-                    "exit_code": result.get("hidden_exit"),
-                    "stdout_tail": result.get("hidden_stdout_tail"),
-                    "stderr_tail": result.get("hidden_stderr_tail"),
+                    "check_sha256": receipt.get("hidden_check_sha256"),
+                    "passed": receipt.get("independent_tests_passed"),
                 }
             )
             quality.append(
                 {
                     "case_id": result["case_id"],
                     "variant": result["variant"],
-                    "score": result.get("quality_score"),
-                    "evidence": result.get("quality_evidence"),
-                    "critical_errors": result.get("critical_errors"),
+                    "check_sha256": receipt.get("quality_check_sha256"),
+                    "quality_score": receipt.get("quality_score"),
                 }
             )
             _write_json(
@@ -945,6 +1044,32 @@ def _record_debug_workdir(
     if active.exists():
         active.unlink()
     return receipt
+
+
+def _cleanup_validated_workdir(
+    work_root: Path,
+    pre_cleanup: Mapping[str, Any],
+) -> dict[str, Any]:
+    residual = finalize_workdir(
+        work_root,
+        succeeded=True,
+        retain_debug_workdirs=False,
+    )
+    status = {
+        "pre_cleanup_file_count": pre_cleanup["file_count"],
+        "pre_cleanup_total_bytes": pre_cleanup["total_bytes"],
+        "persistent_file_count": 0,
+        "persistent_total_bytes": 0,
+    }
+    if residual is None:
+        return {"status": "removed-after-validation", **status}
+    if residual["file_count"] or residual["total_bytes"]:
+        raise BatchError("validated workdir cleanup retained material files")
+    return {
+        "status": "empty-directories-accounted-after-bounded-cleanup",
+        **status,
+        "path": residual["path"],
+    }
 
 
 def _load_workdir_receipt(path: Path) -> dict[str, Any]:
@@ -1101,6 +1226,8 @@ def runner_command(
     if config.get("schema_version") == 3:
         command.extend(
             (
+                "--plugin-source",
+                config["plugin_source"],
                 "--source-commit",
                 config["source_commit"],
                 "--source-git-sha256",
@@ -1314,6 +1441,21 @@ def run_batch(
             task_contract=contract_raw,
             controller_protocol=protocol,
         )
+        if analysis.get("schema_version") == 2:
+            receipt_rows = [
+                json.loads(line)
+                for line in (output / "session-receipts.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            normalized_receipts = sorted(
+                (normalize_receipt(item) for item in receipt_rows),
+                key=lambda item: (item["case_id"], item["variant"]),
+            )
+            analysis["receipt_set_sha256"] = _canonical_sha256(normalized_receipts)
+            analysis["analysis_sha256"] = _canonical_sha256(
+                _analysis_binding_from_report(analysis)
+            )
     except (BatchError, ValueError, OSError, json.JSONDecodeError) as error:
         preserve_debug(str(error))
         materialize_invalid_bundle(output, str(error))
@@ -1352,20 +1494,16 @@ def run_batch(
         }
     else:
         try:
-            shutil.rmtree(batch_work_root)
+            status["ephemeral_cleanup"] = _cleanup_validated_workdir(
+                batch_work_root,
+                pre_cleanup,
+            )
             _active_workdir_path(output).unlink()
-        except OSError as error:
+        except (OSError, ValueError) as error:
             preserve_debug(f"successful workdir cleanup failed: {error}")
             raise BatchError(
                 "validated evidence exists but workdir cleanup failed"
             ) from error
-        status["ephemeral_cleanup"] = {
-            "status": "removed-after-validation",
-            "pre_cleanup_file_count": pre_cleanup["file_count"],
-            "pre_cleanup_total_bytes": pre_cleanup["total_bytes"],
-            "persistent_file_count": 0,
-            "persistent_total_bytes": 0,
-        }
     materialize_final_evidence_measurement(output, status)
     validate_compact_evidence(output)
     return status

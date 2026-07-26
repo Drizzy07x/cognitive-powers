@@ -8,6 +8,7 @@ import ctypes
 import errno
 import hashlib
 import importlib.util
+import hmac
 import json
 import os
 import re
@@ -599,6 +600,7 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
         raise WorkStateError(f"ledger is unreadable: {path}: {error}") from error
+    parsed: list[dict[str, Any]] = []
     for line_number, line in enumerate(lines, 1):
         try:
             value = json.loads(line)
@@ -610,7 +612,45 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
             raise WorkStateError(
                 f"ledger line {line_number} is not an event object: {path}"
             )
-        events.append(value)
+        snapshot = value.get("_state_snapshot")
+        if snapshot is not None:
+            if not isinstance(snapshot, dict):
+                raise WorkStateError(f"ledger state snapshot is malformed: {path}")
+            _validate_state_payload(snapshot, path, label="ledger state snapshot")
+        parsed.append(value)
+
+    # Parse and validate the semantic envelope first so diagnostics remain useful,
+    # but never return an event until the complete authenticated chain verifies.
+    key_path = session_dir / ".ledger.key"
+    try:
+        key = bytes.fromhex(key_path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError) as error:
+        raise WorkStateError(
+            f"ledger authentication key is unavailable: {key_path}"
+        ) from error
+    if len(key) != 32:
+        raise WorkStateError(f"ledger authentication key is malformed: {key_path}")
+    previous = "0" * 64
+    for line_number, value in enumerate(parsed, 1):
+        supplied = value.get("_ledger_auth")
+        unsigned = {key: item for key, item in value.items() if key != "_ledger_auth"}
+        canonical = json.dumps(
+            unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        expected = hmac.new(
+            key, previous.encode("ascii") + b"\0" + canonical, hashlib.sha256
+        ).hexdigest()
+        if (
+            not isinstance(supplied, dict)
+            or supplied.get("previous") != previous
+            or not isinstance(supplied.get("digest"), str)
+            or not hmac.compare_digest(supplied["digest"], expected)
+        ):
+            raise WorkStateError(
+                f"ledger line {line_number} fails authenticated hash chain: {path}"
+            )
+        previous = expected
+        events.append(unsigned)
     return events
 
 
@@ -724,6 +764,50 @@ def _apply_state_delta(
     return payload
 
 
+def _ledger_key(session_dir: Path) -> bytes:
+    path = session_dir / ".ledger.key"
+    if path.exists():
+        try:
+            key = bytes.fromhex(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError) as error:
+            raise WorkStateError(
+                f"ledger authentication key is malformed: {path}"
+            ) from error
+        if len(key) != 32:
+            raise WorkStateError(f"ledger authentication key is malformed: {path}")
+        return key
+    key = secrets.token_bytes(32)
+    _atomic_write_text(path, key.hex() + "\n")
+    return key
+
+
+def _encode_ledger_events(session_dir: Path, events: list[dict[str, Any]]) -> str:
+    key = _ledger_key(session_dir)
+    previous = "0" * 64
+    lines: list[str] = []
+    for event in events:
+        unsigned = {
+            name: value for name, value in event.items() if name != "_ledger_auth"
+        }
+        canonical = json.dumps(
+            unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        digest = hmac.new(
+            key, previous.encode("ascii") + b"\0" + canonical, hashlib.sha256
+        ).hexdigest()
+        signed = {
+            **unsigned,
+            "_ledger_auth": {
+                "algorithm": "hmac-sha256",
+                "previous": previous,
+                "digest": digest,
+            },
+        }
+        lines.append(json.dumps(signed, ensure_ascii=False) + "\n")
+        previous = digest
+    return "".join(lines)
+
+
 def _state_sequence(payload: dict[str, Any], label: str) -> int:
     sequence = payload.get("last_seq")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
@@ -765,6 +849,22 @@ def _recover_state_from_events(
             raise WorkStateError(
                 f"ledger line {line_number} has malformed sequence: {ledger_path}"
             )
+        if event.get("_historical_only") is True:
+            if any(
+                name in event
+                for name in (
+                    "_base_seq",
+                    "_state_checkpoint",
+                    "_state_delta",
+                    "_state_sha256",
+                    "_state_snapshot",
+                )
+            ):
+                raise WorkStateError(
+                    f"ledger line {line_number} has malformed historical payload: "
+                    f"{ledger_path}"
+                )
+            continue
         checkpoint = event.get("_state_checkpoint", event.get("_state_snapshot"))
         if checkpoint is not None:
             if not isinstance(checkpoint, dict):
@@ -919,12 +1019,12 @@ def load_state(session_dir: Path) -> dict[str, Any]:
 def _append_ledger(session_dir: Path, event: dict[str, object]) -> None:
     ledger_path = session_dir / "ledger.jsonl"
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    if ledger_path.exists():
-        _recover_state_from_events(session_dir, _read_ledger_events(session_dir))
-    with ledger_path.open("a", encoding="utf-8", newline="\n") as stream:
-        stream.write(json.dumps(event, ensure_ascii=False) + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
+    existing = _read_ledger_events(session_dir) if ledger_path.exists() else []
+    if existing:
+        _recover_state_from_events(session_dir, existing)
+    _atomic_write_text(
+        ledger_path, _encode_ledger_events(session_dir, [*existing, event])
+    )
 
 
 def _compact_ledger_unlocked(
@@ -944,7 +1044,7 @@ def _compact_ledger_unlocked(
     recovered = _recover_state_from_events(session_dir, [checkpoint])
     if recovered is None or _state_digest(recovered) != _state_digest(state):
         raise WorkStateError("compaction recovery verification failed")
-    content = json.dumps(checkpoint, ensure_ascii=False) + "\n"
+    content = _encode_ledger_events(session_dir, [checkpoint])
     _atomic_write_text(session_dir / "ledger.jsonl", content)
     verified = _recover_state_from_events(session_dir, _read_ledger_events(session_dir))
     if verified is None or _state_digest(verified) != _state_digest(state):

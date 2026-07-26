@@ -706,6 +706,7 @@ def build_batch_config(
         "promotion_content_accessed": round_name == "promotion",
         "task_contract": str(task_contract.resolve()),
         "controller_protocol": str(controller_protocol.resolve()),
+        "plugin_source": str(source_root),
         "source_commit": source_git["head"],
         "source_git": source_git,
         "baseline_home": str(baseline_home.resolve()),

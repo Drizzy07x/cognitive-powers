@@ -117,6 +117,61 @@ def red_observation():
 
 
 class OrchestrationPolicyTests(unittest.TestCase):
+    def test_explain_is_deterministic_complete_and_side_effect_free(self) -> None:
+        payload = agent_signals_v2(
+            completed_unit_ids=["done"],
+            units=[
+                unit("done"),
+                unit("eligible", dependencies=["done"]),
+                unit("excluded", ready=False),
+            ],
+        )
+        first = policy.explain_agent_plan(payload)
+        second = policy.explain_agent_plan(payload)
+        self.assertEqual(
+            json.dumps(first, sort_keys=True, separators=(",", ":")),
+            json.dumps(second, sort_keys=True, separators=(",", ":")),
+        )
+        self.assertEqual(first["selected_mode"], first["plan"]["mode"])
+        self.assertEqual(first["units"]["completed"], ["done"])
+        self.assertEqual(first["units"]["eligible"], ["eligible"])
+        self.assertEqual(
+            first["units"]["excluded"], [{"id": "excluded", "reasons": ["not-ready"]}]
+        )
+        self.assertEqual(
+            first["dependencies"], {"done": [], "eligible": ["done"], "excluded": []}
+        )
+        self.assertIn("waves", first)
+        self.assertIn("capacity", first)
+        self.assertIn("signals_consumed", first)
+        self.assertIn("abstentions", first)
+        self.assertIn("pending_gates", first)
+
+    def test_explain_uses_the_real_phase_and_authorization_eligibility(self) -> None:
+        payload = agent_signals_v2(
+            phase="diagnose",
+            request_mode="change",
+            authorization="change",
+            units=[
+                unit(
+                    "writer",
+                    role="executor",
+                    read_only=False,
+                    owned_paths=["src/"],
+                    red_test_possible=True,
+                    red_observation=red_observation(),
+                ),
+                unit("reader-a"),
+                unit("reader-b"),
+            ],
+        )
+        explanation = policy.explain_agent_plan(payload)
+        self.assertNotIn("writer", explanation["units"]["eligible"])
+        self.assertIn(
+            {"id": "writer", "reasons": ["phase-role-filter"]},
+            explanation["units"]["excluded"],
+        )
+
     def test_agent_plan_template_is_versioned_compact_and_executable(self) -> None:
         def discover(version: int) -> subprocess.CompletedProcess[str]:
             return subprocess.run(

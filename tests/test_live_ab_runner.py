@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,6 +22,16 @@ SPEC.loader.exec_module(runner)
 
 
 class LiveAbRunnerTests(unittest.TestCase):
+    def test_cli_help_runs_under_isolated_python(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-I", str(MODULE_PATH), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("usage:", completed.stdout)
+
     @staticmethod
     def _canonical_plan() -> dict[str, object]:
         assignments = []
@@ -902,6 +916,255 @@ class LiveAbRunnerTests(unittest.TestCase):
             self.assertEqual(receipt["total_bytes"], len("diagnose"))
             self.assertTrue(failed.is_dir())
 
+    def test_success_cleanup_retries_when_a_cache_child_disappears(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            volatile = root / "volatile-cache-file.txt"
+            volatile.write_text("temporary", encoding="utf-8")
+            real_rmtree = runner.shutil.rmtree
+            calls = 0
+
+            def flaky_rmtree(path: Path, *, onerror=None) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    volatile.unlink()
+                    raise FileNotFoundError(str(volatile))
+                real_rmtree(path, onerror=onerror)
+
+            with mock.patch.object(runner.shutil, "rmtree", side_effect=flaky_rmtree):
+                self.assertIsNone(
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+                )
+
+            self.assertEqual(calls, 2)
+            self.assertFalse(root.exists())
+
+    def test_success_cleanup_ignores_repeated_missing_cache_children(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            (root / "stable.txt").write_text("temporary", encoding="utf-8")
+            real_rmtree = runner.shutil.rmtree
+            missing_children = [
+                root / f"volatile-cache-file-{index}.txt" for index in range(4)
+            ]
+
+            def churning_rmtree(path: Path, *, onerror=None) -> None:
+                if onerror is None:
+                    raise AssertionError("cleanup must handle missing child callbacks")
+                for missing in missing_children:
+                    try:
+                        missing.stat()
+                    except FileNotFoundError:
+                        onerror(Path.stat, str(missing), sys.exc_info())
+                real_rmtree(path, onerror=onerror)
+
+            with mock.patch.object(
+                runner.shutil, "rmtree", side_effect=churning_rmtree
+            ):
+                self.assertIsNone(
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+                )
+
+            self.assertFalse(root.exists())
+
+    def test_success_cleanup_retries_when_cache_repopulates_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            (root / "stable.txt").write_text("temporary", encoding="utf-8")
+            real_rmtree = runner.shutil.rmtree
+            calls = 0
+
+            def repopulating_rmtree(path: Path, *, onerror=None) -> None:
+                nonlocal calls
+                calls += 1
+                if calls <= 4:
+                    if onerror is None:
+                        raise AssertionError("cleanup must handle directory callbacks")
+                    try:
+                        raise OSError(
+                            errno.ENOTEMPTY,
+                            "directory is not empty",
+                            str(path),
+                        )
+                    except OSError:
+                        onerror(Path.rmdir, str(path), sys.exc_info())
+                    return
+                real_rmtree(path, onerror=onerror)
+
+            with (
+                mock.patch.object(
+                    runner.shutil, "rmtree", side_effect=repopulating_rmtree
+                ),
+                mock.patch.object(runner.time, "sleep") as sleep,
+            ):
+                self.assertIsNone(
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+                )
+
+            self.assertEqual(calls, 5)
+            self.assertEqual(sleep.call_count, 7)
+            self.assertFalse(root.exists())
+
+    def test_success_cleanup_waits_for_recreated_root_to_settle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            (root / "stable.txt").write_text("temporary", encoding="utf-8")
+            real_rmtree = runner.shutil.rmtree
+            calls = 0
+            recreators: list[threading.Thread] = []
+
+            def recreating_rmtree(path: Path, *, onerror=None) -> None:
+                nonlocal calls
+                calls += 1
+                real_rmtree(path, onerror=onerror)
+                if calls == 1:
+
+                    def recreate_once() -> None:
+                        threading.Event().wait(0.02)
+                        cache = root / "plugins" / "cache"
+                        cache.mkdir(parents=True)
+                        (cache / "late.tmp").write_text("late", encoding="utf-8")
+
+                    recreator = threading.Thread(target=recreate_once)
+                    recreators.append(recreator)
+                    recreator.start()
+
+            with mock.patch.object(
+                runner.shutil, "rmtree", side_effect=recreating_rmtree
+            ):
+                self.assertIsNone(
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+                )
+
+            for recreator in recreators:
+                recreator.join()
+            self.assertEqual(calls, 2)
+            self.assertFalse(root.exists())
+
+    def test_success_cleanup_retries_windows_sharing_violation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            (root / "locked.tmp").write_text("temporary", encoding="utf-8")
+            real_rmtree = runner.shutil.rmtree
+            calls = 0
+
+            def locked_rmtree(path: Path, *, onerror=None) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    if onerror is None:
+                        raise AssertionError("cleanup must handle sharing callbacks")
+                    error = PermissionError(
+                        errno.EACCES,
+                        "file is in use",
+                        str(path / "locked.tmp"),
+                    )
+                    error.winerror = 32
+                    try:
+                        raise error
+                    except PermissionError:
+                        onerror(Path.unlink, error.filename, sys.exc_info())
+                    return
+                real_rmtree(path, onerror=onerror)
+
+            with (
+                mock.patch.object(runner.shutil, "rmtree", side_effect=locked_rmtree),
+                mock.patch.object(runner.time, "sleep"),
+            ):
+                self.assertIsNone(
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+                )
+
+            self.assertEqual(calls, 2)
+            self.assertFalse(root.exists())
+
+    def test_success_cleanup_accounts_for_empty_residual_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            (root / "empty" / "cache").mkdir(parents=True)
+
+            with (
+                mock.patch.object(runner.shutil, "rmtree", return_value=None),
+                mock.patch.object(runner.time, "sleep"),
+            ):
+                receipt = runner.finalize_workdir(
+                    root,
+                    succeeded=True,
+                    retain_debug_workdirs=False,
+                )
+
+            self.assertEqual(
+                receipt,
+                {
+                    "path": str(root.resolve()),
+                    "file_count": 0,
+                    "total_bytes": 0,
+                },
+            )
+
+    def test_success_cleanup_rejects_material_residual_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+            (root / "residual.txt").write_text("material", encoding="utf-8")
+
+            with (
+                mock.patch.object(runner.shutil, "rmtree", return_value=None),
+                mock.patch.object(runner.time, "sleep"),
+            ):
+                with self.assertRaisesRegex(
+                    runner.LiveEvaluationError,
+                    "material files remain",
+                ):
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+
+    def test_success_cleanup_propagates_non_transient_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "success"
+            root.mkdir()
+
+            with mock.patch.object(
+                runner.shutil,
+                "rmtree",
+                side_effect=PermissionError("workdir remains locked"),
+            ):
+                with self.assertRaisesRegex(PermissionError, "remains locked"):
+                    runner.finalize_workdir(
+                        root,
+                        succeeded=True,
+                        retain_debug_workdirs=False,
+                    )
+
     def test_task_binding_requires_the_frozen_schedule(self) -> None:
         contract_path = PLUGIN_ROOT / "benchmarks" / "evaluation_tasks.json"
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -1674,6 +1937,23 @@ class LiveAbRunnerTests(unittest.TestCase):
             after = runner.command_identity(["python", str(evaluator)])
             self.assertNotEqual(before["sha256"], after["sha256"])
 
+    def test_command_identity_changes_with_local_transitive_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evaluator = root / "evaluate.py"
+            helper = root / "helper.py"
+            evaluator.write_text(
+                "import helper\nprint(helper.VALUE)\n", encoding="utf-8"
+            )
+            helper.write_text("VALUE = 1\n", encoding="utf-8")
+            before = runner.command_identity(["python", str(evaluator)])
+
+            helper.write_text("VALUE = 2\n", encoding="utf-8")
+            after = runner.command_identity(["python", str(evaluator)])
+
+            self.assertNotEqual(before["sha256"], after["sha256"])
+            self.assertIn(str(helper.resolve()), after["files"])
+
     def test_protected_roots_include_fixture_source_and_installation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1821,6 +2101,49 @@ class LiveAbRunnerTests(unittest.TestCase):
                 runner.LiveEvaluationError, "canonical runtime surface"
             ):
                 runner._candidate_identity(item, home)
+
+    def test_candidate_identity_prefers_explicit_canonical_source(self) -> None:
+        source_git = {
+            "head": "c" * 40,
+            "status_sha256": "e" * 64,
+            "sha256": "f" * 64,
+        }
+        git_patch = mock.patch.object(runner, "git_identity", return_value=source_git)
+        git_patch.start()
+        self.addCleanup(git_patch.stop)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            home = root / "home"
+            installed = home / "plugins" / "cache" / "personal" / "demo" / "1.0"
+            for relative in runner.INSTALLED_SURFACE_DIRECTORIES:
+                (source / relative).mkdir(parents=True)
+                (source / relative / "runtime.txt").write_text(
+                    relative, encoding="utf-8"
+                )
+            for relative in runner.INSTALLED_SURFACE_FILES:
+                target = source / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(relative, encoding="utf-8")
+            installed.parent.mkdir(parents=True)
+            shutil.copytree(source, installed)
+            stale_reported_source = root / "cwd-derived-missing-source"
+            item = {
+                "version": "1.0",
+                "name": "demo",
+                "marketplaceName": "personal",
+                "source": {"path": str(stale_reported_source)},
+            }
+
+            identity = runner._candidate_identity(item, home, canonical_source=source)
+
+            self.assertEqual(identity["source_root"], str(source.resolve()))
+            self.assertEqual(
+                identity["reported_source_root"],
+                str(stale_reported_source.resolve()),
+            )
+            self.assertEqual(identity["source_commit"], source_git["head"])
+            self.assertEqual(identity["source_sha256"], identity["installed_sha256"])
 
     def test_parse_events_requires_provider_usage_and_counts_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

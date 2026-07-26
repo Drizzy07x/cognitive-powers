@@ -48,6 +48,18 @@ class ControllerAbProtocolTests(unittest.TestCase):
         self.assertEqual(design["declared_total_fixture_count"], 80)
         self.assertEqual(design["declared_total_session_count"], 480)
 
+    def test_readme_names_the_current_protocol_and_abstains_from_old_claims(
+        self,
+    ) -> None:
+        protocol_version = self.protocol["protocol_id"].rsplit("-v", 1)[1]
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"Protocol v{protocol_version} freezes", readme)
+        self.assertIn(
+            "Protocols v1-v17 and their incomplete or invalid preflights",
+            readme,
+        )
+        self.assertIn(f"not reusable for v{protocol_version} claims", readme)
+
     def test_modes_categories_and_arms_are_frozen(self) -> None:
         design = self.protocol["design"]
         self.assertEqual(

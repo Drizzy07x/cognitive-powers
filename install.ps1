@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v\d+\.\d+\.\d+$')]
-    [string]$ReleaseRef = "v1.5.2"
+    [string]$ReleaseRef = "v1.6.0"
 )
 
 Set-StrictMode -Version Latest
@@ -80,9 +80,22 @@ function Read-CodexJsonBestEffort {
 
 Assert-Command "gh"
 Assert-Command "codex"
+Assert-Command "python"
 Invoke-Checked "gh" @("auth", "status", "--hostname", "github.com")
 Invoke-Checked "gh" @("auth", "setup-git", "--hostname", "github.com")
 Invoke-Checked "gh" @("api", "repos/$repository/git/ref/tags/$releaseRef", "--silent")
+$releaseCommitRaw = & gh api "repos/$repository/commits/$releaseRef"
+if ($LASTEXITCODE -ne 0) { throw "Unable to resolve immutable release commit for '$releaseRef'." }
+try {
+    $releaseCommitResponse = $releaseCommitRaw | ConvertFrom-Json -ErrorAction Stop
+    $releaseCommit = [string]$releaseCommitResponse.sha
+}
+catch {
+    throw "GitHub returned invalid JSON while resolving '$releaseRef'."
+}
+if ($releaseCommit -notmatch '^[0-9a-f]{40}$') {
+    throw "Release '$releaseRef' did not resolve to a full commit SHA."
+}
 
 $marketplaceState = (& codex plugin marketplace list --json | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0) { throw "Unable to read configured Codex marketplaces." }
@@ -93,7 +106,7 @@ if ($configured.Count -eq 1) {
     $configuredSource = $configured[0].marketplaceSource.source
     $configuredSourceIsPinnedRepository = (
         -not [string]::IsNullOrWhiteSpace($configuredSource) -and
-        $configuredSource -match "^$([regex]::Escape($repository))@v\d+\.\d+\.\d+$"
+        $configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+|[0-9a-f]{40})$"
     )
     if (
         [string]::IsNullOrWhiteSpace($configuredSource) -or
@@ -113,6 +126,31 @@ if (@($duplicates | Group-Object pluginId | Where-Object { $_.Count -gt 1 }).Cou
 }
 if (@($duplicates | Where-Object { -not $_.enabled }).Count -ne 0) {
     throw "A disabled prior installation cannot be restored exactly; refusing to mutate it."
+}
+$previousReleaseCommit = $null
+if ($configured.Count -eq 1) {
+    $configuredSource = [string]$configured[0].marketplaceSource.source
+    if ($configuredSource -match "^$([regex]::Escape($repository))@([0-9a-f]{40})$") {
+        $previousReleaseCommit = $Matches[1]
+    }
+    elseif ($configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+)$") {
+        $previousRef = $Matches[1]
+        $previousCommitRaw = & gh api "repos/$repository/commits/$previousRef"
+        if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the previous immutable release '$previousRef'." }
+        try {
+            $previousReleaseCommit = [string](($previousCommitRaw | ConvertFrom-Json -ErrorAction Stop).sha)
+        }
+        catch {
+            throw "GitHub returned invalid JSON while resolving the previous release."
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($configured[0].root)) {
+        $previousReleaseCommit = (& git -C $configured[0].root rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0) { $previousReleaseCommit = ([string]$previousReleaseCommit).Trim() }
+    }
+    if ($previousReleaseCommit -notmatch '^[0-9a-f]{40}$') {
+        throw "The previous marketplace cannot be bound to an immutable commit; refusing to mutate it."
+    }
 }
 $privatePrevious = @($duplicates | Where-Object { $_.pluginId -eq $pluginId })
 $personalPrevious = @($duplicates | Where-Object { $_.pluginId -eq $personalPluginId })
@@ -154,7 +192,7 @@ try {
         Invoke-Checked "codex" @("plugin", "marketplace", "remove", $marketplace, "--json")
     }
     $mutationStarted = $true
-    Invoke-Checked "codex" @("plugin", "marketplace", "add", $repository, "--ref", $releaseRef, "--json")
+    Invoke-Checked "codex" @("plugin", "marketplace", "add", $repository, "--ref", $releaseCommit, "--json")
     Invoke-Checked "codex" @("plugin", "add", $pluginId, "--json")
 
     $provisionalState = (& codex plugin list --json | ConvertFrom-Json)
@@ -176,14 +214,35 @@ try {
     if ($enabledMatches.Count -ne 1 -or $enabledMatches[0].pluginId -ne $pluginId -or $enabledMatches[0].version -ne $expectedVersion) {
         throw "Expected exactly one enabled '$pluginName' plugin at version '$expectedVersion': '$pluginId'."
     }
+    $installedMarketplaceState = (& codex plugin marketplace list --json | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the installed marketplace root." }
+    $installedMarketplace = @($installedMarketplaceState.marketplaces | Where-Object { $_.name -eq $marketplace })
+    if ($installedMarketplace.Count -ne 1 -or [string]::IsNullOrWhiteSpace($installedMarketplace[0].root)) {
+        throw "Expected exactly one installed marketplace root for '$marketplace'."
+    }
+    $installedMarketplaceRoot = [System.IO.Path]::GetFullPath([string]$installedMarketplace[0].root)
+    $verifier = Join-Path $PSScriptRoot "scripts/verify_installed.py"
+    Invoke-Checked "python" @(
+        $verifier,
+        "--source-root", $installedMarketplaceRoot,
+        "--installed-root", $installedMarketplaceRoot,
+        "--tag", $releaseRef
+    )
 }
 catch {
     $installFailure = $_
     $rollbackSucceeded = -not $mutationStarted
+    $restoredFromRemote = $false
     if ($mutationStarted) {
         [void](Invoke-CodexBestEffort @("plugin", "remove", $pluginId, "--json"))
-        [void](Invoke-CodexBestEffort @("plugin", "marketplace", "remove", $marketplace, "--json"))
-        if ($configured.Count -eq 1 -and $rollbackPrepared) {
+        $targetMarketplaceRemoved = Invoke-CodexBestEffort @("plugin", "marketplace", "remove", $marketplace, "--json")
+        if ($configured.Count -eq 1 -and $null -ne $previousReleaseCommit -and $targetMarketplaceRemoved) {
+            $restoredFromRemote = Invoke-CodexBestEffort @(
+                "plugin", "marketplace", "add", $repository,
+                "--ref", $previousReleaseCommit, "--json"
+            )
+        }
+        if ($configured.Count -eq 1 -and $rollbackPrepared -and -not $restoredFromRemote) {
             [void](Invoke-CodexBestEffort @("plugin", "marketplace", "add", $rollbackMarketplace, "--json"))
         }
         foreach ($previous in $duplicates) {
@@ -216,6 +275,19 @@ catch {
                 if ($restoredMarketplace.Count -ne 1 -or [string]::IsNullOrWhiteSpace($restoredMarketplace[0].root)) {
                     $rollbackSucceeded = $false
                 }
+                elseif ($restoredFromRemote) {
+                    $restoredSource = [string]$restoredMarketplace[0].marketplaceSource.source
+                    $actualRevision = (& git -C $restoredMarketplace[0].root rev-parse HEAD 2>$null)
+                    if ($LASTEXITCODE -ne 0) {
+                        $rollbackSucceeded = $false
+                    }
+                    elseif (
+                        $restoredSource -ne "$repository@$previousReleaseCommit" -or
+                        ([string]$actualRevision).Trim() -ne $previousReleaseCommit
+                    ) {
+                        $rollbackSucceeded = $false
+                    }
+                }
                 else {
                     $expectedRoot = [System.IO.Path]::GetFullPath($rollbackMarketplace)
                     $actualRoot = [System.IO.Path]::GetFullPath($restoredMarketplace[0].root)
@@ -228,7 +300,7 @@ catch {
         }
     }
 
-    if ($rollbackPrepared -and $mutationStarted) { $preserveRollback = $true }
+    if ($rollbackPrepared -and $mutationStarted -and -not $restoredFromRemote) { $preserveRollback = $true }
     $rollbackMessage = if ($rollbackSucceeded -and $preserveRollback) {
         "The previous installation was restored from recovery marketplace '$rollbackMarketplace'; keep that directory for manual recovery until a remote immutable marketplace is re-established."
     }

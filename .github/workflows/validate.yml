@@ -7,37 +7,98 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   offline:
-    name: Offline (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Offline (${{ matrix.os }}, Python ${{ matrix.python }}, Codex ${{ matrix.codex }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.13"]
+        codex: ["0.145.0", "0.146.0-alpha.3.1"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pinned validation dependencies
-        run: python -m pip install -r requirements-dev.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install exact lockfile-backed Codex CLI
+        run: npm ci --prefix "ci/codex-${{ matrix.codex }}" --ignore-scripts --no-audit --no-fund
+      - name: Expose the lockfile-backed Codex executable
+        run: >-
+          python -c "import os; from pathlib import Path; p=(Path('ci')/'codex-${{ matrix.codex }}'/'node_modules'/'.bin').resolve(); Path(os.environ['GITHUB_PATH']).open('a',encoding='utf-8').write(str(p)+'\n')"
+      - name: Install hash-locked validation dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: Exercise the cross-platform hook lock
         run: python -m unittest tests.test_plugin_hooks.PluginHookTests.test_short_lock_contention_does_not_silently_drop_event tests.test_plugin_hooks.PluginHookTests.test_unlocked_residual_lock_file_does_not_block_event
+      - name: Run verify-installed-fixture in a disposable home
+        run: python tests/fixtures/run_verify_installed_fixture.py
       - name: Run the canonical offline validation entrypoint
         id: validation
         run: >-
           python scripts/validate_all.py --offline
           --json-output "${{ runner.temp }}/cognitive-powers-validation.json"
+
+      - name: Install and verify the exact tag in a disposable Codex home
+        id: immutable-install
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $profile = Join-Path "${{ runner.temp }}" "codex-profile"
+          New-Item -ItemType Directory -Force -Path $profile | Out-Null
+          $env:CODEX_HOME = Join-Path $profile ".codex"
+          $env:HOME = $profile
+          $env:USERPROFILE = $profile
+          ./install.ps1 -ReleaseRef "${{ github.ref_name }}"
+          $marketplaceState = codex plugin marketplace list --json | ConvertFrom-Json
+          $entry = @($marketplaceState.marketplaces | Where-Object { $_.name -eq "cognitive-powers" })
+          if ($entry.Count -ne 1) { throw "expected one cognitive-powers marketplace" }
+          $report = & python scripts/verify_installed.py --source-root $entry[0].root --installed-root $entry[0].root --tag "${{ github.ref_name }}"
+          if ($LASTEXITCODE -ne 0) { throw "canonical installed verifier failed" }
+          [IO.File]::WriteAllText(
+            (Join-Path "${{ runner.temp }}" "installation-verification.json"),
+            (($report -join "`n") + "`n"),
+            [Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Build release manifest (first pass)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          python scripts/build_release_manifest.py
+          --tag "${{ github.ref_name }}"
+          --archive "${{ runner.temp }}/release-one.tar"
+          --output "${{ runner.temp }}/release-one.json"
+      - name: Build release manifest (second pass)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          python scripts/build_release_manifest.py
+          --tag "${{ github.ref_name }}"
+          --archive "${{ runner.temp }}/release-two.tar"
+          --output "${{ runner.temp }}/release-two.json"
+      - name: compare-release-builds
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          python -c "from pathlib import Path; import sys; p=Path(r'${{ runner.temp }}'); sys.exit(0 if (p/'release-one.tar').read_bytes()==(p/'release-two.tar').read_bytes() and (p/'release-one.json').read_bytes()==(p/'release-two.json').read_bytes() else 1)"
+
+      - name: Write release archive checksum
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          python -c "from pathlib import Path; import hashlib; p=Path(r'${{ runner.temp }}'); a=p/'release-one.tar'; (p/'release-one.sha256').write_text(hashlib.sha256(a.read_bytes()).hexdigest()+'  release-one.tar\n', encoding='ascii')"
       - name: Verify exact version-tag release identity
         if: startsWith(github.ref, 'refs/tags/')
         run: >-
           python scripts/release_witness.py
           --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
+          --release-manifest "${{ runner.temp }}/release-one.json"
           --output "${{ runner.temp }}/cognitive-powers-release-witness.json"
       - name: Report validation receipt
         id: receipt-report
@@ -45,16 +106,81 @@ jobs:
         run: >-
           python scripts/report_validation_receipt.py
           --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
+      - name: Name receipt for matrix aggregation
+        if: always() && steps.receipt-report.outcome == 'success'
+        run: >-
+          python -c "from pathlib import Path; import shutil; p=Path(r'${{ runner.temp }}'); shutil.copy2(p/'cognitive-powers-validation.json', p/'validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}.json')"
+      - name: Resolve exact Codex CLI version
+        id: codex-version
+        if: always() && steps.receipt-report.outcome == 'success'
+        run: >-
+          python -c "import os,subprocess; from pathlib import Path; r=subprocess.run(['codex','--version'],capture_output=True,text=True,check=True); v=' '.join(r.stdout.split()); assert v; Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8').write('value='+v+'\n')"
+      - name: Exercise real upgrade and rollback with the supported Codex host
+        if: startsWith(github.ref, 'refs/tags/') && steps.immutable-install.outcome == 'success'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          ./scripts/run_real_upgrade_rollback.ps1
+          -ReleaseRef "${{ github.ref_name }}"
+          -OutputDirectory "${{ runner.temp }}/upgrade-rollback"
+      - name: Bind deterministic scenario tests to real lifecycle evidence
+        if: startsWith(github.ref, 'refs/tags/') && steps.immutable-install.outcome == 'success'
+        run: >-
+          python scripts/run_compatibility_scenarios.py
+          --real-evidence "${{ runner.temp }}/upgrade-rollback/upgrade-rollback-evidence.json"
+          --commit "${{ github.sha }}"
+          --tag "${{ github.ref_name }}"
+          --output "${{ runner.temp }}/compatibility-scenario-evidence.json"
+      - name: Produce evidence-bound compatibility receipts
+        if: startsWith(github.ref, 'refs/tags/') && steps.codex-version.outcome == 'success' && steps.immutable-install.outcome == 'success'
+        shell: pwsh
+        run: |
+          $evidencePath = "${{ runner.temp }}/compatibility-scenario-evidence.json"
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $scenarios = @("clean-install")
+          $scenarios += @($evidence.scenarios.PSObject.Properties | Where-Object { $_.Value.passed } | ForEach-Object { $_.Name })
+          foreach ($scenario in $scenarios) {
+            $arguments = @(
+              "scripts/create_compatibility_receipt.py",
+              "--validation", "${{ runner.temp }}/cognitive-powers-validation.json",
+              "--installation", "${{ runner.temp }}/installation-verification.json",
+              "--output", "${{ runner.temp }}/compatibility-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}-$scenario.json",
+              "--os", "${{ matrix.os }}",
+              "--python", "${{ matrix.python }}",
+              "--codex-cli-version", "${{ steps.codex-version.outputs.value }}",
+              "--scenario", $scenario,
+              "--commit", "${{ github.sha }}",
+              "--workflow", "validate.yml",
+              "--run-id", "${{ github.run_id }}",
+              "--run-attempt", "${{ github.run_attempt }}"
+            )
+            if ($scenario -ne "clean-install") {
+              $arguments += @("--scenario-evidence", $evidencePath)
+            }
+            & python @arguments
+            if ($LASTEXITCODE -ne 0) { throw "compatibility receipt failed: $scenario" }
+          }
       - name: Preserve validation receipt
         id: receipt-upload
         if: always() && steps.receipt-report.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: validation-${{ matrix.os }}-py${{ matrix.python }}
+          name: validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}
           path: |
             ${{ runner.temp }}/cognitive-powers-validation.json
+            ${{ runner.temp }}/validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}.json
+            ${{ runner.temp }}/compatibility-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}-*.json
+            ${{ runner.temp }}/upgrade-rollback/upgrade-rollback-evidence.json
+            ${{ runner.temp }}/compatibility-scenario-evidence.json
+            ${{ runner.temp }}/upgrade-rollback/upgrade-installation-verification.json
+            ${{ runner.temp }}/upgrade-rollback/rollback-installation-verification.json
+            ${{ runner.temp }}/installation-verification.json
             ${{ runner.temp }}/cognitive-powers-release-witness.json
+            ${{ runner.temp }}/release-one.tar
+            ${{ runner.temp }}/release-one.json
+            ${{ runner.temp }}/release-one.sha256
           if-no-files-found: error
       - name: Report validation and artifact publication status
         if: always()
@@ -62,3 +188,96 @@ jobs:
           python scripts/report_validation_receipt.py
           --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
           --publication-outcome "${{ steps.receipt-upload.outcome }}"
+
+  aggregate-release-evidence:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: offline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: validation-*
+          path: ${{ runner.temp }}/matrix-evidence
+          merge-multiple: false
+      - name: Require all twelve validation receipts
+        run: >-
+          python -c "from pathlib import Path; import sys; p=Path(r'${{ runner.temp }}/matrix-evidence'); receipts=list(p.rglob('validation-*.json')); sys.exit(0 if len(receipts)==12 else 1)"
+      - name: Aggregate receipts from the twelve successful jobs in this workflow run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t receipts < <(find "${{ runner.temp }}/matrix-evidence" -name 'compatibility-*.json' -type f | sort)
+          test "${#receipts[@]}" -eq 108
+          mapfile -t verified < <(python - "${receipts[@]}" <<'PY'
+          import json, os, sys
+          seen = set()
+          for name in sys.argv[1:]:
+              receipt = json.load(open(name, encoding="utf-8"))
+              identity = receipt.get("identity", {})
+              installation = receipt.get("installation", {})
+              assert identity.get("commit") == os.environ["GITHUB_SHA"]
+              assert identity.get("runId") == os.environ["GITHUB_RUN_ID"]
+              assert identity.get("runAttempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
+              assert installation.get("commit") == os.environ["GITHUB_SHA"]
+              key = (receipt["os"], receipt["python"], receipt["codexCli"], receipt["scenario"])
+              assert key not in seen
+              seen.add(key)
+              print(receipt["receiptSha256"])
+          cells = {(os_name, python, codex) for os_name, python, codex, _scenario in seen}
+          assert len(cells) == 12
+          for cell in cells:
+              scenarios = {scenario for os_name, python, codex, scenario in seen if (os_name, python, codex) == cell}
+              assert {"clean-install", "upgrade-v1.5.2", "rollback"} <= scenarios
+          PY
+          )
+          args=()
+          for digest in "${verified[@]}"; do args+=(--verified-receipt-sha256 "$digest"); done
+          python scripts/build_compatibility_matrix.py --contract compatibility-contract.json --receipts "${receipts[@]}" "${args[@]}" --json-output "${{ runner.temp }}/compatibility-matrix.json" --markdown-output "${{ runner.temp }}/compatibility.md"
+          python - "${{ runner.temp }}/compatibility-matrix.json" <<'PY'
+          import json, sys
+          matrix=json.load(open(sys.argv[1], encoding='utf-8'))
+          assert len(matrix['rows']) == 108
+          assert len({(r['os'],r['python'],r['codexCli'],r['scenario']) for r in matrix['rows']}) == 108
+          assert matrix['summary'] == {'compatible': 108, 'incompatible': 0, 'unknown': 0}
+          PY
+          python scripts/validate_compatibility_matrix.py --matrix "${{ runner.temp }}/compatibility-matrix.json" --contract compatibility-contract.json
+      - name: Verify all twelve release builds and select canonical bytes
+        run: >-
+          python scripts/aggregate_release_artifacts.py
+          --source "${{ runner.temp }}/matrix-evidence"
+          --output "${{ runner.temp }}/release-final"
+          --expected-cells 12
+      - name: Build aggregated release witness
+        run: >-
+          python -c "from pathlib import Path; import subprocess,sys; p=Path(r'${{ runner.temp }}/matrix-evidence'); receipts=sorted(p.rglob('validation-*.json')); manifest=Path(r'${{ runner.temp }}/release-final/release-manifest.json'); raise SystemExit(subprocess.call([sys.executable,'scripts/release_witness.py',*sum((['--receipt',str(r)] for r in receipts),[]),'--release-manifest',str(manifest),'--output',r'${{ runner.temp }}/cognitive-powers-release-witness.json']))"
+      - name: Verify preserved archive checksum after download
+        shell: bash
+        working-directory: ${{ runner.temp }}/release-final
+        run: sha256sum --check cognitive-powers-1.6.0.tar.sha256
+      - name: Attest canonical release archive provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-${{ github.ref_name }}
+          path: |
+            ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar
+            ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar.sha256
+            ${{ runner.temp }}/release-final/release-manifest.json
+            ${{ runner.temp }}/release-final/reproducibility-report.json
+            ${{ runner.temp }}/cognitive-powers-release-witness.json
+            ${{ runner.temp }}/compatibility-matrix.json
+            ${{ runner.temp }}/compatibility.md
+          if-no-files-found: error

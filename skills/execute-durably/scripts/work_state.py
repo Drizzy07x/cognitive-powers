@@ -4,16 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import importlib.util
 import json
 import os
+import random
 import re
-import secrets
-import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
@@ -80,7 +81,22 @@ _state_digest = _DURABILITY_CORE._state_digest
 _state_delta = _DURABILITY_CORE._state_delta
 _atomic_write_recovery = _DURABILITY_CORE._atomic_write_recovery
 _compact_ledger_unlocked = _DURABILITY_CORE._compact_ledger_unlocked
+_encode_ledger_events = _DURABILITY_CORE._encode_ledger_events
 time = _DURABILITY_CORE._durability.time
+_STORAGE_CORE = _DURABILITY_CORE._storage
+_cas_object_path = _STORAGE_CORE._cas_object_path
+_copy_artifact_to_cas = _STORAGE_CORE._copy_artifact_to_cas
+_iter_storage_files = _STORAGE_CORE._iter_storage_files
+inspect_storage = _STORAGE_CORE.inspect_storage
+_session_lock_status = _STORAGE_CORE._session_lock_status
+_collect_cas_references = _STORAGE_CORE._collect_cas_references
+_storage_session_directories = _STORAGE_CORE._storage_session_directories
+garbage_collect_storage = _STORAGE_CORE.garbage_collect_storage
+_EVIDENCE_PAYLOADS = _DURABILITY_CORE._evidence_payloads
+_load_browser_evidence = _EVIDENCE_PAYLOADS._load_browser_evidence
+_load_desktop_evidence = _EVIDENCE_PAYLOADS._load_desktop_evidence
+_load_navigation_evidence = _EVIDENCE_PAYLOADS._load_navigation_evidence
+_load_design_evidence = _EVIDENCE_PAYLOADS._load_design_evidence
 
 
 def save_state_with_event(
@@ -145,407 +161,239 @@ def compact_ledger(session_dir: Path) -> dict[str, object]:
         return report
 
 
-def _cas_object_path(data_root: Path, digest: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise WorkStateError(f"invalid content-addressed digest: {digest!r}")
-    return data_root / "objects" / "sha256" / digest[:2] / digest
-
-
-def _copy_artifact_to_cas(
-    data_root: Path, source: Path, destination: Path
-) -> dict[str, object]:
-    """Materialize one immutable hash-addressed object and reuse its allocation."""
-    digest = _sha256_file(source)
-    size = source.stat().st_size
-    object_path = _cas_object_path(data_root, digest)
-    object_path.parent.mkdir(parents=True, exist_ok=True)
-    deduplicated = object_path.exists()
-    if deduplicated:
-        if (
-            not object_path.is_file()
-            or object_path.is_symlink()
-            or object_path.stat().st_size != size
-            or _sha256_file(object_path) != digest
-        ):
-            raise WorkStateError(
-                f"content-addressed object is corrupt or colliding: {object_path}"
-            )
-    else:
-        temporary = object_path.with_name(
-            f".{object_path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
-        )
-        try:
-            shutil.copyfile(source, temporary)
-            if temporary.stat().st_size != size or _sha256_file(temporary) != digest:
-                raise WorkStateError(f"artifact changed while storing in CAS: {source}")
-            try:
-                os.replace(temporary, object_path)
-            except OSError:
-                if object_path.exists() and _sha256_file(object_path) == digest:
-                    temporary.unlink()
-                    deduplicated = True
-                else:
-                    raise
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                temporary.unlink()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    link_temporary = destination.with_name(
-        f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+def resume_summary(session_dir: Path) -> dict[str, Any]:
+    """Derive a fail-closed resumption summary from the append-only ledger."""
+    events = _read_ledger_events(session_dir)
+    if not events:
+        raise WorkStateError("ledger has no events from which to derive a resumption")
+    snapshot = _latest_ledger_snapshot(session_dir)
+    if snapshot is None:
+        raise WorkStateError("ledger has no valid state snapshot")
+    packets = snapshot.get("work_packets", [])
+    completed = sorted(
+        str(packet["id"])
+        for packet in packets
+        if isinstance(packet, dict) and packet.get("status") == "completed"
     )
-    hardlinked = True
-    try:
-        try:
-            os.link(object_path, link_temporary)
-        except OSError:
-            hardlinked = False
-            shutil.copyfile(object_path, link_temporary)
-        os.replace(link_temporary, destination)
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            link_temporary.unlink()
-    if destination.stat().st_size != size or _sha256_file(destination) != digest:
-        raise WorkStateError(f"CAS materialization failed verification: {destination}")
-    return {
-        "sha256": digest,
-        "bytes": size,
-        "object": str(object_path),
-        "deduplicated": deduplicated,
-        "hardlinked": hardlinked,
+    completed_set = set(completed)
+    runnable = sorted(
+        str(packet["id"])
+        for packet in packets
+        if isinstance(packet, dict)
+        and packet.get("status") in {"planned", "failed"}
+        and all(
+            dependency in completed_set for dependency in packet.get("dependencies", [])
+        )
+    )
+    criteria = {
+        str(item.get("id")): str(item.get("status"))
+        for item in snapshot.get("criteria", [])
+        if isinstance(item, dict)
     }
-
-
-def _iter_storage_files(data_root: Path):
-    if not data_root.exists():
-        return
-
-    def walk_error(error: OSError) -> None:
-        raise WorkStateError(
-            f"cannot enumerate durable storage under {data_root}: {error}"
-        ) from error
-
-    for current, directories, filenames in os.walk(
-        data_root, followlinks=False, onerror=walk_error
-    ):
-        current_path = Path(current)
-        retained = []
-        for directory in sorted(directories):
-            path = current_path / directory
-            if path.is_symlink():
-                raise WorkStateError(
-                    f"durable storage directory cannot be a symlink: {path}"
-                )
-            retained.append(directory)
-        directories[:] = retained
-        for filename in sorted(filenames):
-            path = current_path / filename
-            if path.is_symlink():
-                raise WorkStateError(
-                    f"durable storage file cannot be a symlink: {path}"
-                )
-            if path.is_file():
-                yield path
-
-
-def inspect_storage(data_root: Path, *, largest: int = 10) -> dict[str, object]:
-    if largest < 0:
-        raise WorkStateError("largest directory count must be non-negative")
-    data_root = data_root.expanduser().resolve()
-    directory_totals: dict[Path, list[int]] = {}
-    physical_files: dict[tuple[object, ...], int] = {}
-    file_count = 0
-    logical_bytes = 0
-    for path in _iter_storage_files(data_root) or ():
-        try:
-            stat = path.stat()
-            relative = path.relative_to(data_root)
-        except OSError as error:
-            raise WorkStateError(
-                f"cannot inspect durable file {path}: {error}"
-            ) from error
-        file_count += 1
-        logical_bytes += stat.st_size
-        identity: tuple[object, ...]
-        if stat.st_ino:
-            identity = ("inode", stat.st_dev, stat.st_ino)
-        else:
-            identity = ("path", str(path.resolve()))
-        physical_files.setdefault(identity, stat.st_size)
-        parent = relative.parent
-        while True:
-            totals = directory_totals.setdefault(parent, [0, 0])
-            totals[0] += stat.st_size
-            totals[1] += 1
-            if parent == Path("."):
-                break
-            parent = parent.parent
-    projects_root = data_root / "projects"
-    project_directories = (
-        sorted(
-            path
-            for path in projects_root.iterdir()
-            if path.is_dir() and not path.is_symlink()
-        )
-        if projects_root.is_dir()
-        else []
-    )
-    session_directories = [
-        session
-        for project in project_directories
-        for session in (
-            sorted((project / "sessions").iterdir())
-            if (project / "sessions").is_dir()
-            else []
-        )
-        if session.is_dir() and not session.is_symlink()
-    ]
-    ranked = sorted(
-        (
-            {
-                "path": relative.as_posix(),
-                "bytes": totals[0],
-                "file_count": totals[1],
-            }
-            for relative, totals in directory_totals.items()
-            if relative != Path(".")
-        ),
-        key=lambda item: (-int(item["bytes"]), str(item["path"])),
-    )[:largest]
     return {
         "schema_version": 1,
-        "data_root": str(data_root),
-        "file_count": file_count,
-        "bytes": logical_bytes,
-        "logical_bytes": logical_bytes,
-        "physical_bytes": sum(physical_files.values()),
-        "projects": len(project_directories),
-        "sessions": len(session_directories),
-        "largest_directories": ranked,
+        "source": "ledger",
+        "session_id": snapshot.get("session_id"),
+        "session_status": snapshot.get("status"),
+        "last_seq": snapshot.get("last_seq"),
+        "completed_packet_ids": completed,
+        "runnable_packet_ids": runnable,
+        "criterion_statuses": dict(sorted(criteria.items())),
+        "evidence_fabricated": False,
     }
 
 
-def _session_lock_status(session_dir: Path) -> str | None:
-    lock_path = session_dir / ".state.lock"
-    if not lock_path.exists():
-        return None
-    try:
-        payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        pid = payload.get("pid") if isinstance(payload, dict) else None
-        identity = (
-            payload.get("process_identity") if isinstance(payload, dict) else None
-        )
-    except (OSError, json.JSONDecodeError):
-        return "unreadable-lock"
-    if not isinstance(pid, int) or isinstance(pid, bool):
-        return "unreadable-lock"
-    if _process_matches_identity(
-        pid, identity if isinstance(identity, str) and identity else None
-    ):
-        return "live-lock"
-    return None
-
-
-def _collect_cas_references(session_directories: Sequence[Path]) -> set[str]:
-    references: set[str] = set()
-
-    def visit(value: object) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
+def compact_session(
+    session_dir: Path, bundle_path: Path, *, retain_events: int = 25
+) -> dict[str, Any]:
+    """Export a deterministic recovery bundle before compacting ledger snapshots."""
+    if retain_events < 1:
+        raise WorkStateError("retain_events must be at least one")
+    session_dir = session_dir.resolve()
+    bundle_path = bundle_path.resolve()
+    if _is_within(bundle_path, session_dir):
+        raise WorkStateError("compaction bundle must be outside the session")
+    with session_lock(session_dir):
+        state = load_state(session_dir)
+        events = _read_ledger_events(session_dir)
+        if not events:
+            raise WorkStateError("cannot compact a session without a ledger")
+        temporary = bundle_path.with_name(f".{bundle_path.name}.{os.getpid()}.tmp")
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(
+                temporary, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                for path in sorted(session_dir.rglob("*")):
+                    if (
+                        not path.is_file()
+                        or path.is_symlink()
+                        or path.name in {".state.lock", ".state.lock.guard"}
+                    ):
+                        continue
+                    relative = path.relative_to(session_dir).as_posix()
+                    info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.external_attr = 0o100644 << 16
+                    archive.writestr(info, path.read_bytes())
+            bundle_hash = _sha256_file(temporary)
+            with zipfile.ZipFile(temporary, "r") as archive:
                 if (
-                    key.endswith("cas_sha256")
-                    and isinstance(item, str)
-                    and re.fullmatch(r"[0-9a-f]{64}", item)
+                    archive.testzip() is not None
+                    or "state.json" not in archive.namelist()
+                    or "ledger.jsonl" not in archive.namelist()
                 ):
-                    references.add(item)
-                visit(item)
-        elif isinstance(value, list):
-            for item in value:
-                visit(item)
-
-    for session_dir in session_directories:
-        evidence = session_dir / "evidence"
-        if not evidence.is_dir():
-            continue
-        for path in sorted(evidence.rglob("*.json")):
-            if path.is_symlink() or not path.is_file():
-                continue
-            try:
-                visit(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
-                # Malformed evidence cannot justify collection. Protect every
-                # object hardlinked from the session via link-count checks below.
-                continue
-    return references
-
-
-def _storage_session_directories(data_root: Path) -> list[tuple[Path, Path]]:
-    projects_root = data_root / "projects"
-    if not projects_root.is_dir():
-        return []
-    result: list[tuple[Path, Path]] = []
-    for project in sorted(projects_root.iterdir()):
-        sessions = project / "sessions"
-        if project.is_symlink() or not sessions.is_dir():
-            continue
-        for session in sorted(sessions.iterdir()):
-            if session.is_dir() and not session.is_symlink():
-                result.append((project, session))
-    return result
-
-
-def garbage_collect_storage(
-    data_root: Path,
-    *,
-    older_than_days: float = 30,
-    keep_last: int = 5,
-    apply: bool = False,
-) -> dict[str, object]:
-    if older_than_days < 0:
-        raise WorkStateError("older-than-days must be non-negative")
-    if keep_last < 0:
-        raise WorkStateError("keep-last must be non-negative")
-    data_root = data_root.expanduser().resolve()
-    cutoff = time.time() - (older_than_days * 86400)
-    sessions = _storage_session_directories(data_root)
-    inspected: dict[Path, dict[str, object]] = {}
-    completed_by_project: dict[Path, list[Path]] = {}
-    for project, session_dir in sessions:
-        lock_status = _session_lock_status(session_dir)
-        try:
-            state = load_state(session_dir)
-            status = state.get("status")
-        except WorkStateError as error:
-            inspected[session_dir] = {
-                "decision": "protect",
-                "reason": "unreadable-state",
-                "detail": str(error),
-            }
-            continue
-        if lock_status is not None:
-            inspected[session_dir] = {
-                "decision": "protect",
-                "reason": lock_status,
-            }
-            continue
-        if status != "complete":
-            inspected[session_dir] = {
-                "decision": "protect",
-                "reason": "active-session",
-            }
-            continue
-        completed_by_project.setdefault(project, []).append(session_dir)
-    for project, completed in completed_by_project.items():
-        ordered = sorted(
-            completed,
-            key=lambda path: (path.stat().st_mtime, path.name),
-            reverse=True,
-        )
-        kept = set(ordered[:keep_last])
-        for session_dir in ordered:
-            modified = session_dir.stat().st_mtime
-            if session_dir in kept:
-                decision, reason = "keep", "keep-last"
-            elif modified > cutoff:
-                decision, reason = "keep", "younger-than-age"
-            else:
-                decision, reason = "delete", "age-and-keep-policy"
-            inspected[session_dir] = {
-                "decision": decision,
-                "reason": reason,
-                "mtime": modified,
-            }
-    session_decisions = [{"path": str(path), **inspected[path]} for _, path in sessions]
-    deleted_sessions: list[str] = []
-    if apply:
-        for item in session_decisions:
-            if item["decision"] != "delete":
-                continue
-            session_dir = Path(str(item["path"]))
-            tombstone = session_dir.with_name(
-                f".gc-{session_dir.name}-{secrets.token_hex(8)}"
-            )
-            try:
-                with session_lock(session_dir):
-                    state = load_state(session_dir)
-                    if state.get("status") != "complete":
-                        raise WorkStateError(
-                            f"session became active during collection: {session_dir}"
-                        )
-                    os.replace(session_dir, tombstone)
-                shutil.rmtree(tombstone)
-            except Exception as error:
-                if tombstone.exists() and not session_dir.exists():
-                    with contextlib.suppress(OSError):
-                        os.replace(tombstone, session_dir)
-                if isinstance(error, WorkStateError):
-                    raise
-                raise WorkStateError(
-                    f"failed to collect session {session_dir}: {error}"
-                ) from error
-            deleted_sessions.append(str(session_dir))
-    deleting = {
-        Path(str(item["path"]))
-        for item in session_decisions
-        if item["decision"] == "delete"
-    }
-    retained_sessions = [
-        path for _, path in sessions if path not in deleting and path.exists()
-    ]
-    references = _collect_cas_references(retained_sessions)
-    object_root = data_root / "objects" / "sha256"
-    object_decisions: list[dict[str, object]] = []
-    if object_root.is_dir():
-        for path in sorted(object_root.glob("*/*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            digest = path.name
-            try:
-                stat = path.stat()
-            except OSError as error:
-                raise WorkStateError(
-                    f"cannot inspect CAS object {path}: {error}"
-                ) from error
-            if not re.fullmatch(r"[0-9a-f]{64}", digest):
-                decision, reason = "protect", "malformed-object-name"
-            elif digest in references:
-                decision, reason = "protect", "referenced"
-            elif stat.st_mtime > cutoff:
-                decision, reason = "keep", "younger-than-age"
-            else:
-                decision, reason = "delete", "unreferenced-and-old"
-            object_decisions.append(
+                    raise WorkStateError(
+                        "compaction recovery bundle failed verification"
+                    )
+            os.replace(temporary, bundle_path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        checkpoint = {
+            "seq": state["last_seq"],
+            "at": utc_now(),
+            "event": "compaction_checkpoint",
+            "bundle_sha256": bundle_hash,
+            "retained_events": min(retain_events, len(events)),
+            "_state_snapshot": state,
+        }
+        retained = []
+        for event in events[-retain_events:]:
+            retained.append(
                 {
-                    "sha256": digest,
-                    "path": str(path),
-                    "bytes": stat.st_size,
-                    "decision": decision,
-                    "reason": reason,
+                    name: value
+                    for name, value in event.items()
+                    if name
+                    not in {
+                        "_base_seq",
+                        "_state_checkpoint",
+                        "_state_delta",
+                        "_state_sha256",
+                        "_state_snapshot",
+                    }
                 }
+                | {"_historical_only": True}
             )
-    deleted_objects: list[str] = []
-    if apply:
-        for item in object_decisions:
-            if item["decision"] != "delete":
-                continue
-            path = Path(str(item["path"]))
-            with contextlib.suppress(FileNotFoundError):
-                path.unlink()
-            deleted_objects.append(str(path))
-        if object_root.is_dir():
-            for directory in sorted(object_root.iterdir()):
-                with contextlib.suppress(OSError):
-                    directory.rmdir()
+        content = _encode_ledger_events(session_dir, [checkpoint, *retained])
+        _atomic_write_text(session_dir / "ledger.jsonl", content)
     return {
         "schema_version": 1,
-        "data_root": str(data_root),
-        "mode": "apply" if apply else "dry-run",
-        "applied": apply,
-        "older_than_days": older_than_days,
-        "keep_last": keep_last,
-        "session_decisions": session_decisions,
-        "object_decisions": object_decisions,
-        "deleted_sessions": deleted_sessions,
-        "deleted_objects": deleted_objects,
+        "bundle": str(bundle_path),
+        "bundle_sha256": bundle_hash,
+        "events_before": len(events),
+        "events_after": len(retained) + 1,
+        "last_verifiable_state_retained": True,
+    }
+
+
+def verify_compaction_bundle(bundle_path: Path) -> dict[str, Any]:
+    """Authenticate a historical compaction bundle without trusting its JSON."""
+    bundle_path = bundle_path.resolve()
+    try:
+        with zipfile.ZipFile(bundle_path, "r") as archive:
+            if archive.testzip() is not None:
+                raise WorkStateError("compaction bundle has corrupt members")
+            required = {"state.json", "ledger.jsonl", ".ledger.key"}
+            if not required.issubset(archive.namelist()):
+                raise WorkStateError("compaction bundle lacks authenticated state")
+            with tempfile.TemporaryDirectory() as temporary:
+                extracted = Path(temporary)
+                for name in required:
+                    (extracted / name).write_bytes(archive.read(name))
+                state = load_state(extracted)
+                events = _read_ledger_events(extracted)
+    except (OSError, zipfile.BadZipFile, zlib.error) as error:
+        raise WorkStateError(f"compaction bundle is unreadable: {error}") from error
+    return {
+        "verified": True,
+        "bundle_sha256": _sha256_file(bundle_path),
+        "events": len(events),
+        "last_seq": state["last_seq"],
+    }
+
+
+def run_compaction_fault_injection(
+    session_dir: Path, output_root: Path
+) -> dict[str, Any]:
+    """Exercise real bundle verification and atomic-ledger write boundaries."""
+    boundaries = []
+    for name in ("bundle-write", "bundle-verify", "ledger-replace"):
+        target = output_root / f"fault-{name}.zip"
+        if name == "bundle-write":
+            target.write_bytes(b"partial")
+            try:
+                verify_compaction_bundle(target)
+            except WorkStateError:
+                boundaries.append({"name": name, "failedClosed": True})
+        elif name == "bundle-verify":
+            compact_session(session_dir, target, retain_events=1)
+            data = bytearray(target.read_bytes())
+            data[len(data) // 2] ^= 1
+            target.write_bytes(data)
+            try:
+                verify_compaction_bundle(target)
+            except WorkStateError:
+                boundaries.append({"name": name, "failedClosed": True})
+        else:
+            before = _read_ledger_events(session_dir)
+            interrupted = session_dir / ".ledger.jsonl.injected.tmp"
+            interrupted.write_text("partial", encoding="utf-8")
+            after = _read_ledger_events(session_dir)
+            boundaries.append(
+                {"name": name, "failedClosed": before == after and interrupted.exists()}
+            )
+            interrupted.unlink()
+    return {
+        "passed": all(item["failedClosed"] for item in boundaries),
+        "boundaries": boundaries,
+    }
+
+
+def run_fault_state_machines(*, seed: int, sequences: int = 1000) -> dict[str, Any]:
+    """Exercise deterministic offline models for terminal, dependency, and WAL invariants."""
+    if sequences < 1:
+        raise WorkStateError("sequences must be positive")
+    rng = random.Random(seed)
+    terminal_passed = dependency_passed = wal_passed = True
+    terminal_states = {"completed", "killed", "collected"}
+    for _ in range(sequences):
+        current = "active"
+        for _step in range(rng.randint(1, 20)):
+            proposed = rng.choice(
+                ["active", "failed", "completed", "killed", "collected"]
+            )
+            previous = current
+            if current not in terminal_states:
+                current = proposed
+            if previous in terminal_states and current != previous:
+                terminal_passed = False
+        completed = {item for item in range(5) if rng.choice([True, False])}
+        dependencies = {item: set(range(item)) for item in range(5)}
+        runnable = {
+            item
+            for item in range(5)
+            if item not in completed and dependencies[item].issubset(completed)
+        }
+        dependency_passed &= not bool(runnable.intersection(completed))
+        state_seq = rng.randint(0, 100)
+        snapshots = [rng.randint(0, 100) for _ in range(rng.randint(0, 10))]
+        recovered = max([state_seq, *snapshots])
+        wal_passed &= recovered >= state_seq and all(
+            recovered >= item for item in snapshots
+        )
+    machines = {
+        "terminal-monotonicity": {"passed": terminal_passed, "sequences": sequences},
+        "dependency-resume": {"passed": dependency_passed, "sequences": sequences},
+        "wal-recovery": {"passed": wal_passed, "sequences": sequences},
+    }
+    return {
+        "schema_version": 1,
+        "seed": seed,
+        "sequencesPerMachine": sequences,
+        "machines": machines,
+        "passed": all(item["passed"] for item in machines.values()),
+        "providerCalls": 0,
     }
 
 
@@ -1278,7 +1126,7 @@ def status(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     return payload, 0
 
 
-def compact_session_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+def compact_ledger_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
     session_dir = session_directory(root, data_root, args.session)
@@ -1689,6 +1537,37 @@ def plan_packets(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         "message": f"planned {len(packets)} work packets",
         "session_id": state["session_id"],
         "work_packets": packets,
+    }, 0
+
+
+def resume_session(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Expose the ledger-derived resumption summary through the supported CLI."""
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    return {
+        "message": f"session {sanitize_identifier(args.session, 'session')}: resumable",
+        **resume_summary(session_dir),
+    }, 0
+
+
+def compact_session_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Compact a ledger, optionally exporting a verified recovery bundle first."""
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    if args.bundle is None:
+        return {
+            "message": f"session {sanitize_identifier(args.session, 'session')}: compacted",
+            **compact_ledger(session_dir),
+        }, 0
+    return {
+        "message": f"session {sanitize_identifier(args.session, 'session')}: compacted",
+        **compact_session(
+            session_dir,
+            Path(args.bundle).expanduser(),
+            retain_events=args.retain_events,
+        ),
     }, 0
 
 
@@ -2251,136 +2130,6 @@ def record_artifact(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     }, 0
 
 
-def _load_browser_evidence(
-    path: Path, root: Path
-) -> tuple[dict[str, Any], Path, list[tuple[dict[str, Any], Path]]]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
-        raise WorkStateError(
-            f"browser receipt must be a non-empty regular file: {path}"
-        )
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise WorkStateError(f"browser receipt is not valid JSON: {path}") from error
-    if not isinstance(payload, dict):
-        raise WorkStateError("browser receipt must be a JSON object")
-    stats = payload.get("stats")
-    required_valid = (
-        payload.get("schema_version") == 1
-        and payload.get("type") == "playwright_evidence"
-        and payload.get("provider") == "playwright"
-        and payload.get("commandStarted") is True
-        and payload.get("passed") is True
-        and payload.get("exitCode") == 0
-        and isinstance(stats, dict)
-        and int(stats.get("expected", 0)) >= 1
-        and int(stats.get("unexpected", 0)) == 0
-    )
-    if not required_valid:
-        raise WorkStateError(
-            "browser receipt does not demonstrate a passing Playwright run"
-        )
-    artifact_root_value = payload.get("artifactRoot")
-    if not isinstance(artifact_root_value, str) or not artifact_root_value:
-        raise WorkStateError("browser receipt has no artifact root")
-    artifact_root = Path(artifact_root_value).expanduser().resolve()
-    if not artifact_root.is_dir() or _is_within(artifact_root, root):
-        raise WorkStateError("browser artifact root must be an external directory")
-    declared = payload.get("artifacts")
-    if not isinstance(declared, list) or not declared:
-        raise WorkStateError("browser receipt has no artifact manifest")
-    artifacts: list[tuple[dict[str, Any], Path]] = []
-    for item in declared:
-        if not isinstance(item, dict):
-            raise WorkStateError("browser artifact entry is malformed")
-        relative_value = item.get("path")
-        expected_hash = item.get("sha256")
-        if not isinstance(relative_value, str) or not isinstance(expected_hash, str):
-            raise WorkStateError("browser artifact entry is missing path or hash")
-        relative = Path(relative_value)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise WorkStateError("browser artifact path escapes its artifact root")
-        source = artifact_root / relative
-        if source.is_symlink():
-            raise WorkStateError(f"browser artifact cannot be a symlink: {source}")
-        resolved = source.resolve()
-        if (
-            not _is_within(resolved, artifact_root)
-            or not resolved.is_file()
-            or resolved.stat().st_size <= 0
-        ):
-            raise WorkStateError(f"browser artifact is missing or empty: {source}")
-        if _sha256_file(resolved) != expected_hash:
-            raise WorkStateError(f"browser artifact hash mismatch: {source}")
-        artifacts.append((item, resolved))
-    return payload, artifact_root, artifacts
-
-
-def _load_desktop_evidence(
-    path: Path, root: Path
-) -> tuple[dict[str, Any], Path, list[tuple[dict[str, Any], Path]]]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
-        raise WorkStateError(
-            f"desktop receipt must be a non-empty regular file: {path}"
-        )
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise WorkStateError(f"desktop receipt is not valid JSON: {path}") from error
-    summary = payload.get("summary")
-    required_valid = (
-        payload.get("schema_version") == 1
-        and payload.get("type") == "qcu_desktop_evidence"
-        and payload.get("provider") == "quick-computer-use"
-        and payload.get("realActions") is True
-        and payload.get("objectiveSatisfied") is True
-        and payload.get("focusVerified") is True
-        and payload.get("finished") is True
-        and payload.get("finishReason") == "objective_verified"
-        and isinstance(summary, dict)
-        and int(summary.get("actionCount", 0)) >= 1
-        and int(summary.get("staleFrameCount", -1)) == 0
-        and int(summary.get("busyNoQueueCount", -1)) == 0
-    )
-    if not required_valid:
-        raise WorkStateError(
-            "desktop receipt does not demonstrate verified QCU completion"
-        )
-    artifact_root_value = payload.get("artifactRoot")
-    if not isinstance(artifact_root_value, str) or not artifact_root_value:
-        raise WorkStateError("desktop receipt has no artifact root")
-    artifact_root = Path(artifact_root_value).expanduser().resolve()
-    if not artifact_root.is_dir() or _is_within(artifact_root, root):
-        raise WorkStateError("desktop artifact root must be an external directory")
-    declared = payload.get("artifacts")
-    if not isinstance(declared, list) or not declared:
-        raise WorkStateError("desktop receipt has no artifact manifest")
-    artifacts: list[tuple[dict[str, Any], Path]] = []
-    for item in declared:
-        if not isinstance(item, dict):
-            raise WorkStateError("desktop artifact entry is malformed")
-        relative_value, expected_hash = item.get("path"), item.get("sha256")
-        if not isinstance(relative_value, str) or not isinstance(expected_hash, str):
-            raise WorkStateError("desktop artifact entry is missing path or hash")
-        relative = Path(relative_value)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise WorkStateError("desktop artifact path escapes its artifact root")
-        source = artifact_root / relative
-        if source.is_symlink():
-            raise WorkStateError(f"desktop artifact cannot be a symlink: {source}")
-        resolved = source.resolve()
-        if (
-            not _is_within(resolved, artifact_root)
-            or not resolved.is_file()
-            or resolved.stat().st_size <= 0
-        ):
-            raise WorkStateError(f"desktop artifact is missing or empty: {source}")
-        if _sha256_file(resolved) != expected_hash:
-            raise WorkStateError(f"desktop artifact hash mismatch: {source}")
-        artifacts.append((item, resolved))
-    return payload, artifact_root, artifacts
-
-
 def record_desktop_evidence(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
@@ -2539,67 +2288,6 @@ def record_browser_evidence(args: argparse.Namespace) -> tuple[dict[str, object]
     }, 0
 
 
-def _load_navigation_evidence(
-    path: Path, root: Path
-) -> tuple[dict[str, Any], Path, list[tuple[dict[str, Any], Path]]]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
-        raise WorkStateError(
-            f"navigation receipt must be a non-empty regular file: {path}"
-        )
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise WorkStateError(f"navigation receipt is not valid JSON: {path}") from error
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != 1
-        or payload.get("type") != "skyvern_navigation_evidence"
-        or payload.get("provider") != "skyvern"
-        or payload.get("navigationOnly") is not True
-        or payload.get("verificationEligible") is not False
-        or payload.get("final") is not True
-        or payload.get("discoveryCompleted") is not True
-        or payload.get("status") != "completed"
-    ):
-        raise WorkStateError(
-            "navigation receipt does not demonstrate completed Skyvern discovery"
-        )
-    artifact_root_value = payload.get("artifactRoot")
-    if not isinstance(artifact_root_value, str) or not artifact_root_value:
-        raise WorkStateError("navigation receipt has no artifact root")
-    artifact_root = Path(artifact_root_value).expanduser().resolve()
-    if not artifact_root.is_dir() or _is_within(artifact_root, root):
-        raise WorkStateError("navigation artifact root must be an external directory")
-    declared = payload.get("artifacts")
-    if not isinstance(declared, list) or not declared:
-        raise WorkStateError("navigation receipt has no artifact manifest")
-    artifacts: list[tuple[dict[str, Any], Path]] = []
-    for item in declared:
-        if not isinstance(item, dict):
-            raise WorkStateError("navigation artifact entry is malformed")
-        relative_value = item.get("path")
-        expected_hash = item.get("sha256")
-        if not isinstance(relative_value, str) or not isinstance(expected_hash, str):
-            raise WorkStateError("navigation artifact entry is missing path or hash")
-        relative = Path(relative_value)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise WorkStateError("navigation artifact path escapes its artifact root")
-        source = artifact_root / relative
-        if source.is_symlink():
-            raise WorkStateError(f"navigation artifact cannot be a symlink: {source}")
-        resolved = source.resolve()
-        if (
-            not _is_within(resolved, artifact_root)
-            or not resolved.is_file()
-            or resolved.stat().st_size <= 0
-        ):
-            raise WorkStateError(f"navigation artifact is missing or empty: {source}")
-        if _sha256_file(resolved) != expected_hash:
-            raise WorkStateError(f"navigation artifact hash mismatch: {source}")
-        artifacts.append((item, resolved))
-    return payload, artifact_root, artifacts
-
-
 def record_navigation_evidence(
     args: argparse.Namespace,
 ) -> tuple[dict[str, object], int]:
@@ -2679,60 +2367,6 @@ def record_navigation_evidence(
         "artifacts_copied": len(copied_artifacts),
         "navigation_only": True,
     }, 0
-
-
-def _load_design_evidence(
-    path: Path, root: Path
-) -> tuple[dict[str, Any], Path, list[tuple[dict[str, Any], Path]]]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
-        raise WorkStateError(f"design receipt must be a non-empty regular file: {path}")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise WorkStateError(f"design receipt is not valid JSON: {path}") from error
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schemaVersion") != 1
-        or payload.get("type") != "visual_design_evidence"
-        or payload.get("visualContractPassed") is not True
-        or payload.get("behavioralVerificationEligible") is not False
-        or payload.get("subjectiveQualityProven") is not False
-        or payload.get("mobileCaptured") is not True
-        or payload.get("desktopCaptured") is not True
-        or payload.get("browserPassed") is not True
-    ):
-        raise WorkStateError(
-            "design receipt does not demonstrate a completed visual contract"
-        )
-    artifact_root_value = payload.get("artifactRoot")
-    if not isinstance(artifact_root_value, str) or not artifact_root_value:
-        raise WorkStateError("design receipt has no artifact root")
-    artifact_root = Path(artifact_root_value).expanduser().resolve()
-    if not artifact_root.is_dir() or _is_within(artifact_root, root):
-        raise WorkStateError("design artifact root must be an external directory")
-    declared = payload.get("artifacts")
-    if not isinstance(declared, list) or not declared:
-        raise WorkStateError("design receipt has no artifact manifest")
-    artifacts: list[tuple[dict[str, Any], Path]] = []
-    for item in declared:
-        if not isinstance(item, dict):
-            raise WorkStateError("design artifact entry is malformed")
-        copy_value, expected_hash = item.get("copy"), item.get("sha256")
-        if not isinstance(copy_value, str) or not isinstance(expected_hash, str):
-            raise WorkStateError("design artifact entry is missing path or hash")
-        source = Path(copy_value).expanduser().resolve()
-        if source.is_symlink() or not _is_within(source, artifact_root):
-            raise WorkStateError("design artifact escapes its artifact root")
-        if (
-            not source.is_file()
-            or source.stat().st_size <= 0
-            or _sha256_file(source) != expected_hash
-        ):
-            raise WorkStateError(
-                f"design artifact is missing or hash-mismatched: {source}"
-            )
-        artifacts.append((item, source))
-    return payload, artifact_root, artifacts
 
 
 def record_design_evidence(args: argparse.Namespace) -> tuple[dict[str, object], int]:
@@ -3260,10 +2894,19 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--session", required=True)
     _add_json_flag(status_parser)
 
+    resume_parser = subparsers.add_parser(
+        "resume-summary", help="derive a resumable summary from the verified ledger"
+    )
+    resume_parser.add_argument("--session", required=True)
+    _add_json_flag(resume_parser)
+
     compact_parser = subparsers.add_parser(
-        "compact", help="verify and compact one session ledger"
+        "compact",
+        help="verify and compact one ledger, optionally exporting a recovery bundle",
     )
     compact_parser.add_argument("--session", required=True)
+    compact_parser.add_argument("--bundle")
+    compact_parser.add_argument("--retain-events", type=int, default=25)
     _add_json_flag(compact_parser)
 
     inspect_parser = subparsers.add_parser(
@@ -3280,7 +2923,6 @@ def build_parser() -> argparse.ArgumentParser:
     gc_parser.add_argument("--keep-last", type=int, default=5)
     gc_parser.add_argument("--apply", action="store_true")
     _add_json_flag(gc_parser)
-
     migration_parser = subparsers.add_parser(
         "state-migrate",
         help="inspect the versioned state migration policy without changing state",
@@ -3472,6 +3114,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     handlers = {
         "init": initialize,
         "status": status,
+        "resume-summary": resume_session,
         "compact": compact_session_command,
         "storage-inspect": storage_inspect_command,
         "storage-gc": storage_gc_command,

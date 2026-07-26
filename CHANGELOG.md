@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 - 2026-07-26
+
+- Added a canonical fail-closed installed-tree verifier bound to immutable Git tags, Git attribute normalization, host inventory, and the exact three-skill public surface.
+- Converted the private installer transaction harness into isolated permanent tests covering preflight, source allowlisting, orphan state, rollback, cleanup failure, recovery preservation, and exact success inventory.
+- Upgraded doctor to schema v2 structured findings with read-only durable lock, ledger, state, interrupted-write, provenance, and migration diagnostics.
+- Combined authenticated ledger hash chains with bounded checkpoint/delta recovery, fixed-size recovery state, automatic compaction, verified pre-compaction bundles, and 1,000 seeded sequences for each offline recovery state machine.
+- Added content-addressed evidence storage, deduplicated materialization, bounded inventory, dry-run-first garbage collection, and shared generated-tree exclusions across source identity and copies.
+- Made Graphify probing worktree-bound, structurally validated, incrementally complete, bounded in output, and fail-closed to lexical navigation; generated `graphify-out/` state no longer dirties source or package identity.
+- Split durable storage/evidence validation, integration-evaluation contracts, and live-runner navigation/telemetry/quality helpers into load-safe core modules while preserving public CLI help, JSON, exception, and isolated-Python behavior.
+- Added deterministic planner explanations and ledger-derived resumption summaries that never reschedule completed work packets.
+- Added reproducible tagged archives and release manifests, plus a CI-receipt-derived compatibility matrix that reports every untested combination as unknown.
+- No provider-backed evaluation was run and no end-to-end quality, token, host-version, or live-installation compatibility claim changed.
 
 ## 1.5.2 - 2026-07-24
 

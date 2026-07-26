@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -249,6 +251,111 @@ def local_usage_counter_policy() -> dict[str, Any]:
     }
 
 
+def durable_state_inventory(data_root: Path) -> dict[str, Any]:
+    """Inspect durable sessions without creating, locking, or repairing anything."""
+    root = data_root.expanduser().resolve()
+    findings: list[dict[str, Any]] = []
+
+    def add(code: str, severity: str, path: Path, action: str) -> None:
+        try:
+            evidence = path.relative_to(root).as_posix()
+        except ValueError:
+            evidence = str(path)
+        findings.append(
+            {
+                "code": code,
+                "severity": severity,
+                "evidence": evidence,
+                "recommendedAction": action,
+            }
+        )
+
+    if root.is_dir():
+        durable_path = (
+            Path(__file__).resolve().parents[1]
+            / "skills"
+            / "execute-durably"
+            / "scripts"
+            / "work_state.py"
+        )
+        durable_module = None
+        if durable_path.is_file():
+            spec = importlib.util.spec_from_file_location(
+                "_cognitive_doctor_work_state", durable_path
+            )
+            if spec is not None and spec.loader is not None:
+                durable_module = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = durable_module
+                spec.loader.exec_module(durable_module)
+        for session in sorted(root.glob("projects/*/sessions/*")):
+            if not session.is_dir():
+                continue
+            state_path = session / "state.json"
+            if state_path.exists():
+                try:
+                    if durable_module is None:
+                        raise DoctorError("durable validator is unavailable")
+                    durable_module.state_migration_report(session)
+                    valid = True
+                except (OSError, json.JSONDecodeError, RuntimeError, DoctorError):
+                    valid = False
+                if not valid:
+                    add(
+                        "durable.state-invalid",
+                        "error",
+                        state_path,
+                        "Preserve the session and restore state.json from a verified ledger snapshot.",
+                    )
+            ledger = session / "ledger.jsonl"
+            if ledger.exists():
+                try:
+                    if durable_module is None:
+                        raise DoctorError("durable validator is unavailable")
+                    durable_module._read_ledger_events(session)
+                    valid = True
+                except (OSError, json.JSONDecodeError, RuntimeError, DoctorError):
+                    valid = False
+                if not valid:
+                    add(
+                        "durable.ledger-invalid",
+                        "error",
+                        ledger,
+                        "Preserve the ledger; do not truncate it or fabricate recovery evidence.",
+                    )
+            lock = session / ".state.lock"
+            if lock.exists():
+                try:
+                    lock_value = json.loads(lock.read_text(encoding="utf-8"))
+                    identified = isinstance(lock_value, dict) and isinstance(
+                        lock_value.get("pid"), int
+                    )
+                except (OSError, json.JSONDecodeError):
+                    identified = False
+                if not identified:
+                    add(
+                        "durable.lock-unidentified",
+                        "warning",
+                        lock,
+                        "Confirm no live owner exists before using the documented lock recovery procedure.",
+                    )
+            for residue in sorted(session.glob(".*.tmp")):
+                add(
+                    "durable.write-interrupted",
+                    "warning",
+                    residue,
+                    "Keep the last verified state and inspect this interrupted atomic-write residue manually.",
+                )
+    findings.sort(key=lambda item: (item["code"], item["evidence"]))
+    return {
+        "dataRoot": str(root),
+        "available": root.is_dir(),
+        "migrationPolicy": "forward-only-with-verified-backup",
+        "pendingMigrations": [],
+        "findings": findings,
+        "readOnly": True,
+    }
+
+
 def _declared_path(root: Path, value: str) -> Path:
     path = (root / value).resolve()
     try:
@@ -384,6 +491,12 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
         {
             "name": "controller-ab-batch-runtime",
             "passed": (staged / "scripts" / "controller_ab_batch.py").is_file(),
+        },
+        {
+            "name": "controller-ab-finalizer-runtime",
+            "passed": (
+                staged / "scripts" / "finalize_controller_ab_evidence.py"
+            ).is_file(),
         },
         {
             "name": "controller-ab-home-runtime",
@@ -559,11 +672,21 @@ def build_report(
     validate_installation: bool = False,
     max_package_files: int = DEFAULT_COPY_MAX_FILES,
     max_package_bytes: int = DEFAULT_COPY_MAX_BYTES,
+    data_root: Path | None = None,
 ) -> dict[str, Any]:
     root = root.resolve()
     manifest = _read_object(root / ".codex-plugin" / "plugin.json", "plugin manifest")
+    durable = durable_state_inventory(
+        data_root
+        if data_root is not None
+        else Path(
+            os.environ.get("COGNITIVE_POWERS_DATA")
+            or os.environ.get("PLUGIN_DATA")
+            or Path.home() / ".codex" / "cognitive-powers"
+        )
+    )
     report: dict[str, Any] = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "readOnly": True,
         "plugin": {
@@ -583,6 +706,18 @@ def build_report(
         "optionalProviders": provider_declarations(root),
         "validation": validation_inventory(root),
         "localUsageCounters": local_usage_counter_policy(),
+        "identity": {
+            "product": manifest.get("name"),
+            "version": manifest.get("version"),
+            "tag": f"v{manifest.get('version')}",
+        },
+        "installation": {
+            "root": str(root),
+            "origin": "checkout-or-installed-tree",
+            "hostMetadataAllowed": sorted(HOST_METADATA_FILES),
+        },
+        "durableState": durable,
+        "findings": durable["findings"],
     }
     if validate_installation:
         report["installationValidation"] = validate_release_installation(
@@ -622,6 +757,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--data-root", type=Path)
     parser.add_argument(
         "--validate-installation",
         action="store_true",
@@ -640,6 +776,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_installation=args.validate_installation,
             max_package_files=args.max_package_files,
             max_package_bytes=args.max_package_bytes,
+            data_root=args.data_root,
         )
     except (DoctorError, StoragePolicyError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))

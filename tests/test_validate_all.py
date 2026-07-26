@@ -39,6 +39,50 @@ def command_result(command, category: str, *, passed: bool = True):
 
 
 class ValidateAllTests(unittest.TestCase):
+    def test_node_modules_do_not_change_receipt_or_witness_source_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "source.py").write_text("value = 1\n", encoding="utf-8")
+            before = validator.source_identity(root)
+            witness_before = [
+                path.relative_to(root)
+                for path in release_witness.iter_release_files(root)
+            ]
+            dependency = root / "ci" / "host" / "node_modules" / "package"
+            dependency.mkdir(parents=True)
+            (dependency / "index.js").write_text("noise\n", encoding="utf-8")
+            self.assertEqual(validator.source_identity(root), before)
+            self.assertEqual(
+                [
+                    path.relative_to(root)
+                    for path in release_witness.iter_release_files(root)
+                ],
+                witness_before,
+            )
+
+    def test_verify_installed_gate_uses_only_an_isolated_fixture_home(self) -> None:
+        command = next(
+            item
+            for item in validator.OFFLINE_COMMANDS
+            if item.name == "verify-installed-fixture"
+        )
+        self.assertEqual(
+            command.argv, ("tests/fixtures/run_verify_installed_fixture.py",)
+        )
+        fixture = (PLUGIN_ROOT / command.argv[0]).read_text(encoding="utf-8")
+        for variable in ("CODEX_HOME", "HOME", "USERPROFILE"):
+            self.assertIn(variable, fixture)
+        self.assertIn("rev-parse", fixture)
+        self.assertIn("^{{commit}}", fixture)
+        self.assertIn("json.loads", fixture)
+
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("verify-installed-fixture", workflow)
+
     def test_targeted_unittest_modules_are_importable(self) -> None:
         targeted_modules = next(
             command.argv[2:]
@@ -53,7 +97,7 @@ class ValidateAllTests(unittest.TestCase):
                 )
 
     def test_ci_installs_pinned_validation_dependencies(self) -> None:
-        requirements_path = PLUGIN_ROOT / "requirements-dev.txt"
+        requirements_path = PLUGIN_ROOT / "requirements-dev.in"
         requirements = requirements_path.read_text(encoding="utf-8").splitlines()
         declared = [
             line.strip()
@@ -65,15 +109,18 @@ class ValidateAllTests(unittest.TestCase):
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("python -m pip install -r requirements-dev.txt", workflow)
+        install_command = (
+            "python -m pip install --require-hashes -r requirements-dev.txt"
+        )
+        self.assertIn(install_command, workflow)
         self.assertLess(
-            workflow.index("python -m pip install -r requirements-dev.txt"),
+            workflow.index(install_command),
             workflow.index("python scripts/validate_all.py --offline"),
         )
 
         readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(
-            "& $python -m pip install -r requirements-dev.txt",
+            "& $python -m pip install --require-hashes -r requirements-dev.txt",
             readme,
         )
 
@@ -103,9 +150,24 @@ class ValidateAllTests(unittest.TestCase):
             lock_slice,
         )
         self.assertNotIn("secrets.", workflow)
-        for release_command in ("gh release", "npm publish", "codex plugin"):
+        for release_command in ("gh release", "npm publish"):
             with self.subTest(command=release_command):
                 self.assertNotIn(release_command, workflow)
+        install_step = workflow.index(
+            "- name: Install and verify the exact tag in a disposable Codex home"
+        )
+        release_step = workflow.index("- name: Build release manifest (first pass)")
+        install_slice = workflow[install_step:release_step]
+        self.assertIn("startsWith(github.ref, 'refs/tags/')", install_slice)
+        self.assertLess(
+            install_slice.index("$env:CODEX_HOME"), install_slice.index("codex plugin")
+        )
+        self.assertLess(
+            install_slice.index("$env:HOME"), install_slice.index("codex plugin")
+        )
+        self.assertLess(
+            install_slice.index("$env:USERPROFILE"), install_slice.index("codex plugin")
+        )
 
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(

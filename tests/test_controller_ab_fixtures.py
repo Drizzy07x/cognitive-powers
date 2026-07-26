@@ -314,6 +314,7 @@ class ControllerABFixtureTests(unittest.TestCase):
                 reasoning_effort="medium",
             )
             self.assertEqual(config["schema_version"], 3)
+            self.assertEqual(config["plugin_source"], str(PLUGIN_ROOT.resolve()))
             self.assertEqual(len(config["source_commit"]), 40)
             self.assertEqual(config["source_git"]["head"], config["source_commit"])
             self.assertEqual(len(config["source_git"]["sha256"]), 64)

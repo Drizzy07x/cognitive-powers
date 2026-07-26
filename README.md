@@ -35,6 +35,11 @@ packet through the packaged runtime:
 & $python scripts/orchestration_policy.py --agent-plan <plan.json> --json
 ```
 
+Use `--explain-agent-plan <plan.json>` for the same deterministic decision with
+eligible, excluded, and completed units; dependencies and waves; reserved
+capacity; consumed signals; reasons, abstentions, and pending gates. Explain is
+read-only: it does not create state, launch agents, or call providers.
+
 The versioned `agent_plan` contract reports its mode, content-bound plan and
 assignment IDs, ordered dependency waves, permissions, abstentions, retry
 record, stop conditions, and receipt policy. Version 2 requires executable RED
@@ -72,7 +77,7 @@ The broader Cognitive Powers surface includes:
 
 - A typed context pipeline with ordered providers and processors, strict character budgets, per-item inclusion receipts, and deterministic lint for duplicates, contradictions, expiry, and unused context.
 - A routing benchmark for every installed skill with positive, negative-owner, adversarial-pressure, rank-1, top-k, and collision cases without claiming end-to-end model improvement.
-- Provider-neutral semantic navigation across an existing fresh CodeGraph index, an existing fresh Graphify export, or bounded lexical fallback.
+- Provider-neutral semantic navigation across an existing fresh CodeGraph index, a worktree-bound, structurally healthy, incrementally complete Graphify export, or bounded lexical fallback. Graphify probes expose counts and bounded diagnostics rather than the graph payload.
 - Demand-only, project-scoped memory through native JSON or SQLite stores and an optional existing memU CLI, with source hashes, timestamps, confidence, expiry, supersession, snapshots, and guarded undo.
 - An evidence-bound capability lifecycle: `observed`, `candidate`, `trial`, `active`, and `retired`, with distinct events, immutable checks, approval, implementation fingerprints, and rollback evidence.
 - A reproducible research skill with frozen pre-registration, confirmatory/exploratory separation, claim-to-evidence binding, dead ends, pivots, and an independent verdict.
@@ -104,7 +109,7 @@ The broader Cognitive Powers surface includes:
 - Typed `record-navigation` receipts that remain explicitly ineligible as behavioral verification.
 - Optional version-aware Context7 retrieval for current external library and API documentation.
 - Compact hierarchical project maps for placing useful `AGENTS.md` guidance without duplicating the tree.
-- Durable external work state with atomic writes, an append-only ledger, source fingerprints, and resumable criteria.
+- Durable external work state with atomic writes, an authenticated checkpoint/delta ledger, fixed-size recovery state, source fingerprints, and resumable criteria.
 - Dependency-aware work packets with exclusive path ownership, immutable argv checks, owned-path fingerprints, and an integration gate that remains separate from completion.
 - A strict Markdown-to-work-packet compiler that rejects incomplete sections, shell-string checks, unsafe paths, ownership overlap, unknown dependencies, and cycles before state changes.
 - Narrow executor, test-writer, and read-only verifier role contracts without fixed model versions; assignments carry objective, context, ownership, permissions, checks, and stop conditions, while worker results require actual command exits, blockers, and risks. Repository TOML agents improve development while installed-plugin workflows retain the same roles through skill instructions.
@@ -128,18 +133,21 @@ Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers
 
 ## Install from the private GitHub repository
 
+The commands in this section are release-facing. Before an exact `v1.6.0` tag
+exists, immutable tag preflight intentionally fails without changing the profile.
+
 The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.5.2' -H "Accept: application/vnd.github.raw+json" | Out-String)))
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.6.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, preflights the requested immutable tag, creates a local recovery copy before any removal, replaces the `cognitive-powers` marketplace with `v1.5.2`, removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.5.2` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.6.0` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.6.0` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
 
-To roll back immutably to 1.5.1, run the audited 1.5.2 installer with the prior tag. The same recovery transaction protects the currently installed release:
+To roll back immutably to 1.5.2, run the audited 1.6.0 installer with the prior tag. The same recovery transaction protects the currently installed release:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.5.2' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.5.1
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.6.0' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.5.2
 ```
 
 ## Update the local development installation
@@ -170,6 +178,48 @@ To validate the release layout without publishing, package and inspect a disposa
 
 The temporary package is deleted after inspection. This validates installation structure only; it is not an installed-host or marketplace test.
 
+For an explicitly authorized installed copy, verify every tagged blob with Git
+attribute normalization, the commit-pinned marketplace, exact enabled plugin
+inventory, and the three-skill public surface:
+
+```powershell
+& $python scripts/verify_installed.py --source-root . `
+  --installed-root <isolated-installed-root> --tag v1.6.0
+```
+
+Exit codes distinguish identity (`10`), content (`11`), inventory (`12`), and
+host CLI (`13`) failures. CI never points this verifier at a real user profile;
+its integration gate sets `CODEX_HOME`, `HOME`, and `USERPROFILE` to one
+disposable fixture home and parses the JSON report by invariants.
+
+## Durable resume and compaction
+
+The supported durable CLI derives resume data from the verified ledger rather
+than free-form text. Compaction first writes and verifies a deterministic bundle
+outside the session, then atomically retains a checkpoint and at least one event:
+
+```powershell
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> resume-summary --session <id> --json
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> compact --session <id> `
+  --bundle <external-bundle.zip> --retain-events 25 --json
+```
+
+Completed packets are never returned as runnable. Corrupt ledgers and invalid
+bundle boundaries fail closed; compaction never deletes the last verifiable
+state or performs a destructive schema downgrade.
+
+## Release and compatibility evidence
+
+`scripts/build_release_manifest.py` accepts only an exact single tag at its
+commit and binds the archive digest, every tracked file, CI OS/Python axes, and
+the public skills/hooks surface. Tag CI rebuilds twice and compares manifests
+and archive bytes before preserving candidate assets; it does not publish a
+release. `compatibility-matrix.json` and `docs/compatibility.md` are generated
+only from validated CI receipts. The current matrix contains no receipts, so all
+108 combinations are `unknown`; none is claimed compatible.
+
 ## Capability matrix
 
 | Surface | Default offline | Optional dependency | May consume credits | Requires a real app or host for a live claim |
@@ -188,7 +238,7 @@ The temporary package is deleted after inspection. This validates installation s
 
 Claims about the adaptive controller require paired runs of the same Cognitive Powers build with `controller_mode=forced-solo` and `controller_mode=adaptive`; Codex base is an exploratory comparison, not the causal control. The versioned protocol freezes model, reasoning effort, prompt, tools, permissions, slots, fixture and Git identity, task version, evaluator identities, and balanced arm order. It uses four expected modes across five categories: bug fixing, multi-file implementation, current-source research, delivery verification, and real-host interaction.
 
-Protocol v7 also freezes the persistent parent-thread host identity, explicitly enables native multi-agent support, and binds one immutable complete plan to persistent parent/child rollouts and their observed usage. The evaluated runtime receives opaque fixture IDs and no benchmark manifest, expected mode, category, split, hidden check, or evaluator route. Read-only assignments may declare path ownership as a bounded read scope, but their pre-evaluator diff must remain empty. `selected_mode` is a planning decision; `executed_mode` is populated only from host-backed execution evidence. A missing thread, unknown rollout schema, missing descendant usage, unrelated child, declared-but-unobserved agent, unbound lifecycle identifier, replacement plan, non-canonical plan, or evaluation-label leak invalidates the experiment. Protocols v1-v6 and their incomplete or invalid preflights are historical evidence only and are not reusable for v7 claims.
+Protocol v18 freezes the persistent parent-thread host identity, explicitly enables native multi-agent support, and binds one immutable complete plan to persistent parent/child rollouts and their observed usage. The evaluated runtime receives opaque fixture IDs and no benchmark manifest, expected mode, category, split, hidden check, or evaluator route. Read-only assignments may declare path ownership as a bounded read scope, but their pre-evaluator diff must remain empty. `selected_mode` is a planning decision; `executed_mode` is populated only from host-backed execution evidence. A missing thread, unknown rollout schema, missing descendant usage, unrelated child, declared-but-unobserved agent, unbound lifecycle identifier, replacement plan, non-canonical plan, or evaluation-label leak invalidates the experiment. Protocols v1-v17 and their incomplete or invalid preflights are historical evidence only and are not reusable for v18 claims.
 
 - Pilot: 20 unique fixtures, three repetitions per arm, for 120 provider sessions.
 - Promotion: 60 new held-out fixtures, three repetitions per arm, for 360 provider sessions.
@@ -218,20 +268,36 @@ and run the resumable schedule:
 ```powershell
 & $python scripts/prepare_controller_ab_homes.py --source-home <codex-home> --plugin-source . --output-root <private-homes-root> --model <model> --reasoning-effort <effort>
 & $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-pilot-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --round pilot --output <private-pilot-config.json>
+& $python scripts/controller_ab_batch.py --config <private-pilot-config.json> --output <private-preflight-evidence-root> --preflight
 & $python scripts/controller_ab_batch.py --config <private-pilot-config.json> --output <private-pilot-evidence-root>
 & $python scripts/controller_ab_fixtures.py materialize --round promotion --output-root <empty-absolute-private-promotion-root>
 & $python scripts/controller_ab_fixtures.py validate --round promotion --materialized-root <private-promotion-root>
 & $python scripts/controller_ab_fixtures.py write-batch-config --materialized-root <private-promotion-root> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --baseline-home <baseline-home> --candidate-home <candidate-home> --model <model> --reasoning-effort <effort> --round promotion --output <private-promotion-config.json>
 & $python scripts/controller_ab_batch.py --config <private-promotion-config.json> --output <private-promotion-evidence-root>
+& $python scripts/finalize_controller_ab_evidence.py --coordinator-output <private-pilot-evidence-root> --coordinator-output <private-promotion-evidence-root> --bundle-output <private-confirmatory-bundle-root> --verifier-receipt <host-independent-verifier-receipt.json> --task-contract benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json
+& $python scripts/integration_evaluation.py --receipts <private-confirmatory-bundle-root>/session-receipts.jsonl --tasks benchmarks/evaluation_tasks.json --controller-protocol benchmarks/controller_ab_protocol.json --artifact-index <private-confirmatory-bundle-root>/sha256-index.json
 ```
 
 The pilot and promotion use physically distinct roots and batch configurations.
-Do not materialize the promotion root until the pilot has passed its blinded
+Each schema-v3 batch configuration freezes the absolute canonical plugin source;
+the coordinator re-reads its clean Git identity and the runner compares both
+installed caches against that source instead of trusting Codex's reported
+source path.
+On Windows, use a short external `--work-root`. If the host downgrades
+`workspace-write` to read-only, the mutation preflight is invalid; only an
+explicitly authorized, newly frozen `--bypass-sandbox` configuration may retry
+it.
+Verify that preflight completed before starting the scored pilot. Do not
+materialize the promotion root until the pilot has passed its blinded
 instrumental gate; this keeps held-out fixtures unavailable to pilot execution
-and debugging. The batch journal never automatically retries an interrupted provider job;
-the operator must inspect it first to avoid duplicate calls. Full receipts and
-events remain private, while a public report may contain only sanitized metrics
-and their immutable hashes.
+and debugging. The independent verifier receipt must declare host provenance,
+an experiment-verifier identity distinct from every experiment runner, a
+confirmed independent verdict, and the exact sorted SHA-256 values of both
+coordinator indexes. The finalizer validates and preserves both source roots,
+then creates a separate deterministic combined bundle. The batch journal never
+automatically retries an interrupted provider job; the operator must inspect it
+first to avoid duplicate calls. Full receipts and events remain private, while
+a public report may contain only sanitized metrics and their immutable hashes.
 
 ## Live evidence limitations
 
@@ -246,7 +312,7 @@ Set `$python` to a working Python 3 executable. In Codex desktop, use the Python
 Install the exact validation dependency set before invoking the canonical entrypoint:
 
 ```powershell
-& $python -m pip install -r requirements-dev.txt
+& $python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
 Run the complete declared offline surface with one command. The JSON receipt must be outside the plugin root so it does not dirty or alter the source identity being validated:
@@ -272,7 +338,7 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python --version
 & $python scripts/validate_skills.py
 & $python scripts/validate_skills.py --strict-quality
-& $python -m unittest tests.test_live_ab_runner tests.test_controller_ab_protocol tests.test_controller_ab_fixtures tests.test_controller_ab_batch
+& $python -m unittest tests.test_live_ab_runner tests.test_controller_ab_protocol tests.test_controller_ab_fixtures tests.test_controller_ab_batch tests.test_controller_ab_evidence
 & $python -m unittest discover -s tests -v
 & $python -m ruff check .
 & $python -m ruff format --check .
@@ -292,6 +358,8 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python scripts/integration_adapters.py all
 & $python scripts/integration_evaluation.py --receipts benchmarks/integration_evaluation_cases.json
 & $python skills/execute-durably/scripts/work_state_core/mutation_probe.py --root .
+& $python tests/fixtures/run_verify_installed_fixture.py
+& $python scripts/build_compatibility_matrix.py --contract compatibility-contract.json --json-output compatibility-matrix.json --markdown-output docs/compatibility.md --check
 & $python scripts/doctor.py --validate-installation --json
 ```
 

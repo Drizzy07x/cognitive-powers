@@ -431,6 +431,122 @@ class IntegrationEvaluationTests(unittest.TestCase):
             evaluation.normalize_receipt(receipt)["agent_execution_claim_eligible"]
         )
 
+    def test_normalized_observation_uses_planned_role_when_host_role_is_absent(
+        self,
+    ) -> None:
+        identity = evaluation.load_controller_protocol(
+            PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
+        )
+        receipt = self._v2_pair(
+            self._task_id("pilot", "staged-verify", "bug-fix"), 1, live=True
+        )[0]
+        assignment = {
+            "assignment_id": "verify-1",
+            "unit_id": "fresh-verifier",
+            "role": "verifier",
+            "wave_index": 0,
+            "wave_kind": "verification",
+            "wave_parallel": False,
+            "dependencies": [],
+            "ownership": [],
+            "permissions": "read-only",
+            "delegation_depth": 1,
+            "may_spawn": False,
+            "may_verify_parent": False,
+        }
+        binding = {
+            "assignment_id": "verify-1",
+            "actor_id": "actor-verifier",
+            "role_observed": None,
+            "parent_id": "thread-1",
+            "delegation_depth": 1,
+        }
+        receipt.update(
+            {
+                "fixture_git_sha256": "b" * 64,
+                "experiment_sha256": "c" * 64,
+                "hidden_check_sha256": "d" * 64,
+                "quality_check_sha256": "e" * 64,
+                "allowed_changes_sha256": "f" * 64,
+                "pre_evaluation_diff_sha256": "1" * 64,
+                "controller_protocol_sha256": identity["sha256"],
+                "controller_protocol_id": identity["protocol_id"],
+                "agent_slots": 4,
+                "controller_mode": "forced-solo",
+                "host_identity": {
+                    "version": "codex-test",
+                    "executable_sha256": "2" * 64,
+                    "features": {"multi_agent": True},
+                    "persistent_parent_thread": True,
+                },
+                "agent_telemetry": {
+                    "schema_version": 3,
+                    "controller_mode": "forced-solo",
+                    "spawn_count": 1,
+                    "join_count": 1,
+                    "complete": True,
+                    "actual_mode": "staged-verify",
+                    "observed_assignments": [binding],
+                    "agent_execution_receipt": {
+                        "schema_version": 3,
+                        "complete": True,
+                        "selected_mode": "staged-verify",
+                        "executed_mode": "staged-verify",
+                        "outcome": "completed",
+                        "parent_thread_id": "thread-1",
+                        "planned_assignment_ids": ["verify-1"],
+                        "planned_assignments": [assignment],
+                        "lifecycle_bindings": [binding],
+                        "semantic_binding": True,
+                        "spawned_assignment_ids": ["verify-1"],
+                        "joined_assignment_ids": ["verify-1"],
+                        "result_assignment_ids": ["verify-1"],
+                        "descendant_usage": {
+                            "verify-1": {
+                                "input_tokens": 1,
+                                "cached_input_tokens": 0,
+                                "output_tokens": 1,
+                            }
+                        },
+                    },
+                    "workspace_change_check": {
+                        "changed_paths": [],
+                        "allowed_paths": [],
+                        "read_only_unchanged": True,
+                        "provenance": "pre-evaluator-tree-diff",
+                    },
+                },
+            }
+        )
+
+        normalized = evaluation.normalize_receipt(receipt)
+        self.assertEqual(
+            normalized["agent_telemetry"]["observed_assignments"][0]["role"],
+            "verifier",
+        )
+        receipt["agent_telemetry"]["observed_assignments"][0]["role_observed"] = (
+            "executor"
+        )
+        with self.assertRaisesRegex(evaluation.EvaluationError, "observed role"):
+            evaluation.normalize_receipt(receipt)
+
+    def test_cli_accepts_coordinator_jsonl_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            receipts = Path(temporary) / "session-receipts.jsonl"
+            receipts.write_text(
+                "".join(
+                    json.dumps(item, sort_keys=True) + "\n" for item in self.receipts
+                ),
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = evaluation.main(
+                    ["--receipts", str(receipts), "--minimum-live-pairs", "1"]
+                )
+        self.assertEqual(exit_code, 0, output.getvalue())
+        self.assertEqual(len(json.loads(output.getvalue())["pairs"]), 1)
+
     def test_verifier_compliance_uses_observed_actor_identity(self) -> None:
         assignments = [
             {
@@ -583,8 +699,11 @@ class IntegrationEvaluationTests(unittest.TestCase):
                 "protocol_id": protocol["protocol_id"],
                 "controller_protocol_sha256": protocol["sha256"],
                 "evidence_root_sha256": evidence_root,
+                "independent": True,
                 "verifier_id": "fresh-verifier",
+                "verifier_receipt_sha256": "a" * 64,
                 "executor_ids": ["experiment-runner"],
+                "coordinator_index_sha256s": ["b" * 64],
             }
             verdict_path = root / "independent-verdict.json"
             verdict_path.write_text(json.dumps(verdict), encoding="utf-8")
@@ -635,6 +754,28 @@ class IntegrationEvaluationTests(unittest.TestCase):
             "actor_id": "experiment-runner",
             "role": "experiment-runner",
         }
+        verdict = {
+            "executor_ids": ["experiment-runner"],
+            "verifier_id": "experiment-verifier",
+        }
+        self.assertEqual(
+            evaluation._validate_host_actor_binding(
+                expected, [task_event, runner_event], verdict
+            ),
+            1,
+        )
+        extra = {**task_event, "assignment_id": "undeclared"}
+        with self.assertRaisesRegex(evaluation.EvaluationError, "lifecycle"):
+            evaluation._validate_host_actor_binding(
+                expected, [task_event, extra, runner_event], verdict
+            )
+        invalid_runner = {**runner_event, "actor_id": None}
+        with self.assertRaisesRegex(evaluation.EvaluationError, "host-backed"):
+            evaluation._validate_host_actor_binding(
+                expected,
+                [task_event, invalid_runner],
+                {**verdict, "executor_ids": [None]},
+            )
         verifier_event = {
             "type": "agent.lifecycle",
             "provenance": "host",
@@ -642,33 +783,10 @@ class IntegrationEvaluationTests(unittest.TestCase):
             "actor_id": "experiment-verifier",
             "role": "experiment-verifier",
         }
-        verdict = {
-            "executor_ids": ["experiment-runner"],
-            "verifier_id": "experiment-verifier",
-        }
-        self.assertEqual(
-            evaluation._validate_host_actor_binding(
-                expected, [task_event, runner_event, verifier_event], verdict
-            ),
-            1,
-        )
-        extra = {**task_event, "assignment_id": "undeclared"}
-        with self.assertRaisesRegex(evaluation.EvaluationError, "lifecycle"):
-            evaluation._validate_host_actor_binding(
-                expected, [task_event, extra, runner_event, verifier_event], verdict
-            )
-        invalid_runner = {**runner_event, "actor_id": None}
         with self.assertRaisesRegex(evaluation.EvaluationError, "host-backed"):
             evaluation._validate_host_actor_binding(
                 expected,
-                [task_event, invalid_runner, verifier_event],
-                {**verdict, "executor_ids": [None]},
-            )
-        second_verifier = {**verifier_event, "actor_id": "another-verifier"}
-        with self.assertRaisesRegex(evaluation.EvaluationError, "host-backed"):
-            evaluation._validate_host_actor_binding(
-                expected,
-                [task_event, runner_event, verifier_event, second_verifier],
+                [task_event, runner_event, verifier_event],
                 verdict,
             )
 

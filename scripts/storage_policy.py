@@ -44,6 +44,7 @@ EXCLUDED_DIRECTORY_NAMES = frozenset(
         "blob-report",
         "playwright-report",
         "test-results",
+        "graphify-out",
         "homes",
         "runs",
         "storage",

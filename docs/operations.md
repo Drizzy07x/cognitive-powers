@@ -31,8 +31,9 @@ versioned migration-policy entrypoint:
   state-migrate --session <session-id> --json
 ```
 
-The default and only current mode is `dry-run`. It validates `state.json`, every
-ledger line, and embedded state snapshots without writing or creating a backup.
+The default and only current mode is `dry-run`. It validates `state.json`, the
+authenticated ledger chain, checkpoint/delta recovery, and `recovery.json`
+without writing or creating a backup.
 For a current session it reports `migration_required=false`.
 
 This checkout has no migration path because no supported state needs migration.
@@ -59,7 +60,51 @@ Until then, there is deliberately no apply switch.
 Atomic state replacement writes and fsyncs a temporary file before replacement.
 An interrupted write, fsync, or replace preserves the previous state file and
 cleans temporary residue. The write-ahead ledger can recover a newer flushed
-snapshot when replacement of `state.json` is interrupted.
+transition from its checkpoint and deltas when replacement of `state.json` is
+interrupted.
+
+## Resume and compact a durable session
+
+Derive a resume summary only from the fully authenticated ledger recovery:
+
+```powershell
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> resume-summary --session <id> --json
+```
+
+The result separates completed and runnable packets. A completed packet is never
+rescheduled, and an unreadable ledger or one without a recoverable checkpoint
+fails closed.
+
+Compaction requires an export path outside the session and retains a verified
+checkpoint plus at least one event:
+
+```powershell
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> compact --session <id> `
+  --bundle <external-bundle.zip> --retain-events 25 --json
+```
+
+Do not remove the bundle until a newer complete bundle and retained state have
+both been verified. Schema migration remains forward-only with a verified copy;
+there is no destructive downgrade path.
+
+## Verify an installed release
+
+After an explicitly authorized installation, run the canonical read-only
+verifier against the immutable tag and reported installed root:
+
+```powershell
+& $python scripts/verify_installed.py --source-root . `
+  --installed-root <installed-root> --tag v1.6.0
+```
+
+The marketplace must be pinned to the tag's resolved 40-character commit SHA.
+Exit `10` means tag/identity failure, `11` content mismatch, `12` public surface
+or host inventory mismatch, and `13` host CLI failure. Preserve the JSON output
+before changing the installation. The offline CI gate uses only a synthetic Git
+tag and sets `CODEX_HOME`, `HOME`, and `USERPROFILE` to a disposable home; it
+never opens or repairs the real Codex profile.
 
 ## Validate and update
 
@@ -76,6 +121,17 @@ GitHub Actions runs the same offline surface on Ubuntu, Windows, and macOS with
 Python 3.11 and 3.13. It exercises the OS-specific hook lock before the canonical
 validator. The workflow contains no release command or secret dependency.
 Validation and optional receipt artifact publication remain separate.
+
+The compatibility gate regenerates status only from supplied CI receipts and
+compares it to `compatibility-matrix.json` and `docs/compatibility.md`. With no
+receipts, all 108 declared combinations remain `unknown`. Never edit an unknown
+row to compatible manually.
+
+On an exact release tag, CI builds the tagged archive and manifest twice and
+requires byte-identical archive hashes and identical manifests. The manifest
+fails closed for an additional tag at the release commit or any changed public
+surface. This creates candidate artifacts only; publication, tag creation, and
+release creation require separate authorization.
 
 Updating an installed development plugin is a separate, explicitly authorized
 operation. After validation and only when an update is intended:
@@ -109,6 +165,40 @@ $status.ephemeral_cleanup
 $status.final_evidence_measurement
 ```
 
+Run the same frozen pilot config once with `--preflight` into a distinct empty
+output before the scored pilot. Schema-v3 configs must include the absolute
+canonical `plugin_source`; the coordinator verifies its clean Git identity and
+the runner hashes the installed runtime against it. After independently reviewed pilot and
+promotion runs have completed in separate roots, create the immutable combined
+bundle:
+
+On Windows, keep `--work-root` short because nested plugin caches can exceed
+legacy path limits. Mutation preflights must also prove that the host honored
+write access. If `workspace-write` is downgraded to read-only, stop the batch;
+use `write-batch-config --bypass-sandbox` only after explicit authorization and
+freeze a new configuration identity.
+
+```powershell
+& $python scripts/finalize_controller_ab_evidence.py `
+  --coordinator-output <pilot-evidence-directory> `
+  --coordinator-output <promotion-evidence-directory> `
+  --bundle-output <empty-combined-bundle-directory> `
+  --verifier-receipt <host-independent-verifier-receipt.json> `
+  --controller-protocol benchmarks/controller_ab_protocol.json `
+  --task-contract benchmarks/evaluation_tasks.json
+
+& $python scripts/integration_evaluation.py `
+  --receipts <combined-bundle-directory>/session-receipts.jsonl `
+  --tasks benchmarks/evaluation_tasks.json `
+  --controller-protocol benchmarks/controller_ab_protocol.json `
+  --artifact-index <combined-bundle-directory>/sha256-index.json
+```
+
+The verifier receipt must be host-provenanced, scoped to the experiment, use
+the `experiment-verifier` role, be independent of every experiment runner, and
+bind the exact sorted SHA-256 values of all supplied coordinator indexes.
+Finalization is fail-closed and leaves both coordinator roots byte-identical.
+
 `persistent_file_count` and `persistent_total_bytes` must both be `0` after a
 successful default run. `final_evidence_measurement` is the converged exact file
 count and bytes of the compact coordinator output, including
@@ -137,8 +227,9 @@ The compact coordinator evidence consists of `frozen-manifest.json`,
 `randomized-schedule.json`, `session-receipts.jsonl`, `agent-events.jsonl`,
 `pre-evaluator-diffs/`, `hidden-check-results.jsonl`,
 `quality-check-results.jsonl`, and `analysis-with-ci95.json`. The independent
-verifier subsequently adds `sha256-index.json` and
-`independent-verdict.json`. `batch-journal.jsonl`,
+verifier subsequently creates a separate combined bundle containing those
+artifacts plus `sha256-index.json` and `independent-verdict.json`.
+`batch-journal.jsonl`,
 `coordinator-sha256-index.json`, and `batch-status.json` remain only because the
 current fail-closed coordinator and verifier consume them. No successful
 default output contains `sessions/`, `homes/`, `runs/`, or `storage/`.
@@ -169,8 +260,8 @@ inferring cleanup from a process exit code.
 Durable evidence uses one content-addressed object under
 `objects/sha256/<prefix>/<digest>` for identical artifacts. Session evidence
 paths use hard links when the filesystem supports them and retain hash
-verification either way. Ledger transitions append bounded deltas, create a
-full recovery checkpoint every 32 events, and compact after 128 events.
+verification either way. Ledger transitions use authenticated bounded deltas,
+create a full recovery checkpoint every 32 events, and compact after 128 events.
 
 Inspect storage before deciding whether collection is warranted:
 

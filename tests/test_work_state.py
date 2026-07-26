@@ -904,6 +904,11 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
         payload = json.loads(completed.stdout)
         self.assertTrue(payload["all_mutations_killed"])
         self.assertEqual(len(payload["mutations"]), 2)
+        for mutation in payload["mutations"]:
+            self.assertTrue(mutation["baseline_passed"], mutation)
+            self.assertEqual(mutation["baseline_exit_code"], 0, mutation)
+            self.assertNotIn("FileNotFoundError", mutation["output_tail"])
+            self.assertIn("AssertionError", mutation["output_tail"])
 
     def test_real_command_requires_independent_verification_before_completion(
         self,
@@ -2252,10 +2257,11 @@ with module["_state_lock_guard"](lock_path):
     def test_corrupt_ledger_line_is_rejected_instead_of_skipped(self) -> None:
         session_dir = self.base / "corrupt-ledger-session"
         session_dir.mkdir()
+        authenticated = work_state._encode_ledger_events(
+            session_dir, [{"seq": 1, "event": "before"}]
+        )
         (session_dir / "ledger.jsonl").write_text(
-            '{"seq": 1, "event": "before"}\n'
-            "{broken json}\n"
-            '{"seq": 2, "event": "after"}\n',
+            authenticated + "{broken json}\n",
             encoding="utf-8",
         )
 
@@ -2276,18 +2282,20 @@ with module["_state_lock_guard"](lock_path):
             encoding="utf-8",
         )
         (session_dir / "ledger.jsonl").write_text(
-            json.dumps(
-                {
-                    "seq": 1,
-                    "event": "corrupt_snapshot",
-                    "_state_snapshot": {
-                        "schema_version": True,
-                        "last_seq": 1,
-                        "criteria": [],
-                    },
-                }
-            )
-            + "\n",
+            work_state._encode_ledger_events(
+                session_dir,
+                [
+                    {
+                        "seq": 1,
+                        "event": "corrupt_snapshot",
+                        "_state_snapshot": {
+                            "schema_version": True,
+                            "last_seq": 1,
+                            "criteria": [],
+                        },
+                    }
+                ],
+            ),
             encoding="utf-8",
         )
 

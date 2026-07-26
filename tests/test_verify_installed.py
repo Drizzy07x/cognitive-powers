@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import shutil
+import stat
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "scripts" / "verify_installed.py"
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("verify_installed", MODULE_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load verifier")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class VerifyInstalledTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name)
+        self.source = self.base / "source"
+        self.installed = self.base / "installed"
+        (self.source / ".codex-plugin").mkdir(parents=True)
+        (self.source / "skills-core" / "solve-efficiently").mkdir(parents=True)
+        (self.source / "skills-core" / "execute-durably").mkdir(parents=True)
+        (self.source / "skills-core" / "verify-delivery").mkdir(parents=True)
+        (self.source / "skills" / "internal-flow").mkdir(parents=True)
+        (self.source / ".gitattributes").write_text("*.txt text\n", encoding="utf-8")
+        (self.source / "content.txt").write_text("one\ntwo\n", encoding="utf-8")
+        (self.source / ".codex-plugin" / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "name": "cognitive-powers",
+                    "version": "1.6.0",
+                    "skills": "./skills-core/",
+                }
+            ),
+            encoding="utf-8",
+        )
+        for name in ("solve-efficiently", "execute-durably", "verify-delivery"):
+            (self.source / "skills-core" / name / "SKILL.md").write_text(
+                f"---\nname: {name}\n---\n", encoding="utf-8"
+            )
+        (self.source / "skills" / "internal-flow" / "SKILL.md").write_text(
+            "---\nname: internal-flow\n---\n", encoding="utf-8"
+        )
+        subprocess.run(["git", "init", "-q"], cwd=self.source, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.invalid"],
+            cwd=self.source,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"], cwd=self.source, check=True
+        )
+        subprocess.run(["git", "add", "."], cwd=self.source, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=self.source, check=True)
+        subprocess.run(["git", "tag", "v1.6.0"], cwd=self.source, check=True)
+        self.commit = subprocess.run(
+            ["git", "rev-parse", "v1.6.0^{commit}"],
+            cwd=self.source,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        shutil.copytree(
+            self.source, self.installed, ignore=shutil.ignore_patterns(".git")
+        )
+        (self.installed / "content.txt").write_bytes(b"one\r\ntwo\r\n")
+        (self.installed / ".codex-marketplace-install.json").write_text(
+            json.dumps(
+                {
+                    "source_type": "git",
+                    "source": "https://github.com/Drizzy07x/cognitive-powers.git",
+                    "ref_name": self.commit,
+                    "revision": self.commit,
+                    "sparse_paths": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.module = load_module()
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def runner(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
+        if argv == ["codex", "plugin", "marketplace", "list", "--json"]:
+            payload = {
+                "marketplaces": [
+                    {
+                        "name": "cognitive-powers",
+                        "root": str(self.installed),
+                        "marketplaceSource": {
+                            "source": "https://github.com/Drizzy07x/cognitive-powers.git"
+                        },
+                    }
+                ]
+            }
+        elif argv == ["codex", "plugin", "list", "--json"]:
+            payload = {
+                "installed": [
+                    {
+                        "name": "cognitive-powers",
+                        "pluginId": "cognitive-powers@cognitive-powers",
+                        "installed": True,
+                        "enabled": True,
+                        "version": "1.6.0",
+                    }
+                ]
+            }
+        else:
+            return subprocess.CompletedProcess(argv, 64, "", "unexpected")
+        return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+    def test_checkout_without_git_is_rejected_fail_closed(self) -> None:
+        def remove_readonly(function, path, _error) -> None:
+            os.chmod(path, stat.S_IWRITE)
+            function(path)
+
+        shutil.rmtree(self.source / ".git", onerror=remove_readonly)
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertNotEqual(code, 0)
+        self.assertFalse(report["matched"])
+
+    def test_exact_install_accepts_git_normalized_crlf_and_only_host_metadata(
+        self,
+    ) -> None:
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report["matched"])
+        self.assertEqual(
+            report["content"]["extras"], [".codex-marketplace-install.json"]
+        )
+        self.assertEqual(
+            report["surface"]["exposedSkills"],
+            ["execute-durably", "solve-efficiently", "verify-delivery"],
+        )
+        self.assertEqual(report["surface"]["internalWorkflows"], ["internal-flow"])
+
+    def test_content_change_and_unapproved_extra_use_content_exit_code(self) -> None:
+        (self.installed / "content.txt").write_text("tampered\n", encoding="utf-8")
+        (self.installed / "extra.txt").write_text("extra", encoding="utf-8")
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertEqual(code, self.module.EXIT_CONTENT)
+        self.assertFalse(report["content"]["matched"])
+        self.assertIn("content.txt", report["content"]["mismatched"])
+        self.assertIn("extra.txt", report["content"]["unexpectedExtras"])
+
+    def test_wrong_tag_identity_fails_before_host_cli(self) -> None:
+        calls = []
+
+        def forbidden(argv):
+            calls.append(argv)
+            raise AssertionError("host queried")
+
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v9.9.9", run=forbidden
+        )
+        self.assertEqual(code, self.module.EXIT_IDENTITY)
+        self.assertEqual(calls, [])
+        self.assertEqual(report["failureCategory"], "identity")
+
+    def test_duplicate_or_disabled_inventory_fails_closed(self) -> None:
+        def duplicate(argv):
+            completed = self.runner(argv)
+            if argv[1:3] == ["plugin", "list"]:
+                payload = json.loads(completed.stdout)
+                payload["installed"].append(
+                    {**payload["installed"][0], "enabled": False}
+                )
+                completed.stdout = json.dumps(payload)
+            return completed
+
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=duplicate
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertFalse(report["inventory"]["matched"])
+
+    def test_marketplace_must_be_pinned_to_the_resolved_commit_sha(self) -> None:
+        metadata_path = self.installed / ".codex-marketplace-install.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["ref_name"] = "v1.6.0"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertFalse(report["inventory"]["sourcePinnedToCommit"])
+
+    def test_marketplace_revision_must_equal_the_resolved_commit_sha(self) -> None:
+        metadata_path = self.installed / ".codex-marketplace-install.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["revision"] = "0" * 40
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertFalse(report["inventory"]["sourcePinnedToCommit"])
+
+    def test_marketplace_root_must_equal_the_verified_installed_root(self) -> None:
+        other = self.base / "other-marketplace"
+        other.mkdir()
+
+        def wrong_root(argv):
+            completed = self.runner(argv)
+            if argv == ["codex", "plugin", "marketplace", "list", "--json"]:
+                payload = json.loads(completed.stdout)
+                payload["marketplaces"][0]["root"] = str(other)
+                completed.stdout = json.dumps(payload)
+            return completed
+
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=wrong_root
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertFalse(report["inventory"]["marketplaceRootMatchesInstalledRoot"])
+        self.assertEqual(report["inventory"]["marketplaceRoot"], str(other.resolve()))
+
+    def test_install_script_runs_canonical_verifier_as_a_postcondition(self) -> None:
+        script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_installed.py", script)
+        self.assertIn("--installed-root", script)
+        self.assertIn("$installedMarketplaceRoot", script)
+
+
+if __name__ == "__main__":
+    unittest.main()

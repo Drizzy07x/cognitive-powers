@@ -1,6 +1,8 @@
 """Internal durability primitives loaded by the public work_state facade."""
 
 from . import durability as _durability
+from . import evidence_payloads as _evidence_payloads
+from . import storage as _storage
 
 EXPORTS = [
     "SCHEMA_VERSION",
@@ -40,8 +42,14 @@ EXPORTS = [
     "_state_delta",
     "_atomic_write_recovery",
     "_compact_ledger_unlocked",
+    "_encode_ledger_events",
 ]
 
 globals().update({name: getattr(_durability, name) for name in EXPORTS})
 
-__all__ = [name for name in EXPORTS if not name.startswith("_")]
+__all__ = [
+    *[name for name in EXPORTS if not name.startswith("_")],
+    "_durability",
+    "_evidence_payloads",
+    "_storage",
+]

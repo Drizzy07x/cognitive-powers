@@ -18,7 +18,91 @@ SPEC.loader.exec_module(batch)
 
 
 class ControllerAbBatchTests(unittest.TestCase):
+    def test_cleanup_accounts_for_empty_residual_directories(self) -> None:
+        work_root = Path("C:/temporary/controller-work")
+        pre_cleanup = {"file_count": 30, "total_bytes": 4096}
+        residual = {
+            "path": str(work_root),
+            "file_count": 0,
+            "total_bytes": 0,
+        }
+
+        with mock.patch.object(
+            batch,
+            "finalize_workdir",
+            return_value=residual,
+        ):
+            status = batch._cleanup_validated_workdir(work_root, pre_cleanup)
+
+        self.assertEqual(
+            status,
+            {
+                "status": "empty-directories-accounted-after-bounded-cleanup",
+                "pre_cleanup_file_count": 30,
+                "pre_cleanup_total_bytes": 4096,
+                "persistent_file_count": 0,
+                "persistent_total_bytes": 0,
+                "path": str(work_root),
+            },
+        )
+
+    def test_cleanup_rejects_material_residual_files_defensively(self) -> None:
+        with mock.patch.object(
+            batch,
+            "finalize_workdir",
+            return_value={
+                "path": "C:/temporary/controller-work",
+                "file_count": 1,
+                "total_bytes": 8,
+            },
+        ):
+            with self.assertRaisesRegex(batch.BatchError, "material files"):
+                batch._cleanup_validated_workdir(
+                    Path("C:/temporary/controller-work"),
+                    {"file_count": 30, "total_bytes": 4096},
+                )
+
     def test_v3_config_requires_clean_canonical_source_git_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config, _, _ = self._write_batch_inputs(root)
+            payload = json.loads(config.read_text(encoding="utf-8"))
+            payload.update(
+                {
+                    "schema_version": 3,
+                    "round_name": "pilot",
+                    "plugin_source": str(root),
+                    "source_commit": "a" * 40,
+                    "source_git": {
+                        "head": "a" * 40,
+                        "status_sha256": batch.hashlib.sha256(b"").hexdigest(),
+                    },
+                }
+            )
+            payload["source_git"]["sha256"] = batch.canonical_sha256(
+                payload["source_git"]
+            )
+            config.write_text(json.dumps(payload), encoding="utf-8")
+
+            with mock.patch.object(
+                batch, "git_identity", return_value=payload["source_git"]
+            ):
+                loaded = batch.load_config(config)
+            self.assertEqual(loaded["source_commit"], "a" * 40)
+            self.assertEqual(loaded["plugin_source"], str(root.resolve()))
+
+            payload["source_git"]["status_sha256"] = "b" * 64
+            payload["source_git"]["sha256"] = batch.canonical_sha256(
+                {
+                    "head": payload["source_git"]["head"],
+                    "status_sha256": payload["source_git"]["status_sha256"],
+                }
+            )
+            config.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(batch.BatchError, "source Git identity"):
+                batch.load_config(config)
+
+    def test_v3_config_requires_explicit_plugin_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             config, _, _ = self._write_batch_inputs(root)
@@ -39,19 +123,55 @@ class ControllerAbBatchTests(unittest.TestCase):
             )
             config.write_text(json.dumps(payload), encoding="utf-8")
 
-            loaded = batch.load_config(config)
-            self.assertEqual(loaded["source_commit"], "a" * 40)
-
-            payload["source_git"]["status_sha256"] = "b" * 64
-            payload["source_git"]["sha256"] = batch.canonical_sha256(
-                {
-                    "head": payload["source_git"]["head"],
-                    "status_sha256": payload["source_git"]["status_sha256"],
-                }
-            )
-            config.write_text(json.dumps(payload), encoding="utf-8")
-            with self.assertRaisesRegex(batch.BatchError, "source Git identity"):
+            with self.assertRaisesRegex(batch.BatchError, "plugin_source"):
                 batch.load_config(config)
+
+    def test_v3_runner_command_passes_explicit_plugin_source(self) -> None:
+        plugin_source = Path("canonical-source").resolve()
+        config = {
+            "schema_version": 3,
+            "baseline_home": "baseline",
+            "candidate_home": "candidate",
+            "task_contract": "contract.json",
+            "controller_protocol": "protocol.json",
+            "plugin_source": str(plugin_source),
+            "source_commit": "a" * 40,
+            "source_git": {"sha256": "b" * 64},
+            "model": "test-model",
+            "reasoning_effort": "medium",
+            "task_prompts": {"task-a": "prompt"},
+            "available_tools": ["shell_command"],
+            "agent_slots": 4,
+            "max_work_files": 10,
+            "max_work_bytes": 100,
+        }
+        job = {
+            "task_id": "task-a",
+            "repetitions": 1,
+            "repetition": 1,
+            "runner_seed": "seed",
+        }
+        binding = {
+            "fixture": "fixture",
+            "hidden_check": ["python", "hidden.py"],
+            "quality_check": ["python", "quality.py"],
+            "allow_changes": ["src/**"],
+            "guard_roots": [],
+        }
+
+        command = batch.runner_command(
+            "python",
+            Path("runner.py"),
+            config,
+            job,
+            binding,
+            Path("output"),
+            Path("work"),
+        )
+
+        self.assertEqual(
+            command[command.index("--plugin-source") + 1], str(plugin_source)
+        )
 
     def test_verifier_only_staged_execution_is_valid(self) -> None:
         batch._validate_execution_semantics(
@@ -268,6 +388,7 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "selected_mode": "solo",
                         "executed_mode": "solo",
                         "outcome": "completed",
+                        "parent_thread_id": f"thread-{case_id}-{variant}",
                         "planned_assignment_ids": [],
                         "planned_assignments": [],
                         "lifecycle_bindings": [],
@@ -294,6 +415,10 @@ class ControllerAbBatchTests(unittest.TestCase):
                         "source_commit": source_commit,
                         "source_git_sha256": source_git_sha256,
                         "pre_evaluation_diff_sha256": batch.source_sha256({}),
+                        "hidden_check_sha256": "c" * 64,
+                        "quality_check_sha256": "d" * 64,
+                        "independent_tests_passed": True,
+                        "quality_score": 1.0,
                         "agent_telemetry": telemetry,
                     }
                 )
@@ -549,6 +674,69 @@ class ControllerAbBatchTests(unittest.TestCase):
             self.assertFalse((output / "debug-workdir.json").exists())
             self.assertTrue((output / "session-receipts.jsonl").is_file())
             self.assertTrue((output / "coordinator-sha256-index.json").is_file())
+            hidden = [
+                json.loads(line)
+                for line in (output / "hidden-check-results.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            quality = [
+                json.loads(line)
+                for line in (output / "quality-check-results.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            agents = [
+                json.loads(line)
+                for line in (output / "agent-events.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertTrue(hidden)
+            self.assertTrue(quality)
+            self.assertTrue(agents)
+            self.assertTrue(
+                all(
+                    set(row)
+                    == {
+                        "case_id",
+                        "variant",
+                        "check_sha256",
+                        "passed",
+                    }
+                    and row["check_sha256"] == "c" * 64
+                    and row["passed"] is True
+                    for row in hidden
+                )
+            )
+            self.assertTrue(
+                all(
+                    set(row)
+                    == {
+                        "case_id",
+                        "variant",
+                        "check_sha256",
+                        "quality_score",
+                    }
+                    and row["check_sha256"] == "d" * 64
+                    and row["quality_score"] == 1.0
+                    for row in quality
+                )
+            )
+            self.assertEqual(
+                agents,
+                [
+                    {
+                        "type": "agent.lifecycle",
+                        "provenance": "host",
+                        "scope": "experiment",
+                        "actor_id": row["actor_id"],
+                        "role": "experiment-runner",
+                    }
+                    for row in agents
+                ],
+            )
+            self.assertEqual(len({row["actor_id"] for row in agents}), len(agents))
             self.assertEqual(
                 status["ephemeral_cleanup"],
                 {

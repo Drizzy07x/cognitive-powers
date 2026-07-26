@@ -528,6 +528,32 @@ def _topological_selection(
     return selected, layers, unscheduled
 
 
+def _planner_candidates(
+    units: list[dict[str, Any]], completed: set[str], phase: str
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Apply the planner's unit-level eligibility predicates once."""
+    candidates: list[dict[str, Any]] = []
+    exclusions: dict[str, list[str]] = {}
+    for unit in units:
+        reasons: list[str] = []
+        if unit["id"] in completed:
+            reasons.append("completed")
+        if not unit["ready"]:
+            reasons.append("not-ready")
+        if not unit["distinct_output"]:
+            reasons.append("not-distinct")
+        phase_allowed = (phase in {"discover", "diagnose"} and unit["read_only"]) or (
+            phase == "implement" and not unit["read_only"]
+        )
+        if not phase_allowed:
+            reasons.append("phase-role-filter")
+        if reasons:
+            exclusions[unit["id"]] = reasons
+        else:
+            candidates.append(unit)
+    return candidates, exclusions
+
+
 def _retry_record(
     payload: dict[str, Any],
     *,
@@ -656,17 +682,7 @@ def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
             schema_version=schema_version,
         )
 
-    candidates = [
-        unit
-        for unit in units
-        if unit["id"] not in completed and unit["ready"] and unit["distinct_output"]
-    ]
-    if phase in {"discover", "diagnose"}:
-        candidates = [unit for unit in candidates if unit["read_only"]]
-    elif phase == "implement":
-        candidates = [unit for unit in candidates if not unit["read_only"]]
-    else:
-        candidates = []
+    candidates, _candidate_exclusions = _planner_candidates(units, completed, phase)
 
     verifier_required = durable or quality_claim or delegated_change
     if phase == "verify":
@@ -1289,6 +1305,62 @@ def _validate_worker_result_v2(payload: dict[str, Any]) -> dict[str, Any]:
     return validation
 
 
+def explain_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    """Explain a planning decision deterministically without executing or persisting it."""
+    plan = select_agent_plan(payload)
+    normalized_units, completed_set = _validate_units(
+        payload, schema_version=payload["schema_version"]
+    )
+    candidates, exclusion_map = _planner_candidates(
+        normalized_units, completed_set, payload["phase"]
+    )
+    completed = sorted(completed_set)
+    eligible = sorted(unit["id"] for unit in candidates)
+    excluded = [
+        {"id": unit_id, "reasons": reasons}
+        for unit_id, reasons in sorted(exclusion_map.items())
+        if unit_id not in completed_set
+    ]
+    dependencies = {
+        unit["id"]: sorted(unit["dependencies"]) for unit in normalized_units
+    }
+    signals = (
+        {key: value for key, value in sorted(payload.items()) if key not in {"units"}}
+        if isinstance(payload, dict)
+        else {}
+    )
+    pending_gates = []
+    if plan.get("valid_input") is not True:
+        pending_gates.append("valid-input")
+    if plan.get("mode") == "solo":
+        pending_gates.append("delegation-justified")
+    return {
+        "schema_version": 1,
+        "kind": "agent_plan_explanation",
+        "read_only": True,
+        "selected_mode": plan.get("mode"),
+        "units": {
+            "eligible": eligible,
+            "excluded": excluded,
+            "completed": completed,
+        },
+        "dependencies": dependencies,
+        "waves": plan.get("waves", []),
+        "capacity": {
+            "available_agent_slots": payload.get("available_agent_slots")
+            if isinstance(payload, dict)
+            else None,
+            "max_concurrent_workers": plan.get("max_concurrent_workers", 0),
+            "reserve_verifier_slot": plan.get("reserve_verifier_slot", False),
+        },
+        "reasons": plan.get("reasons", []),
+        "signals_consumed": signals,
+        "abstentions": plan.get("abstentions", []),
+        "pending_gates": pending_gates,
+        "plan": plan,
+    }
+
+
 def validate_worker_result(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate the minimum response contract required from a worker."""
     if not isinstance(payload, dict):
@@ -1451,6 +1523,10 @@ def main() -> int:
     source.add_argument("--cases", type=Path, help="v1 intensity case fixture")
     source.add_argument("--agent-plan", help="agent-planning JSON path or - for stdin")
     source.add_argument(
+        "--explain-agent-plan",
+        help="explain an agent-planning JSON input without executing or writing state",
+    )
+    source.add_argument(
         "--agent-plan-template",
         nargs="?",
         const=2,
@@ -1472,6 +1548,8 @@ def main() -> int:
             result = evaluate_cases(args.cases)
         elif args.agent_plan is not None:
             result = select_agent_plan(_read_object(args.agent_plan))
+        elif args.explain_agent_plan is not None:
+            result = explain_agent_plan(_read_object(args.explain_agent_plan))
         elif args.agent_plan_template is not None:
             result = agent_plan_template(args.agent_plan_template)
         elif args.agent_cases is not None:

@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+INSTALLER = ROOT / "install.ps1"
+FAKE = ROOT / "tests" / "fixtures" / "fake_codex_cli.py"
+FAKE_GH = ROOT / "tests" / "fixtures" / "fake_gh_cli.py"
+
+
+class InstallTransactionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name)
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+        self.release_root = self.base / "release"
+        (self.release_root / ".agents" / "plugins").mkdir(parents=True)
+        (self.release_root / ".codex-plugin").mkdir()
+        (self.release_root / ".agents" / "plugins" / "marketplace.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        (self.release_root / ".codex-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "1.6.0"}), encoding="utf-8"
+        )
+        self.previous_root = self.base / "previous"
+        (self.previous_root / ".agents" / "plugins").mkdir(parents=True)
+        (self.previous_root / ".codex-plugin").mkdir()
+        (self.previous_root / ".agents" / "plugins" / "marketplace.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        (self.previous_root / ".codex-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "1.5.2"}), encoding="utf-8"
+        )
+        self.personal_root = self.base / "personal"
+        self.personal_root.mkdir()
+        self.state_path = self.base / "state.json"
+        python = Path(sys.executable)
+        (self.bin / "codex.cmd").write_text(
+            f'@"{python}" "{FAKE}" %*\r\n', encoding="utf-8"
+        )
+        (self.bin / "gh.cmd").write_text(
+            f'@"{python}" "{FAKE_GH}" %*\r\n', encoding="utf-8"
+        )
+        (self.bin / "git.cmd").write_text(
+            f'@if "%1"=="-C" echo {"b" * 40}\r\n@if "%1"=="-C" exit /b 0\r\n@git.exe %*\r\n',
+            encoding="utf-8",
+        )
+        # The transaction harness exercises rollback and ordering.  The canonical
+        # verifier has its own real-Git fixture tests, so isolate this boundary.
+        (self.bin / "python.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def state(self, *, installed=None, marketplaces=None, failures=None) -> dict:
+        payload = {
+            "release_root": str(self.release_root),
+            "previous_root": str(self.previous_root),
+            "release_commit": "a" * 40,
+            "previous_commit": "b" * 40,
+            "target_version": "1.6.0",
+            "personal_version": "1.5.2",
+            "installed": installed or [],
+            "marketplaces": marketplaces or [],
+            "failures": failures or {},
+            "log": [],
+        }
+        self.state_path.write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    def marketplace(self, source="Drizzy07x/cognitive-powers@v1.5.2") -> dict:
+        return {
+            "name": "cognitive-powers",
+            "root": str(self.previous_root),
+            "marketplaceSource": {"source": source},
+        }
+
+    def plugin(
+        self, plugin_id="cognitive-powers@cognitive-powers", version="1.5.2"
+    ) -> dict:
+        return {
+            "name": "cognitive-powers",
+            "pluginId": plugin_id,
+            "installed": True,
+            "enabled": True,
+            "version": version,
+        }
+
+    def run_installer(self, *, gh_exit=0) -> subprocess.CompletedProcess[str]:
+        if gh_exit:
+            (self.bin / "gh.cmd").write_text(
+                f"@exit /b {gh_exit}\r\n", encoding="utf-8"
+            )
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": str(self.bin) + os.pathsep + env["PATH"],
+                "FAKE_CODEX_STATE": str(self.state_path),
+                "LOCALAPPDATA": str(self.base / "localappdata"),
+                "HOME": str(self.base / "home"),
+                "USERPROFILE": str(self.base / "home"),
+                "CODEX_HOME": str(self.base / "codex-home"),
+            }
+        )
+        return subprocess.run(
+            ["pwsh", "-NoProfile", "-File", str(INSTALLER), "-ReleaseRef", "v1.6.0"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+
+    def read_state(self) -> dict:
+        return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+    def test_tag_preflight_fails_before_profile_query_or_mutation(self) -> None:
+        self.state()
+        result = self.run_installer(gh_exit=7)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read_state()["log"], [])
+
+    def test_untrusted_marketplace_sources_fail_closed_without_mutation(self) -> None:
+        for source in (
+            None,
+            "",
+            "https://evilgithub.com/Drizzy07x/cognitive-powers",
+            "other/repository",
+        ):
+            with self.subTest(source=source):
+                marketplace = self.marketplace(source or "")
+                self.state(marketplaces=[marketplace])
+                result = self.run_installer()
+                state = self.read_state()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(
+                    any(
+                        args[:3] == ["plugin", "marketplace", "remove"]
+                        for args in state["log"]
+                    )
+                )
+
+    def test_orphan_private_plugin_fails_before_removals(self) -> None:
+        self.state(installed=[self.plugin()])
+        result = self.run_installer()
+        state = self.read_state()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(args[:2] == ["plugin", "remove"] for args in state["log"]))
+
+    def test_private_and_personal_state_is_restored_after_provisional_failure(
+        self,
+    ) -> None:
+        prior = [self.plugin(), self.plugin("cognitive-powers@personal", "1.5.2")]
+        self.state(
+            installed=prior,
+            marketplaces=[
+                self.marketplace(),
+                {
+                    "name": "personal",
+                    "root": str(self.personal_root),
+                    "marketplaceSource": {"source": "local"},
+                },
+            ],
+            failures={"plugin add cognitive-powers@cognitive-powers --json": 1},
+        )
+        result = self.run_installer()
+        state = self.read_state()
+        self.assertNotEqual(result.returncode, 0)
+        restored = {
+            (p["pluginId"], p["version"], p["enabled"]) for p in state["installed"]
+        }
+        self.assertEqual(
+            restored, {(p["pluginId"], p["version"], p["enabled"]) for p in prior}
+        )
+        recovery = [m for m in state["marketplaces"] if m["name"] == "cognitive-powers"]
+        self.assertEqual(len(recovery), 1)
+        self.assertEqual(recovery[0]["root"], str(self.previous_root.resolve()))
+        self.assertEqual(
+            recovery[0]["marketplaceSource"]["source"],
+            "Drizzy07x/cognitive-powers@" + "b" * 40,
+        )
+
+    def test_personal_only_is_restored_after_failure(self) -> None:
+        personal = self.plugin("cognitive-powers@personal", "1.5.2")
+        self.state(
+            installed=[personal],
+            marketplaces=[
+                {
+                    "name": "personal",
+                    "root": str(self.personal_root),
+                    "marketplaceSource": {"source": "local"},
+                }
+            ],
+            failures={"plugin add cognitive-powers@cognitive-powers --json": 1},
+        )
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read_state()["installed"], [personal])
+
+    def test_cleanup_failure_cannot_report_success_and_preserves_recovery(self) -> None:
+        self.state(
+            installed=[self.plugin()],
+            marketplaces=[self.marketplace()],
+            failures={"plugin marketplace remove cognitive-powers": 2},
+        )
+        result = self.run_installer()
+        state = self.read_state()
+        self.assertNotEqual(result.returncode, 0)
+        recovery = [m for m in state["marketplaces"] if m["name"] == "cognitive-powers"]
+        self.assertTrue(recovery)
+        self.assertTrue(any("rollback-" in m["root"] for m in recovery))
+
+    def test_success_has_one_enabled_private_target_version(self) -> None:
+        self.state()
+        result = self.run_installer()
+        state = self.read_state()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        matches = [
+            p
+            for p in state["installed"]
+            if p["name"] == "cognitive-powers" and p["installed"]
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(
+            (matches[0]["pluginId"], matches[0]["version"], matches[0]["enabled"]),
+            ("cognitive-powers@cognitive-powers", "1.6.0", True),
+        )
+        marketplace_add = next(
+            args
+            for args in state["log"]
+            if args[:3] == ["plugin", "marketplace", "add"]
+            and args[3] == "Drizzy07x/cognitive-powers"
+        )
+        self.assertEqual(marketplace_add[marketplace_add.index("--ref") + 1], "a" * 40)
+
+
+if __name__ == "__main__":
+    unittest.main()

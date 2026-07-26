@@ -1,0 +1,100 @@
+name: Publish validated release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact immutable release tag
+        required: true
+        type: string
+      run_id:
+        description: Successful validation workflow run ID for this tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  attestations: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Bind validation run, tag, and checked-out commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$TAG" = "v1.6.0"
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          tag_commit=$(git rev-parse "${TAG}^{commit}")
+          test "$(git rev-parse HEAD)" = "$tag_commit"
+          test "$(git tag --points-at HEAD)" = "$TAG"
+          read -r conclusion event head_sha head_branch < <(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+              --jq '[.conclusion,.event,.head_sha,.head_branch] | @tsv'
+          )
+          test "$conclusion" = "success"
+          test "$event" = "push"
+          test "$head_sha" = "$tag_commit"
+          test "$head_branch" = "$TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release already exists; refusing replacement" >&2
+            exit 1
+          fi
+      - name: Download exact validated release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run download "${{ inputs.run_id }}"
+          --name "release-evidence-${{ inputs.tag }}"
+          --dir assets
+      - name: Verify asset allowlist, identity, checksum, and provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t actual < <(find assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          expected=(
+            cognitive-powers-1.6.0.tar
+            cognitive-powers-1.6.0.tar.sha256
+            cognitive-powers-release-witness.json
+            compatibility-matrix.json
+            compatibility.md
+            release-manifest.json
+            reproducibility-report.json
+          )
+          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${actual[*]}" = "${expected[*]}"
+          commit=$(git rev-parse HEAD)
+          python - "$TAG" "$commit" <<'PY'
+          import json, pathlib, sys
+          manifest=json.loads(pathlib.Path('assets/release-manifest.json').read_text(encoding='utf-8'))
+          assert manifest['tag'] == sys.argv[1]
+          assert manifest['commit'] == sys.argv[2]
+          assert manifest['archive']['sha256'] == pathlib.Path('assets/cognitive-powers-1.6.0.tar.sha256').read_text(encoding='ascii').split()[0]
+          matrix=json.loads(pathlib.Path('assets/compatibility-matrix.json').read_text(encoding='utf-8'))
+          assert len(matrix['rows']) == 108
+          assert matrix['summary'] == {'compatible': 108, 'incompatible': 0, 'unknown': 0}
+          PY
+          python scripts/validate_compatibility_matrix.py --matrix assets/compatibility-matrix.json --contract compatibility-contract.json
+          (cd assets && sha256sum --check -- ./cognitive-powers-1.6.0.tar.sha256)
+          gh attestation verify assets/cognitive-powers-1.6.0.tar --repo "$GITHUB_REPOSITORY"
+      - name: Create immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ inputs.tag }}" assets/*
+          --verify-tag
+          --title "Cognitive Powers ${{ inputs.tag }}"
+          --generate-notes
