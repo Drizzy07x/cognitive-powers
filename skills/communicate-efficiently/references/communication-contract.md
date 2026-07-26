@@ -34,7 +34,14 @@ The recorded `inputTokens` is total input under both shapes, and `freshInputToke
 
 `compare` refuses two receipts whose `sourceSchema` differs, because the two providers do not count a cached prompt the same way and the delta would not measure anything.
 
-`usage-from-transcript` builds an Anthropic record from a Claude Code transcript JSONL, whose path hooks receive as `transcript_path`. The host writes one row per content block and repeats the identical usage on each, so usage is taken once per `message.id`; summing rows would multiply a single message's cost. The record reports `messageCount` and `unparsableLines` so a caller can see how much it rests on. A transcript covering more than one model is refused. This reads an on-disk format the host does not publish as an interface, so treat a schema change there as expected rather than exceptional.
+`usage-from-transcript` builds an Anthropic record from a Claude Code transcript JSONL, whose path hooks receive as `transcript_path`. The host writes one row per content block and repeats the identical usage on each, so usage is taken once per `message.id`; summing rows would multiply a single message's cost. The record reports `messageCount` and `unparsableLines` so a caller can see how much it rests on. A transcript covering more than one model is refused.
+
+This reads an on-disk format the host does not publish as an interface, so treat a schema change there as expected rather than exceptional. Two things make such a change visible instead of silent:
+
+- Any assistant message whose usage is not fully readable makes the command refuse, naming the format as the suspect. A partially recognised row would otherwise undercount, and an undercount reads as a genuine efficiency result.
+- `hostVersions` records the Claude Code build that wrote the counted rows, so a later discrepancy identifies which format produced the numbers rather than leaving it to be reconstructed.
+
+Both the receipt writer and the durable recorder convert usage through `scripts/provider_usage.py` at the plugin root. The recorder re-derives receipt totals rather than trusting them, so reading fewer provider shapes than the writer accepts would reject correct evidence; one implementation removes that failure rather than detecting it afterwards.
 
 `compare` requires matching task IDs and refuses an efficiency verdict unless both runs succeeded, neither has a critical failure, and the candidate quality is no lower than the baseline. Report input, fresh-input, output, and total deltas separately.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from datetime import datetime, timezone
@@ -131,45 +132,33 @@ def _usage_int(usage: dict[str, Any], key: str) -> int:
     return value
 
 
+def _provider_usage():
+    """Load the shared conversion from the plugin root."""
+    path = Path(__file__).resolve().parents[3] / "scripts" / "provider_usage.py"
+    spec = importlib.util.spec_from_file_location("cp_provider_usage", path)
+    if spec is None or spec.loader is None:
+        raise ContractError(f"cannot load the shared usage conversion: {path}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as error:
+        raise ContractError(
+            f"cannot load the shared usage conversion: {path}"
+        ) from error
+    return module
+
+
 def normalize_usage(usage: dict[str, Any]) -> tuple[int, int, int, str]:
-    """Return ``(input, cached, output, schema)`` from either provider shape.
+    """Return ``(total_input, cached, output, schema)`` from either shape.
 
-    The two providers count a cached prompt differently, so this is a
-    conversion rather than a rename:
-
-    - Codex reports one ``input_tokens`` that already contains the cached
-      prefix, alongside ``cached_input_tokens``.
-    - Anthropic reports ``input_tokens`` for uncached input only, and states
-      the cached prefix separately as ``cache_read_input_tokens`` plus
-      ``cache_creation_input_tokens``.
-
-    Renaming the Anthropic field would report a total that omits the cached
-    prefix entirely and would trip the cached-exceeds-input guard, since a
-    cache read routinely dwarfs the uncached remainder.
+    Delegates to the single conversion the durable recorder also uses, so the
+    two can never read different sets of provider shapes.
     """
-    anthropic_keys = ("cache_read_input_tokens", "cache_creation_input_tokens")
-    if any(key in usage for key in anthropic_keys):
-        uncached = _usage_int(usage, "input_tokens")
-        cache_read = _usage_int(usage, "cache_read_input_tokens")
-        cache_creation = (
-            _usage_int(usage, "cache_creation_input_tokens")
-            if "cache_creation_input_tokens" in usage
-            else 0
-        )
-        output_tokens = _usage_int(usage, "output_tokens")
-        # Writing the cache is billed as fresh input: it was not read back.
-        return (
-            uncached + cache_creation + cache_read,
-            cache_read,
-            output_tokens,
-            "anthropic",
-        )
-    input_tokens = _usage_int(usage, "input_tokens")
-    cached_tokens = _usage_int(usage, "cached_input_tokens")
-    output_tokens = _usage_int(usage, "output_tokens")
-    if cached_tokens > input_tokens:
-        raise ContractError("cached input tokens cannot exceed input tokens")
-    return input_tokens, cached_tokens, output_tokens, "codex"
+    module = _provider_usage()
+    try:
+        return module.normalize_usage(usage)
+    except module.UsageError as error:
+        raise ContractError(str(error)) from error
 
 
 def create_receipt(
@@ -257,7 +246,9 @@ def usage_from_transcript(
     }
     seen: set[str] = set()
     models: list[str] = []
+    versions: list[str] = []
     skipped = 0
+    unexpected = 0
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -281,16 +272,32 @@ def usage_from_transcript(
                 continue
             if identifier in seen:
                 continue
+            # Every field must be readable. A partially recognised row would
+            # silently undercount, which reads as a real efficiency result.
+            if any(
+                isinstance(usage.get(key), bool)
+                or not isinstance(usage.get(key), int)
+                or usage[key] < 0
+                for key in totals
+            ):
+                unexpected += 1
+                continue
             seen.add(identifier)
             for key in totals:
-                value = usage.get(key, 0)
-                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                    continue
-                totals[key] += value
+                totals[key] += usage[key]
             model = message.get("model")
             if isinstance(model, str) and model and model not in models:
                 models.append(model)
+            version = row.get("version")
+            if isinstance(version, str) and version and version not in versions:
+                versions.append(version)
 
+    if unexpected:
+        raise ContractError(
+            f"{unexpected} assistant message(s) carry a usage shape this "
+            "producer does not recognise; the host transcript format is not a "
+            "published interface and appears to have changed"
+        )
     if not seen:
         raise ContractError(f"transcript contains no assistant usage: {path}")
     if len(models) != 1:
@@ -305,6 +312,10 @@ def usage_from_transcript(
         "source": str(path),
         "messageCount": len(seen),
         "unparsableLines": skipped,
+        # Pin the host that wrote this shape. When the format later changes,
+        # the recorded version says which build the numbers came from instead
+        # of leaving a silent discrepancy to explain.
+        "hostVersions": sorted(versions),
     }
 
 

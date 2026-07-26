@@ -2549,44 +2549,45 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
     }, 0
 
 
+_UNREADABLE_USAGE = {
+    "inputTokens": None,
+    "cachedInputTokens": None,
+    "outputTokens": None,
+}
+
+
 def _expected_communication_usage(provider_usage: object) -> dict[str, object]:
     """Re-derive receipt totals from the raw provider record.
 
-    This deliberately re-derives rather than trusting the receipt, so it must
-    read every provider schema the receipt writer accepts. It stays in step
-    with ``normalize_usage`` in the communicate-efficiently contract script; a
-    test asserts the two agree, because a silent divergence here would reject
-    correct evidence instead of failing loudly.
+    This verifies rather than trusts the receipt, so it must read every
+    provider shape the receipt writer accepts. Both sides call the same
+    conversion in ``scripts/provider_usage.py``: reading fewer shapes than the
+    writer would reject correct evidence, and that is not a divergence worth
+    only detecting.
 
-    Anthropic states ``input_tokens`` for uncached input only and reports the
-    cached prefix separately, so its total input is the sum of the three input
-    fields. Codex already includes the cached prefix in ``input_tokens``.
+    An unreadable record yields sentinel ``None`` values, which never match a
+    real receipt, so a malformed provider record fails the comparison instead
+    of passing it.
     """
-    if not isinstance(provider_usage, dict):
-        return {"inputTokens": None, "cachedInputTokens": None, "outputTokens": None}
-    anthropic_keys = ("cache_read_input_tokens", "cache_creation_input_tokens")
-    if any(key in provider_usage for key in anthropic_keys):
-        uncached = provider_usage.get("input_tokens")
-        cache_read = provider_usage.get("cache_read_input_tokens")
-        cache_creation = provider_usage.get("cache_creation_input_tokens", 0)
-        if any(
-            isinstance(value, bool) or not isinstance(value, int)
-            for value in (uncached, cache_read, cache_creation)
-        ):
-            return {
-                "inputTokens": None,
-                "cachedInputTokens": None,
-                "outputTokens": None,
-            }
-        return {
-            "inputTokens": uncached + cache_creation + cache_read,
-            "cachedInputTokens": cache_read,
-            "outputTokens": provider_usage.get("output_tokens"),
-        }
+    path = Path(__file__).resolve().parents[3] / "scripts" / "provider_usage.py"
+    spec = importlib.util.spec_from_file_location("cp_provider_usage", path)
+    if spec is None or spec.loader is None:
+        raise WorkStateError(f"cannot load the shared usage conversion: {path}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as error:
+        raise WorkStateError(
+            f"cannot load the shared usage conversion: {path}"
+        ) from error
+    try:
+        total, cached, output, _schema = module.normalize_usage(provider_usage)
+    except module.UsageError:
+        return dict(_UNREADABLE_USAGE)
     return {
-        "inputTokens": provider_usage.get("input_tokens"),
-        "cachedInputTokens": provider_usage.get("cached_input_tokens"),
-        "outputTokens": provider_usage.get("output_tokens"),
+        "inputTokens": total,
+        "cachedInputTokens": cached,
+        "outputTokens": output,
     }
 
 

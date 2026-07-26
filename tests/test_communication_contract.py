@@ -297,12 +297,47 @@ class TranscriptUsageTests(unittest.TestCase):
         with self.assertRaises(contract.ContractError):
             contract.usage_from_transcript(path)
 
+    def test_the_host_version_is_pinned_into_the_record(self) -> None:
+        row = self._row("msg_a")
+        row["version"] = "2.1.219"
+        path = self._write([row])
+        record = contract.usage_from_transcript(path)
+        self.assertEqual(record["hostVersions"], ["2.1.219"])
+
+    def test_an_unrecognised_usage_shape_refuses_instead_of_undercounting(
+        self,
+    ) -> None:
+        """A partially readable row would read as a real efficiency result."""
+        renamed = self._row("msg_b")
+        renamed["message"]["usage"].pop("cache_read_input_tokens")
+        renamed["message"]["usage"]["cache_read_tokens"] = 900
+        path = self._write([self._row("msg_a"), renamed])
+        with self.assertRaises(contract.ContractError) as caught:
+            contract.usage_from_transcript(path)
+        self.assertIn("not a published interface", str(caught.exception))
+
     def test_mixed_models_are_refused(self) -> None:
         second = self._row("msg_b")
         second["message"]["model"] = "claude-sonnet-5"
         path = self._write([self._row("msg_a"), second])
         with self.assertRaises(contract.ContractError):
             contract.usage_from_transcript(path)
+
+
+class SharedConversionTests(unittest.TestCase):
+    """Both sides must reach the same code, not merely the same answer."""
+
+    def test_the_writer_delegates_to_the_shared_module(self) -> None:
+        source = SCRIPT_PATH.read_text(encoding="utf-8")
+        self.assertIn("provider_usage.py", source)
+        self.assertNotIn(
+            "cache_read_input_tokens",
+            source.split("def usage_from_transcript", 1)[0],
+            "the conversion must not be reimplemented beside the delegation",
+        )
+
+    def test_the_shared_module_ships_at_the_plugin_root(self) -> None:
+        self.assertTrue((PLUGIN_ROOT / "scripts" / "provider_usage.py").is_file())
 
 
 class DurableConsumerAgreementTests(unittest.TestCase):
@@ -344,6 +379,10 @@ class DurableConsumerAgreementTests(unittest.TestCase):
                         "outputTokens": output,
                     },
                 )
+
+    def test_an_unreadable_record_cannot_match_a_receipt(self) -> None:
+        derived = self.work_state._expected_communication_usage({"nonsense": 1})
+        self.assertEqual(set(derived.values()), {None})
 
 
 if __name__ == "__main__":
