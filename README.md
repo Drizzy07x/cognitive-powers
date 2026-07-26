@@ -210,6 +210,14 @@ The plugin's three agent roles register under plugin-scoped names such as
 `cognitive-powers:verifier`. The verifier declares a read-only tool set, so the
 host enforces the independence contract instead of merely stating it.
 
+A `SessionStart` hook refreshes the optional semantic index when Graphify is
+already installed and the working directory is a checkout, so navigation reads
+a graph that matches the worktree. It never installs Graphify, and it writes
+`graphify-out/` into the checkout, so cover that directory with ignore rules
+before working in a repository you do not own. Set
+`COGNITIVE_POWERS_DISABLE_INDEX=1` to turn the refresh off, or
+`COGNITIVE_POWERS_INDEX_TIMEOUT` to change its bound.
+
 Verify an explicitly authorized installed copy against the immutable tag:
 
 ```powershell

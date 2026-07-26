@@ -122,10 +122,63 @@ def _display_path(root: Path, value: str) -> str:
         return str(path)
 
 
+def _manifest_completeness(
+    root: Path,
+    index: Path,
+    records: dict[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    """Judge completeness from the manifest when graphify is not importable.
+
+    Graphify also ships as a self-contained executable, which exposes no
+    ``graphify`` package for the module detector to import. The manifest still
+    records every indexed file, so deletions and unindexed siblings are
+    decidable here without the provider.
+
+    Modified files are already rejected upstream by the manifest hash check, so
+    this decides the remaining exact question: whether an indexed file still
+    exists.
+
+    It deliberately does not guess at files graphify has never indexed.
+    Graphify's corpus rules are not derivable from its output -- it skips
+    tracked, small files that share a suffix with files it did index -- and
+    guessing produced false ``incomplete`` verdicts that disabled the provider
+    permanently. That gap is reported in ``new_file_detection`` rather than
+    hidden, and the session-start refresh is what actually closes it.
+    """
+    indexed = 0
+    deleted: list[str] = []
+    for rel in records:
+        try:
+            path = _inside(root, str(rel))
+        except SemanticProviderError:
+            deleted.append(str(rel))
+            continue
+        if path.is_file():
+            indexed += 1
+        else:
+            deleted.append(str(rel))
+
+    complete = not deleted
+    return (
+        {
+            "status": "complete" if complete else "incomplete",
+            "detector": "manifest",
+            "new_file_detection": "unavailable",
+            "corpus_file_count": indexed,
+            "pending_file_count": 0,
+            "deleted_file_count": len(deleted),
+            "walk_error_count": 0,
+            "warnings": sorted(deleted)[:20],
+        },
+        None if complete else "graphify index is incomplete",
+    )
+
+
 def _graphify_completeness(
     root: Path,
     index: Path,
     manifest: Path,
+    records: dict[str, Any],
     *,
     runner,
     timeout_seconds: float,
@@ -133,29 +186,13 @@ def _graphify_completeness(
     python_marker = index / ".graphify_python"
     try:
         executable_text = python_marker.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        return (
-            {
-                "status": "invalid",
-                "pending_file_count": 0,
-                "deleted_file_count": 0,
-                "walk_error_count": 0,
-            },
-            f"graphify detector interpreter is unavailable: {exc}",
-        )
+    except OSError:
+        return _manifest_completeness(root, index, records)
     executable = Path(executable_text).expanduser()
     if not executable.is_absolute():
         executable = (index / executable).resolve()
     if not executable.is_file():
-        return (
-            {
-                "status": "invalid",
-                "pending_file_count": 0,
-                "deleted_file_count": 0,
-                "walk_error_count": 0,
-            },
-            "graphify detector interpreter is unavailable",
-        )
+        return _manifest_completeness(root, index, records)
     script = (
         "from graphify.detect import detect_incremental;"
         "import json,sys;"
@@ -257,6 +294,7 @@ def _graphify_completeness(
     return (
         {
             "status": "complete" if complete else "incomplete",
+            "detector": "graphify-module",
             "corpus_file_count": len(files),
             "pending_file_count": len(pending),
             "deleted_file_count": len(deleted),
@@ -364,6 +402,7 @@ def _inspect_graphify(
         root,
         out,
         manifest,
+        records,
         runner=runner,
         timeout_seconds=timeout_seconds,
     )

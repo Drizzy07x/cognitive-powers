@@ -14,6 +14,8 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -121,7 +123,33 @@ class ClaudeHookTests(unittest.TestCase):
         self.hooks = load(CLAUDE_HOOKS)["hooks"]
 
     def test_declares_only_supported_events(self) -> None:
-        self.assertEqual(set(self.hooks), {"PostToolUse", "Stop"})
+        self.assertEqual(set(self.hooks), {"SessionStart", "PostToolUse", "Stop"})
+
+    def test_session_start_is_bounded_and_advisory(self) -> None:
+        entry = self.hooks["SessionStart"][0]
+        self.assertNotIn(
+            "matcher", entry, "the refresh applies to every session source"
+        )
+        hook = entry["hooks"][0]
+        self.assertEqual(
+            hook["args"][0], "${CLAUDE_PLUGIN_ROOT}/hooks/semantic_index.py"
+        )
+        self.assertIsInstance(
+            hook.get("timeout"),
+            int,
+            "an unbounded index refresh would run for the default 600s",
+        )
+        self.assertLessEqual(hook["timeout"], 300)
+
+    def test_index_refresh_is_isolated_from_evidence_recording(self) -> None:
+        """A refresh fault must not reach the script the Stop gate depends on."""
+        scripts = {
+            hook["args"][0].rsplit("/", 1)[-1]
+            for group in self.hooks.values()
+            for entry in group
+            for hook in entry["hooks"]
+        }
+        self.assertEqual(scripts, {"selective_hooks.py", "semantic_index.py"})
 
     def test_post_tool_use_matches_claude_file_tools(self) -> None:
         matcher = self.hooks["PostToolUse"][0]["matcher"]
@@ -134,15 +162,15 @@ class ClaudeHookTests(unittest.TestCase):
             for entry in group
             for hook in entry["hooks"]
         ]
-        self.assertEqual(len(entries), 2)
+        self.assertEqual(len(entries), 3)
         for hook in entries:
             self.assertEqual(hook["type"], "command")
             # Shell-form commands reject ${user_config.*}; exec form is required.
             self.assertEqual(hook["command"], "${user_config.python_executable}")
             self.assertIn("args", hook)
-            self.assertEqual(
+            self.assertTrue(
+                hook["args"][0].startswith("${CLAUDE_PLUGIN_ROOT}/hooks/"),
                 hook["args"][0],
-                "${CLAUDE_PLUGIN_ROOT}/hooks/selective_hooks.py",
             )
             self.assertNotIn(
                 "commandWindows",
@@ -151,19 +179,25 @@ class ClaudeHookTests(unittest.TestCase):
             )
             self.assertNotIn("shell", hook, "exec form must not request a shell")
 
-    def test_subcommands_match_the_shared_hook_script(self) -> None:
-        modes = {
-            hook["args"][1]
-            for group in self.hooks.values()
-            for entry in group
-            for hook in entry["hooks"]
-        }
-        self.assertEqual(modes, {"post-tool-use", "stop"})
-        script = (PLUGIN_ROOT / "hooks" / "selective_hooks.py").read_text(
-            encoding="utf-8"
+    def test_subcommands_match_the_scripts_they_invoke(self) -> None:
+        declared: dict[str, set[str]] = {}
+        for group in self.hooks.values():
+            for entry in group:
+                for hook in entry["hooks"]:
+                    name = hook["args"][0].rsplit("/", 1)[-1]
+                    declared.setdefault(name, set()).add(hook["args"][1])
+        self.assertEqual(
+            declared,
+            {
+                "selective_hooks.py": {"post-tool-use", "stop"},
+                "semantic_index.py": {"session-start"},
+            },
         )
-        for mode in modes:
-            self.assertIn(f'"{mode}"', script)
+        for name, modes in declared.items():
+            script = (PLUGIN_ROOT / "hooks" / name).read_text(encoding="utf-8")
+            for mode in modes:
+                with self.subTest(script=name, mode=mode):
+                    self.assertIn(f'"{mode}"', script)
 
     def test_hook_script_accepts_claude_tool_names(self) -> None:
         script = (PLUGIN_ROOT / "hooks" / "selective_hooks.py").read_text(
@@ -617,6 +651,106 @@ class ClaudeStopOutputTests(unittest.TestCase):
         output = self._stop_output(claude_host=False)
         self.assertTrue(output.get("systemMessage"))
         self.assertNotIn("hookSpecificOutput", output)
+
+
+class ClaudeSemanticIndexTests(unittest.TestCase):
+    """The session-start refresh is advisory and must never fail a session."""
+
+    def setUp(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "semantic_index", PLUGIN_ROOT / "hooks" / "semantic_index.py"
+        )
+        assert spec is not None and spec.loader is not None
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        self._checkout = tempfile.TemporaryDirectory()
+        self.root = Path(self._checkout.name).resolve()
+        (self.root / ".git").mkdir()
+        self.addCleanup(self._checkout.cleanup)
+
+    @contextlib.contextmanager
+    def _graphify(self, present: bool = True):
+        original = self.module.shutil.which
+        self.module.shutil.which = lambda name: (
+            "/usr/bin/graphify" if present and name == "graphify" else None
+        )
+        try:
+            yield
+        finally:
+            self.module.shutil.which = original
+
+    def _payload(self, **overrides) -> dict:
+        payload = {
+            "session_id": "index-session",
+            "cwd": str(self.root),
+            "hook_event_name": "SessionStart",
+            "source": "startup",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_refreshes_an_existing_checkout(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with self._graphify():
+            outcome = self.module.refresh(self._payload(), runner=runner)
+        self.assertEqual(outcome["status"], "created")
+        self.assertEqual(calls[0][1:], ["update", str(self.root)])
+
+    def test_skips_sources_where_nothing_on_disk_moved(self) -> None:
+        for source in ("compact", "clear", "fork"):
+            with self.subTest(source=source):
+                with self._graphify():
+                    outcome = self.module.refresh(
+                        self._payload(source=source),
+                        runner=lambda *a, **k: self.fail("must not run graphify"),
+                    )
+                self.assertEqual(outcome["status"], "skipped")
+
+    def test_never_indexes_a_directory_that_is_not_a_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as plain:
+            with self._graphify():
+                outcome = self.module.refresh(
+                    self._payload(cwd=plain),
+                    runner=lambda *a, **k: self.fail("must not run graphify"),
+                )
+        self.assertEqual(outcome["status"], "skipped")
+
+    def test_a_missing_provider_is_normal_not_a_fault(self) -> None:
+        with self._graphify(present=False):
+            outcome = self.module.refresh(self._payload())
+        self.assertEqual(outcome["status"], "skipped")
+
+    def test_a_failing_refresh_is_reported_not_raised(self) -> None:
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 3, "", "boom")
+
+        with self._graphify():
+            outcome = self.module.refresh(self._payload(), runner=runner)
+        self.assertEqual(outcome["status"], "error")
+
+    def test_a_slow_refresh_is_bounded(self) -> None:
+        def runner(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, 1)
+
+        with self._graphify():
+            outcome = self.module.refresh(self._payload(), runner=runner)
+        self.assertEqual(outcome["status"], "timeout")
+
+    def test_the_hook_always_exits_zero(self) -> None:
+        stream = io.StringIO()
+        stdin = sys.stdin
+        sys.stdin = io.TextIOWrapper(io.BytesIO(b"not json"))
+        try:
+            with contextlib.redirect_stdout(stream):
+                code = self.module.main(["session-start"])
+        finally:
+            sys.stdin = stdin
+        self.assertEqual(code, 0)
 
 
 class ClaudeCiTests(unittest.TestCase):
