@@ -1,19 +1,19 @@
 # Plugin evaluation protocol
 
-Use this protocol before claiming Cognitive Powers improves Codex quality or token use.
+Use this protocol before claiming Cognitive Powers improves quality or token use on any host.
 
 ## Conditions
 
-Compare fresh, isolated runs with the same model, reasoning effort, prompt, tools, fixture, and permissions:
+Compare fresh, isolated runs on one host with the same model, reasoning effort, prompt, tools, fixture, and permissions. Name the host and its version in the record: a result measured on one host does not transfer to the other, because the hosts expose different skill catalogs, agent registration, and tool names.
 
-- A: Codex base.
-- B: Codex with Cognitive Powers.
+- A: the host with the plugin disabled.
+- B: the same host with Cognitive Powers enabled.
 - C: a comparable specialized plugin, when one exists.
 
 For adaptive communication, add a terse control when practical:
 
-- A: Codex base.
-- B: Codex base with only a short instruction such as `Answer concisely.`
+- A: the host with the plugin disabled.
+- B: the same baseline with only a short instruction such as `Answer concisely.`
 - C: Cognitive Powers with `communicate-efficiently`.
 
 This separates generic brevity from the value of profile selection and evidence preservation.

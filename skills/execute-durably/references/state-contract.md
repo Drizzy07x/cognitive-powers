@@ -10,6 +10,13 @@ State is external to the repository. Resolution order:
 2. `PLUGIN_DATA`
 3. `~/.codex/cognitive-powers`
 
+This order is host-independent, and the selective edit hook resolves it the
+same way. The final entry keeps its historical name so one machine running
+both hosts keeps a single store; set `COGNITIVE_POWERS_DATA` to relocate it.
+Do not introduce a host-specific data variable here: the hook and the receipt
+writer run in different processes, and only a root both can resolve lets the
+`Stop` gate match a receipt to the edit it covers.
+
 Each repository receives a SHA-256-derived project key:
 
 ```text

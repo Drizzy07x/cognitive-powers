@@ -1,7 +1,7 @@
 ---
 name: verify-web-behavior
-description: Verify known browser behavior or regressions with existing Playwright tests and machine-readable evidence. Use for web UI defects, end-to-end flows, accessibility, flakiness, or visual changes.
-disable-model-invocation: true
+description: Verify known browser behavior or regressions through an already-configured Playwright installation, capturing machine-readable evidence at the public user-visible seam.
+when_to_use: Use for web UI defects, end-to-end flows, accessibility checks, flaky-test investigation, or visual change verification when the behavior to check is already known. Requires Playwright configured in the project; never installs it.
 ---
 
 # Verify Web Behavior

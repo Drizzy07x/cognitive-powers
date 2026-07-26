@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Small, fail-open Codex hooks for edit provenance and validation reminders."""
+"""Small, fail-open hooks for edit provenance and validation reminders.
+
+One script serves both hosts. Codex and Claude Code send different tool names
+and payload spellings, so every reader accepts either; only the ``Stop`` output
+is host-shaped, because the two hosts route a warning to different audiences.
+"""
 
 from __future__ import annotations
 
@@ -62,6 +67,19 @@ def _inside(path: Path, parent: Path) -> bool:
         return False
 
 
+def _default_data_root() -> Path:
+    """Resolve the shared fallback data root.
+
+    This must stay byte-identical to ``resolve_data_root`` in
+    ``work_state_core/durability.py``. The hook only observes edits; the durable
+    receipts it validates are written by ``work_state.py`` in a separate
+    process. If the two resolve different roots, every receipt lands outside the
+    root this hook checks and the ``Stop`` gate rejects work that is in fact
+    complete.
+    """
+    return (Path.home() / ".codex" / "cognitive-powers").resolve()
+
+
 def _roots(data_override: str | None = None) -> tuple[Path, Path] | None:
     plugin_root = (
         Path(
@@ -72,16 +90,17 @@ def _roots(data_override: str | None = None) -> tuple[Path, Path] | None:
         .expanduser()
         .resolve()
     )
+    # CLAUDE_PLUGIN_DATA is deliberately absent. Claude Code exports it to hook
+    # processes only, so work_state.py -- launched as an ordinary tool call --
+    # never sees it. Honouring it here would point the hook at a root no
+    # receipt writer can reach, splitting evidence storage on that host.
     configured = (
         data_override
         or os.environ.get("COGNITIVE_POWERS_DATA")
         or os.environ.get("PLUGIN_DATA")
-        or os.environ.get("CLAUDE_PLUGIN_DATA")
     )
     data_root = (
-        Path(configured).expanduser().resolve()
-        if configured
-        else (Path.home() / ".codex" / "cognitive-powers").resolve()
+        Path(configured).expanduser().resolve() if configured else _default_data_root()
     )
     if data_root == plugin_root or _inside(data_root, plugin_root):
         return None
@@ -485,7 +504,23 @@ def stop(payload: dict[str, Any]) -> None:
         "but no current, hash-bound validation receipt covers the latest "
         f"edit{detail}."
     )
-    print(json.dumps({"systemMessage": message}, ensure_ascii=False))
+    output: dict[str, Any] = {"systemMessage": message}
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        # Claude Code shows systemMessage to the user only; the agent never
+        # sees it. Without this the warning names a gap the one party able to
+        # close it cannot read. additionalContext reaches the agent and, unlike
+        # decision=block, leaves the hook fail-open.
+        output["hookSpecificOutput"] = {
+            "hookEventName": "Stop",
+            "additionalContext": (
+                f"{message} Resolve it by producing a real command receipt with "
+                "work_state.py run or run-green, confirming that criterion "
+                "through work_state.py verify with a different verifier, then "
+                "recording it with selective_hooks.py record-validation. Do not "
+                "claim the criterion is complete until that receipt exists."
+            ),
+        }
+    print(json.dumps(output, ensure_ascii=False))
 
 
 def record_validation(

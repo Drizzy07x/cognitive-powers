@@ -1,7 +1,7 @@
 ---
 name: use-current-docs
-description: Retrieve current version-matched authoritative docs for external libraries, SDKs, CLIs, or cloud APIs. Use when implementation depends on a specific installed version.
-disable-model-invocation: true
+description: Retrieve current, version-matched authoritative documentation for an external library, framework, SDK, CLI, or cloud API, after establishing the version the repository actually depends on.
+when_to_use: Use when implementation depends on a specific installed version, an external contract may have drifted, or an API surface must be confirmed rather than recalled. Local code and tests stay authoritative for project behavior.
 ---
 
 # Use Current Docs

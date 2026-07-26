@@ -68,7 +68,7 @@ assignment's exact declared check. A write that legitimately changes nothing
 uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
 and a successful required check; an empty `completed` write is rejected.
 
-Each host initially sees only these three core entries. The other eleven specialized workflows remain installed and are reached on demand: Codex loads them from the core router when the task directly matches, and Claude Code marks them `disable-model-invocation` so they are never auto-loaded but stay directly invocable as `/name`. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
+The two hosts reach the other eleven specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all fourteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
 
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
@@ -200,11 +200,15 @@ every platform. On Windows, `python3` resolves to the Microsoft Store alias in
 Hooks are invoked in exec form, so this path is passed as an argument vector and
 is never expanded by a shell.
 
-Claude automatically loads only `solve-efficiently`, `execute-durably`, and
-`verify-delivery`, matching the Codex core router. The eleven specialized
-workflows stay installed and are invoked directly as `/audit-capabilities`,
-`/map-project`, `/verify-web-behavior`, and so on. They are not auto-loaded, so
-they add no unconditional catalog overhead.
+Claude may load any of the fourteen workflows when its trigger contract matches,
+and every one of them stays directly invocable as `/solve-efficiently`,
+`/map-project`, `/verify-web-behavior`, and so on. Only the listing text, a
+description plus `when_to_use` per skill, is held in context; a workflow body
+loads when it is used.
+
+The plugin's three agent roles register under plugin-scoped names such as
+`cognitive-powers:verifier`. The verifier declares a read-only tool set, so the
+host enforces the independence contract instead of merely stating it.
 
 Verify an explicitly authorized installed copy against the immutable tag:
 

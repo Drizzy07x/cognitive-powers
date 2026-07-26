@@ -1,7 +1,7 @@
 ---
 name: audit-capabilities
-description: Audit recurring Codex workflows and existing skills to recommend evidence-backed updates or additions. Use for skill gaps, staleness, duplication, or capability reuse.
-disable-model-invocation: true
+description: Audit recurring workflows and installed skills to recommend evidence-backed skill updates, additions, or removals, based on repeated procedures rather than recurring topics.
+when_to_use: Use for skill-gap analysis, stale or duplicated capability review, or deciding whether an installed skill already covers a workflow. Requires repeated observed procedures, not a single task.
 ---
 
 # Audit Capabilities
@@ -10,7 +10,7 @@ Recommend reusable capabilities from repeated procedures, not recurring topics.
 
 ## 1. Establish the current surface
 
-Read the closest project instructions, README, validation commands, and existing skills under `skills`, `.agents/skills`, and `.codex/skills`. Read each relevant `SKILL.md` and `agents/openai.yaml` before proposing an overlap.
+Read the closest project instructions, README, validation commands, and existing skills under every location the hosts use: `skills`, `.agents/skills`, `.codex/skills`, `.claude/skills`, and `.claude/commands`. Read each relevant `SKILL.md` and `agents/openai.yaml` before proposing an overlap. A capability already installed for one host still counts as existing coverage.
 
 Treat the checkout as current authority. Memory can explain prior work but cannot override renamed paths, changed commands, or an existing skill that now covers the workflow.
 

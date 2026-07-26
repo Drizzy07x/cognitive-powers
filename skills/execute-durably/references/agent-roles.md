@@ -25,4 +25,21 @@ The verifier must be distinct from every executor and test writer whose result
 it reviews. Launch it only after the integrated state is ready and implementation
 workers have released a host slot.
 
-Repository-scoped `.codex/agents/*.toml` may encode these roles for development. Installed plugins do not currently register custom agents from the plugin root, so never make durable execution depend on those files being discoverable.
+## Where these roles come from
+
+The three roles ship with the plugin and are also encoded as repository-scoped
+development definitions. Which of them the host actually registers differs:
+
+- Claude Code registers an enabled plugin's `agents/` directory, exposing the
+  roles under plugin-scoped names such as `cognitive-powers:verifier`. Host
+  security rules ignore `hooks`, `mcpServers`, and `permissionMode` in a plugin
+  agent file, so no role may depend on those fields.
+- Codex does not register agents from the plugin root, and falls back to the
+  built-in workers.
+
+Delegate to a registered role when the host provides one, because its declared
+tool set enforces the contract instead of merely describing it; the verifier's
+read-only grant is the case that matters most. When no registered role exists,
+apply the same contracts to a built-in worker. Never make a durable criterion
+depend on a specific role being discoverable: verify what the host actually
+registered, and record which one performed the work.

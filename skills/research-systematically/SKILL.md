@@ -1,7 +1,7 @@
 ---
 name: research-systematically
-description: Conduct reproducible research with frozen pre-registration, experiments, claim-to-evidence mapping, and independent verdict. Use for comparative or experimental investigations.
-disable-model-invocation: true
+description: Run reproducible research: freeze a pre-registration of question, hypotheses, falsifiers, and stopping rules, run labeled confirmatory and exploratory experiments, then bind every claim to evidence.
+when_to_use: Use for comparative evaluations, benchmarks, or experimental investigations where exploration must not be presented as confirmation. For a bounded factual lookup about an external library, use use-current-docs instead.
 ---
 
 # Research Systematically

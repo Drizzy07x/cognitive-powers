@@ -142,8 +142,17 @@ def quality_warnings(plugin_root: Path) -> list[str]:
         relative = skill_file.relative_to(root).as_posix()
         text = skill_file.read_text(encoding="utf-8")
         metadata, _ = _frontmatter(text, skill_file.relative_to(root))
-        description = metadata.get("description", "")
-        if "Use when" not in description and "Use for" not in description:
+        # Hosts show description and when_to_use as one listing entry, so the
+        # trigger is decidable wherever it appears across the pair.
+        listing = " ".join(
+            part
+            for part in (
+                metadata.get("description", ""),
+                metadata.get("when_to_use", ""),
+            )
+            if part
+        )
+        if "Use when" not in listing and "Use for" not in listing:
             warnings.append(
                 f"{relative}: description has no decidable Use when/Use for trigger"
             )

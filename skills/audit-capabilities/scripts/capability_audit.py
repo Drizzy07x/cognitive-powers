@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 
-SKILL_LOCATIONS = ("skills", ".agents/skills", ".codex/skills")
+SKILL_LOCATIONS = (
+    "skills",
+    ".agents/skills",
+    ".codex/skills",
+    ".claude/skills",
+    ".claude/commands",
+)
 NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 WORD_PATTERN = re.compile(r"[a-z0-9]+")
 STOP_WORDS = {

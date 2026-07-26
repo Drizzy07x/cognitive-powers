@@ -1,6 +1,7 @@
 ---
 name: execute-durably
-description: Execute long or compaction-prone work with external state, evidence receipts, and independent verification. Use for resumable multi-turn work with several observable criteria.
+description: Run long or compaction-prone work against external durable state, with hash-bound evidence receipts and independent verification before any completion claim.
+when_to_use: Use when work spans several turns or is likely to cross a context compaction, must survive interruption and resume, or has several observable completion criteria that need auditable evidence. Skip work that finishes and can be checked in a single pass.
 ---
 
 # Execute Durably
@@ -20,7 +21,7 @@ scripts into the target repository.
 
 Read [state-contract.md](references/state-contract.md), then initialize one session with the complete objective and falsifiable criteria:
 
-Set `$python` to a working Python 3 executable first. In Codex desktop, use the bundled path returned by the workspace dependency loader before considering an installation; verify it with `& $python --version` and do not rely on a Microsoft Store alias.
+Set `$python` to a working Python 3 executable and verify it with `& $python --version` before the first run. Prefer an interpreter the host already resolved: a bundled path reported by a workspace dependency loader, or the value configured for this plugin's hooks. Do not install Python merely because a name failed to resolve, and on Windows do not rely on the `python3` alias under `WindowsApps`, which is a Microsoft Store stub that exits without running Python.
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> init --session <id> --objective "<outcome>" --criterion "<criterion 1>" --criterion "<criterion 2>"

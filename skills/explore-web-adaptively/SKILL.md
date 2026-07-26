@@ -1,7 +1,7 @@
 ---
 name: explore-web-adaptively
-description: Discover unfamiliar or changing browser workflows through existing Skyvern. Use for exploratory or cross-site navigation when deterministic steps are unknown.
-disable-model-invocation: true
+description: Discover unfamiliar or changing browser workflows through an already-installed Skyvern, writing normalized hashed artifacts. Discovery only, never the final judge of browser behavior.
+when_to_use: Use when the navigation path is unknown, spans sites, or an external interface has drifted, and no stable reproduction exists yet. Prefer verify-web-behavior once a Playwright reproduction is available. Requires Skyvern already installed and authorized.
 ---
 
 # Explore Web Adaptively

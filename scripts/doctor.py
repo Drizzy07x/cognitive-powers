@@ -685,6 +685,36 @@ def _skill_frontmatter(path: Path) -> dict[str, str]:
     return fields
 
 
+def _is_truthy(value: str | None) -> bool:
+    """Match every boolean spelling Claude Code accepts in frontmatter."""
+    if value is None:
+        return False
+    return value.strip().strip("\"'").lower() in {"true", "yes", "on", "1"}
+
+
+def _unroutable_referenced_skills(root: Path, manual: set[str]) -> list[str]:
+    """Return skills another skill tells the model to invoke but cannot.
+
+    A skill body that says "invoke ``use-current-docs``" is dead guidance when
+    that skill carries ``disable-model-invocation``: Claude Code never shows it
+    to the model, so the instruction cannot be followed.
+    """
+    if not manual:
+        return []
+    referenced: set[str] = set()
+    for path in sorted((root / "skills").glob("*/SKILL.md")):
+        try:
+            body = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for name in manual:
+            if name == path.parent.name:
+                continue
+            if re.search(rf"`{re.escape(name)}`", body):
+                referenced.add(name)
+    return sorted(referenced)
+
+
 def host_surfaces(root: Path) -> dict[str, Any]:
     """Describe both packaging surfaces from disk without probing any host."""
     surfaces: list[dict[str, Any]] = []
@@ -736,13 +766,26 @@ def host_surfaces(root: Path) -> dict[str, Any]:
                 fields = _skill_frontmatter(skill)
                 target = (
                     manual
-                    if fields.get("disable-model-invocation") == "true"
+                    if _is_truthy(fields.get("disable-model-invocation"))
                     else automatic
                 )
                 target.append(skill.parent.name)
             claude["skillsDiscovered"] = "skills/"
             claude["modelInvocableSkills"] = automatic
             claude["userInvocableOnlySkills"] = manual
+            unroutable = _unroutable_referenced_skills(root, set(manual))
+            for name in unroutable:
+                findings.append(
+                    {
+                        "code": "claude-skill-unroutable",
+                        "severity": "error",
+                        "message": (
+                            f"{name} is referenced by name from another skill "
+                            "but carries disable-model-invocation, so Claude "
+                            "Code cannot follow that instruction"
+                        ),
+                    }
+                )
             if isinstance(manifest.get("version"), str):
                 versions["claude-code"] = manifest["version"]
             if "skills" in manifest:

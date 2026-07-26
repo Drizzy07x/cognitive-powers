@@ -10,7 +10,7 @@ Use the deterministic selector to rank likely relevant text without loading the 
 & $python scripts/context_lens.py <root> --query "exact error symbol behavior" --max-files 12 --max-chars 12000
 ```
 
-Set `$python` to a real Python 3 executable first. In Codex desktop, prefer the bundled path returned by the workspace dependency loader and verify `& $python --version`; do not install Python merely because the Microsoft Store alias fails.
+Set `$python` to a real Python 3 executable and verify `& $python --version` first. Prefer an interpreter the host already resolved: a bundled path reported by a workspace dependency loader, or the value configured for this plugin's hooks. Do not install Python merely because a name failed to resolve; on Windows the `python3` alias under `WindowsApps` is a Microsoft Store stub that exits without running Python.
 
 Add `--json` when another script will consume the output. The reported character reduction compares extracted payload text with all scanned text; it is not an actual model-token measurement.
 

@@ -129,7 +129,15 @@ def _model_invocable_skills(installed_root: Path) -> list[str]:
             if line.strip() == "---":
                 break
             match = re.match(r"^disable-model-invocation:\s*(\S+)\s*$", line)
-            if match and match.group(1) == "true":
+            # Claude Code accepts yes/on/1 as well as true, in any case. Read
+            # every truthy spelling, so a skill can never be reported routable
+            # while the host refuses to route to it.
+            if match and match.group(1).strip("\"'").lower() in {
+                "true",
+                "yes",
+                "on",
+                "1",
+            }:
                 disabled = True
                 break
         if not disabled:
@@ -163,7 +171,10 @@ def _claude_surface(installed_root: Path, version: str) -> dict[str, Any]:
             and manifest.get("version") == version
             and manifest.get("hooks") == "./hooks/hooks.claude.json"
             and "skills" not in manifest
-            and automatic == EXPECTED_SKILLS
+            # Every installed workflow must be routable on this host: the core
+            # skills delegate to the specialized ones by name, and Claude Code
+            # cannot invoke a skill it was never shown.
+            and automatic == installed_skills
             and len(installed_skills) == 14
         ),
         "host": "claude-code",

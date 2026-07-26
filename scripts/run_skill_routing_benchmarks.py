@@ -55,6 +55,14 @@ def load_skill_descriptions(root: Path) -> dict[str, str]:
             raise ValueError(f"missing name or single-line description: {skill_file}")
         name = name_match.group(1).strip(" \"'")
         description = description_match.group(1).strip(" \"'")
+        # Rank the text the host actually lists. Claude Code appends
+        # when_to_use to description in the skill listing, so scoring the
+        # description alone would measure something the model never sees.
+        trigger_match = re.search(
+            r"^when_to_use:\s*(.+?)\s*$", match.group(1), re.MULTILINE
+        )
+        if trigger_match is not None:
+            description = f"{description} {trigger_match.group(1).strip(' "\'')}"
         if name in descriptions:
             raise ValueError(f"duplicate skill name: {name}")
         descriptions[name] = description

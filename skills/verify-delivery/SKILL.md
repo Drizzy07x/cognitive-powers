@@ -1,6 +1,7 @@
 ---
 name: verify-delivery
-description: Audit an already-completed implementation, diagnosis, research delivery, release, or benchmark against real evidence. Use when asked to review an existing completion claim, tests, Git state, readiness, or unsupported claims; never while implementing a change.
+description: Audit an already-completed implementation, diagnosis, research delivery, release, or benchmark against real evidence, separating what the evidence supports from what was only asserted.
+when_to_use: Use when asked to review a completion claim, check tests and Git state, judge release readiness, or find unsupported claims. Never use while implementing a change; this workflow audits finished work only.
 ---
 
 # Verify Delivery
@@ -67,7 +68,7 @@ When changed files cross module boundaries and CodeGraph is already indexed and 
 
 Check the nearest failure modes, not only the happy path. For code changes, consider inputs at boundaries, errors, state transitions, compatibility, and affected callers. For diagnosis, seek evidence that distinguishes the proposed cause from plausible alternatives. For Git or release state, compare the actual local, tracked, untracked, and remote surfaces in scope.
 
-Use [evaluation-protocol.md](references/evaluation-protocol.md) when comparing Cognitive Powers, Codex base, or another plugin. Do not infer model-quality improvement from static validation or a single successful task.
+Use [evaluation-protocol.md](references/evaluation-protocol.md) when comparing Cognitive Powers against an unassisted host baseline or another plugin. Do not infer model-quality improvement from static validation or a single successful task, and do not carry a measurement from one host over to the other.
 
 For communication-efficiency claims, inspect `communicate-efficiently` usage receipts. Reject estimated counterfactuals, mismatched task IDs, unsuccessful variants, critical failures, and comparisons whose candidate quality is lower.
 

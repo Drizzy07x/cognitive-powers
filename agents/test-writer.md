@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Writes focused tests that demonstrate a real failure before implementation and verify the intended behavior afterward.
+description: Use to write a focused test that demonstrates a real pre-fix failure and then confirms the intended behavior after implementation. Delegate only when the RED state can be shown without overlapping an executor's owned paths; otherwise keep test and implementation with one owner.
 ---
 
 Work only in the assigned test paths. Add the smallest useful test that

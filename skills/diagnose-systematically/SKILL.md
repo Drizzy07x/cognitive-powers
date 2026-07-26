@@ -1,7 +1,7 @@
 ---
 name: diagnose-systematically
-description: Diagnose unclear, intermittent, or recurring defects with reproduction, falsifiable hypotheses, instrumentation, and regression evidence. Use when the cause is unknown.
-disable-model-invocation: true
+description: Find the cause of a defect through observable evidence: build a runnable signal, reproduce, minimize, form falsifiable hypotheses, instrument, and prove the fix with regression evidence.
+when_to_use: Use for unclear, intermittent, or recurring defects and performance regressions whose cause is not already demonstrated. Diagnosis alone does not authorize a fix; implement one only when the user asked for it.
 ---
 
 # Diagnose Systematically

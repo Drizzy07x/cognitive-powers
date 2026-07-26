@@ -1,6 +1,7 @@
 ---
 name: solve-efficiently
-description: Execute cross-file or complex multi-module work; fix a defect described by a supplied reproduction while preserving unrelated behavior; answer a bounded technical decision using supplied current primary sources; or complete a specified workflow through an authorized real host, with progressive context and verified completion. Use when a public contract spans implementation, persistence, CLI, browser, or tests, boundaries need discovery, repository context payload must be reduced, or Cognitive Powers is requested. Abstain only from obvious one-file changes with a nearby test.
+description: Execute cross-file or multi-module work, fix a defect from a supplied reproduction while preserving unrelated behavior, or answer a bounded technical decision from supplied primary sources, using progressive context discovery and verified completion.
+when_to_use: Use when a public contract spans implementation, persistence, CLI, browser, or tests; when boundaries must be discovered before editing; when the repository context payload must be reduced; or when Cognitive Powers is requested by name. Skip only for an obvious one-file change with a nearby test.
 ---
 
 # Solve Efficiently

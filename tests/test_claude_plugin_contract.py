@@ -7,9 +7,12 @@ against the Codex surface, so neither host can drift without a failing test.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import inspect
+import io
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -191,18 +194,50 @@ class ClaudeSkillSurfaceTests(unittest.TestCase):
             with self.subTest(skill=name):
                 self.assertEqual(frontmatter(path).get("name"), name)
 
-    def test_only_core_skills_are_model_invocable(self) -> None:
-        automatic = {
+    def test_every_installed_skill_is_model_invocable(self) -> None:
+        blocked = {
             name
             for name, path in self.skills.items()
-            if frontmatter(path).get("disable-model-invocation") != "true"
+            if frontmatter(path).get("disable-model-invocation") is not None
         }
         self.assertEqual(
-            automatic,
-            CORE_SKILLS,
-            "Claude Code auto-loads exactly the three core workflows; the "
-            "specialized ones stay installed and directly invocable",
+            blocked,
+            set(),
+            "Claude Code hides a disable-model-invocation skill from the model "
+            "entirely, so it can never be routed to; the core workflows "
+            "delegate to the specialized ones by name and would break",
         )
+
+    def test_no_skill_is_told_to_invoke_an_unroutable_skill(self) -> None:
+        """The failure this guards is silent: the model simply cannot comply."""
+        blocked = {
+            name
+            for name, path in self.skills.items()
+            if frontmatter(path).get("disable-model-invocation") is not None
+        }
+        for name, path in self.skills.items():
+            body = path.read_text(encoding="utf-8")
+            for target in blocked:
+                if target == name:
+                    continue
+                with self.subTest(skill=name, target=target):
+                    self.assertNotIn(
+                        f"`{target}`",
+                        body,
+                        f"{name} tells the model to use {target}, which the "
+                        "host will not expose",
+                    )
+
+    def test_every_skill_states_when_to_use_it(self) -> None:
+        """Routing quality is the description; a vague one misroutes."""
+        for name, path in self.skills.items():
+            with self.subTest(skill=name):
+                fields = frontmatter(path)
+                self.assertTrue(
+                    fields.get("when_to_use"),
+                    "an explicit trigger contract keeps the model from "
+                    "guessing which of 14 workflows applies",
+                )
 
     def test_specialized_skills_remain_user_invocable(self) -> None:
         for name in SPECIALIZED_SKILLS:
@@ -291,15 +326,42 @@ class ClaudeDoctorTests(unittest.TestCase):
             self.assertTrue(surface["present"])
             self.assertNotIn("error", surface)
 
-    def test_reports_the_claude_invocation_split(self) -> None:
+    def test_reports_every_workflow_as_routable(self) -> None:
         claude = next(
             surface
             for surface in self.doctor.host_surfaces(PLUGIN_ROOT)["surfaces"]
             if surface["host"] == "claude-code"
         )
-        self.assertEqual(set(claude["modelInvocableSkills"]), CORE_SKILLS)
-        self.assertEqual(set(claude["userInvocableOnlySkills"]), SPECIALIZED_SKILLS)
+        self.assertEqual(
+            set(claude["modelInvocableSkills"]), CORE_SKILLS | SPECIALIZED_SKILLS
+        )
+        self.assertEqual(claude["userInvocableOnlySkills"], [])
         self.assertEqual(claude["requiredUserConfig"], ["python_executable"])
+
+    def test_a_referenced_but_hidden_skill_is_an_error_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / ".codex-plugin").mkdir()
+            (root / ".claude-plugin").mkdir()
+            for name in (".codex-plugin", ".claude-plugin"):
+                (root / name / "plugin.json").write_text(
+                    json.dumps({"name": "fixture", "version": "1.0.0"}),
+                    encoding="utf-8",
+                )
+            for name, extra, body in (
+                ("router", "", "Invoke `helper` when the task matches.\n"),
+                ("helper", "\ndisable-model-invocation: true", "Do the thing.\n"),
+            ):
+                skill = root / "skills" / name
+                skill.mkdir(parents=True)
+                (skill / "SKILL.md").write_text(
+                    f"---\nname: {name}\ndescription: d{extra}\n---\n\n{body}",
+                    encoding="utf-8",
+                )
+            findings = self.doctor.host_surfaces(root)["findings"]
+        self.assertIn(
+            "claude-skill-unroutable", {finding["code"] for finding in findings}
+        )
 
     def test_version_drift_between_hosts_is_an_error_finding(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -347,7 +409,10 @@ class ClaudeVerifyInstalledTests(unittest.TestCase):
         surface = self.module._claude_surface(PLUGIN_ROOT, version)
         self.assertTrue(surface["matched"], surface)
         self.assertEqual(surface["host"], "claude-code")
-        self.assertEqual(sorted(surface["exposedSkills"]), sorted(CORE_SKILLS))
+        self.assertEqual(
+            sorted(surface["exposedSkills"]),
+            sorted(CORE_SKILLS | SPECIALIZED_SKILLS),
+        )
         self.assertEqual(len(surface["internalWorkflows"]), 14)
 
     def test_surface_fails_closed_on_version_drift(self) -> None:
@@ -384,6 +449,174 @@ class ClaudeVerifyInstalledTests(unittest.TestCase):
             self.module.verify_installation(
                 PLUGIN_ROOT, PLUGIN_ROOT, "v0.0.0", host="cursor"
             )
+
+
+class ClaudeEvidenceRootTests(unittest.TestCase):
+    """The hook and the receipt writer must resolve one storage root.
+
+    They run in different processes: the hook is launched by the host, while
+    ``work_state.py`` runs as an ordinary tool call. The ``Stop`` gate only
+    accepts a receipt stored under the root the hook resolved, so any
+    disagreement rejects work that is genuinely complete.
+    """
+
+    DATA_VARIABLES = (
+        "COGNITIVE_POWERS_DATA",
+        "PLUGIN_DATA",
+        "CLAUDE_PLUGIN_DATA",
+        "CLAUDE_PLUGIN_ROOT",
+    )
+
+    def setUp(self) -> None:
+        self.hook = self._load("hook", PLUGIN_ROOT / "hooks" / "selective_hooks.py")
+        self.durability = self._load(
+            "durability",
+            PLUGIN_ROOT
+            / "skills"
+            / "execute-durably"
+            / "scripts"
+            / "work_state_core"
+            / "durability.py",
+        )
+
+    @staticmethod
+    def _load(name: str, path: Path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @contextlib.contextmanager
+    def _environment(self, **values: str):
+        saved = {key: os.environ.get(key) for key in self.DATA_VARIABLES}
+        for key in self.DATA_VARIABLES:
+            os.environ.pop(key, None)
+        os.environ.update(values)
+        try:
+            yield
+        finally:
+            for key, previous in saved.items():
+                if previous is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = previous
+
+    def _both_roots(self) -> tuple[Path, Path]:
+        roots = self.hook._roots()
+        assert roots is not None
+        return roots[1], self.durability.resolve_data_root(None)
+
+    def test_agree_when_nothing_is_configured(self) -> None:
+        with self._environment():
+            hook_root, writer_root = self._both_roots()
+        self.assertEqual(hook_root, writer_root)
+
+    def test_agree_on_each_shared_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            for variable in ("COGNITIVE_POWERS_DATA", "PLUGIN_DATA"):
+                with self.subTest(variable=variable):
+                    with self._environment(**{variable: raw}):
+                        hook_root, writer_root = self._both_roots()
+                    self.assertEqual(hook_root, writer_root)
+                    self.assertEqual(hook_root, Path(raw).resolve())
+
+    def test_cognitive_powers_data_wins_over_plugin_data(self) -> None:
+        with tempfile.TemporaryDirectory() as first:
+            with tempfile.TemporaryDirectory() as second:
+                with self._environment(COGNITIVE_POWERS_DATA=first, PLUGIN_DATA=second):
+                    hook_root, writer_root = self._both_roots()
+        self.assertEqual(hook_root, writer_root)
+        self.assertEqual(hook_root, Path(first).resolve())
+
+    def test_a_host_only_variable_never_splits_the_store(self) -> None:
+        """Claude Code exports CLAUDE_PLUGIN_DATA to hook processes only.
+
+        The receipt writer is not a hook process and cannot see it, so reading
+        it in the hook would point the two at different directories.
+        """
+        with tempfile.TemporaryDirectory() as raw:
+            with self._environment(CLAUDE_PLUGIN_DATA=raw):
+                hook_root, writer_root = self._both_roots()
+                self.assertEqual(hook_root, writer_root)
+                self.assertNotEqual(hook_root, Path(raw).resolve())
+
+
+class ClaudeStopOutputTests(unittest.TestCase):
+    """The Stop warning must reach the party that can act on it.
+
+    Claude Code shows ``systemMessage`` to the user and never to the agent, so
+    the warning alone names a gap the agent cannot read. ``additionalContext``
+    reaches the agent while leaving the hook fail-open.
+    """
+
+    def setUp(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "stop_hook", PLUGIN_ROOT / "hooks" / "selective_hooks.py"
+        )
+        assert spec is not None and spec.loader is not None
+        self.hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hook)
+
+    def _stop_output(self, *, claude_host: bool) -> dict:
+        with tempfile.TemporaryDirectory() as repo_raw:
+            with tempfile.TemporaryDirectory() as data_raw:
+                repo = Path(repo_raw).resolve()
+                (repo / "module.py").write_text("value = 1\n", encoding="utf-8")
+                environment = {"COGNITIVE_POWERS_DATA": data_raw}
+                if claude_host:
+                    environment["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN_ROOT)
+                else:
+                    os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+                saved = {
+                    key: os.environ.get(key)
+                    for key in ("COGNITIVE_POWERS_DATA", "CLAUDE_PLUGIN_ROOT")
+                }
+                os.environ.update(environment)
+                try:
+                    self.hook.post_tool_use(
+                        {
+                            "session_id": "contract-session",
+                            "cwd": str(repo),
+                            "hook_event_name": "PostToolUse",
+                            "tool_name": "Write",
+                            "tool_input": {"file_path": str(repo / "module.py")},
+                        }
+                    )
+                    stream = io.StringIO()
+                    with contextlib.redirect_stdout(stream):
+                        self.hook.stop(
+                            {
+                                "session_id": "contract-session",
+                                "cwd": str(repo),
+                                "hook_event_name": "Stop",
+                            }
+                        )
+                finally:
+                    for key, previous in saved.items():
+                        if previous is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = previous
+        return json.loads(stream.getvalue() or "{}")
+
+    def test_claude_host_also_tells_the_agent(self) -> None:
+        output = self._stop_output(claude_host=True)
+        self.assertTrue(output.get("systemMessage"))
+        specific = output.get("hookSpecificOutput", {})
+        self.assertEqual(specific.get("hookEventName"), "Stop")
+        self.assertTrue(specific.get("additionalContext"))
+
+    def test_the_warning_never_blocks_the_turn(self) -> None:
+        output = self._stop_output(claude_host=True)
+        self.assertNotIn(
+            "decision", output, "observability must not stop the conversation"
+        )
+
+    def test_other_hosts_receive_no_claude_only_key(self) -> None:
+        output = self._stop_output(claude_host=False)
+        self.assertTrue(output.get("systemMessage"))
+        self.assertNotIn("hookSpecificOutput", output)
 
 
 class ClaudeCiTests(unittest.TestCase):

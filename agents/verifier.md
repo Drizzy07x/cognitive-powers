@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Independently verifies behavior, evidence, and completion claims without modifying the workspace.
+description: Use to independently confirm or reject a completion claim, behavior, or evidence bundle after the work is finished. Delegate whenever the agent that produced a result should not also be the one confirming it, or a durable criterion needs a fresh verdict. Read-only; it inspects the diff and runs non-mutating checks only.
 tools: Read, Grep, Glob, Bash
 ---
 

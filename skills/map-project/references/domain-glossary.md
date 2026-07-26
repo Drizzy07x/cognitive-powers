@@ -11,7 +11,7 @@ Record domain language and relationships:
 - distinctions from easily confused terms;
 - concrete edge case when needed to make the distinction stable.
 
-Exclude file paths, commands, frameworks, implementation details, task plans, and coding rules. Those belong in `AGENTS.md`, source, or a specification.
+Exclude file paths, commands, frameworks, implementation details, task plans, and coding rules. Those belong in the host's instruction file, source, or a specification.
 
 ## Multiple domains
 
