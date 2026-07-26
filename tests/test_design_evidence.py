@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -172,6 +173,28 @@ class DesignEvidenceTests(unittest.TestCase):
         self.browser_report.write_text("tampered", encoding="utf-8")
         with self.assertRaises(evidence.EvidenceError):
             self.create(self.review_payload())
+
+    def test_screenshot_replaced_while_copying_is_rejected(self) -> None:
+        """The preserved render must be the one whose dimensions were checked.
+
+        Dimensions are read before the copy. Without a re-hash the receipt can
+        claim a dimension-matched desktop render while preserving a different
+        image, and the durable recorder trusts those declared hashes.
+        """
+        substitute = self.external / "substitute.png"
+        write_png(substitute, 100, 100)
+        replacement = substitute.read_bytes()
+        real_copyfile = evidence.shutil.copyfile
+
+        def racing_copyfile(source, target, **keywords):
+            if Path(source).name == self.desktop.name:
+                Path(target).write_bytes(replacement)
+                return target
+            return real_copyfile(source, target, **keywords)
+
+        with mock.patch.object(evidence.shutil, "copyfile", racing_copyfile):
+            with self.assertRaises(evidence.EvidenceError):
+                self.create(self.review_payload())
 
 
 if __name__ == "__main__":

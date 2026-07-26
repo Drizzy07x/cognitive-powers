@@ -256,7 +256,14 @@ def create_evidence(
         copied["kind"] = "browser-artifact"
         artifacts.append(copied)
     for item in viewports:
-        item["sha256"] = sha256_file(Path(item["copy"]))
+        # The declared dimensions were read from the source before the copy. If
+        # the two differ, the receipt would assert a dimension-matched render
+        # for an image nothing ever checked, and the durable recorder trusts
+        # these declared hashes rather than re-reading the PNG.
+        if sha256_file(Path(item["copy"])) != item["sha256"]:
+            raise EvidenceError(
+                f"viewport screenshot changed while copying: {item['source']}"
+            )
         artifacts.append(
             {
                 "kind": "screenshot",
