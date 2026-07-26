@@ -555,11 +555,22 @@ def source_identity(root: Path) -> dict[str, int | str]:
     root = _require_directory(root)
     aggregate = hashlib.sha256()
     count = 0
+    recorded: set[str] = set()
     for path in iter_tree_files(root):
         # Compose the recorded path for the same reason content is folded to
         # LF: otherwise the digest describes how this filesystem spells the
         # name rather than what the commit contains.
         relative = identity_name(path.relative_to(root).as_posix())
+        if relative in recorded:
+            # Two files whose names differ only by composition. Linux and
+            # Windows keep them apart while macOS resolves them to one file,
+            # so no single digest can describe this tree on every platform.
+            # Refuse rather than let iteration order decide the answer.
+            raise StoragePolicyError(
+                "tree contains names that differ only by Unicode composition, "
+                f"so it has no platform-independent identity: {relative}"
+            )
+        recorded.add(relative)
         try:
             file_hash = hashlib.sha256(identity_bytes(path.read_bytes())).hexdigest()
         except OSError as error:

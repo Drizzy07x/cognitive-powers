@@ -121,11 +121,17 @@ def sanitize_identifier(value: str, label: str) -> str:
     its own work.
     """
     composed = unicodedata.normalize("NFC", value)
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", composed.strip()).strip("-")[:80]
+    # Truncate before the final strip: doing it the other way round lets the
+    # cut reintroduce a trailing separator the strip had just removed.
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", composed.strip())[:80].strip("-.")
     if not sanitized:
         raise WorkStateError(
             f"{label} must contain letters, digits, dots, underscores, or hyphens"
         )
+    if set(sanitized) <= {"."}:
+        # The character class admits dots, so "." and ".." survive unchanged
+        # and would make a session path resolve above its own directory.
+        raise WorkStateError(f"{label} must not consist only of dots")
     return sanitized
 
 
@@ -178,22 +184,43 @@ def _assert_session_name(directory: Path, requested: str) -> None:
 
     Sessions written before this field existed carry no stored name; those are
     accepted unchanged rather than being made unreadable.
+
+    A caller may address a session either by the name it was created with or by
+    the folded identifier, which is what ``init`` prints and what the hook reads
+    back out of ``state.json``. Only a third, genuinely different name is
+    refused.
+
+    An unreadable ``state.json`` is not this function's business: ``load_state``
+    exists to rebuild one from the ledger, and raising here would break the
+    commands that recovery depends on.
     """
     try:
         stored = json.loads((directory / "state.json").read_text(encoding="utf-8")).get(
             "session_name"
         )
-    except (OSError, json.JSONDecodeError, AttributeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
         return
     if not isinstance(stored, str):
         return
     canonical = canonical_session_name(requested)
-    if stored != canonical:
-        raise WorkStateError(
-            f"session {canonical!r} collides with the stored session {stored!r}: "
-            "both reduce to the same identifier, so this request would act on "
-            "the wrong session"
-        )
+    if canonical in {stored, sanitize_identifier(stored, "session")}:
+        return
+    raise WorkStateError(
+        f"session {canonical!r} collides with the stored session {stored!r}: "
+        "both reduce to the same identifier, so this request would act on "
+        "the wrong session"
+    )
+
+
+def _legacy_identifier(value: str) -> str:
+    """Reproduce the identifier this module produced before names were composed.
+
+    Composing first changed where a decomposed name lands: ``sprint-café``
+    typed decomposed used to fold to ``sprint-cafe`` and now folds to
+    ``sprint-caf``. Without this, an existing session silently becomes
+    unreachable and a fresh ``init`` orphans it at the new path.
+    """
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")[:80]
 
 
 def session_directory(root: Path, data_root: Path, session_id: str) -> Path:
@@ -201,13 +228,12 @@ def session_directory(root: Path, data_root: Path, session_id: str) -> Path:
         raise WorkStateError(
             f"durable data root must be outside the workspace: {data_root}"
         )
-    directory = (
-        data_root
-        / "projects"
-        / project_key(root)
-        / "sessions"
-        / sanitize_identifier(session_id, "session")
-    )
+    sessions = data_root / "projects" / project_key(root) / "sessions"
+    directory = sessions / sanitize_identifier(session_id, "session")
+    if not (directory / "state.json").is_file():
+        legacy = _legacy_identifier(session_id)
+        if legacy and (sessions / legacy / "state.json").is_file():
+            directory = sessions / legacy
     _assert_session_name(directory, session_id)
     return directory
 
@@ -1020,14 +1046,18 @@ def _read_recovery_checkpoint(session_dir: Path) -> dict[str, Any] | None:
 def load_state(session_dir: Path) -> dict[str, Any]:
     path = _state_path(session_dir)
     candidates: list[tuple[str, dict[str, Any]]] = []
-    state_error: OSError | json.JSONDecodeError | None = None
+    state_error: OSError | ValueError | None = None
     if path.is_file():
         try:
             candidate = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(candidate, dict):
                 _validate_state_payload(candidate, path)
                 candidates.append(("state", candidate))
-        except (OSError, json.JSONDecodeError) as error:
+        # A truncated write can leave bytes that are not valid UTF-8, which
+        # raises before the JSON parser sees them. That is the corruption the
+        # ledger and recovery candidates below exist to survive, so it must
+        # not escape as a traceback.
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             state_error = error
     ledger_state = _latest_ledger_snapshot(session_dir)
     if ledger_state is not None:

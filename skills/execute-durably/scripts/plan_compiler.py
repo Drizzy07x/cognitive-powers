@@ -82,16 +82,16 @@ def _normalize_owned_path(value: str, packet_id: str) -> str:
 def _fold_path_parts(value: str) -> tuple[str, ...]:
     """Fold path components the way the filesystem would resolve them.
 
-    Composition is folded on every platform: macOS resolves the composed and
-    decomposed spellings of a name to one file, so treating them as distinct
-    would let one packet plan give two owners the same path.
+    Composition and case are both folded on every platform: macOS resolves the
+    composed and decomposed spellings of a name to one file and is
+    case-insensitive by default, so gating either half on Windows would let one
+    packet plan give two owners the same path there. This must answer the same
+    way as the planner, which compiles the plan this file validates.
     """
-    parts = tuple(
-        unicodedata.normalize("NFC", part) for part in PurePosixPath(value).parts
+    return tuple(
+        unicodedata.normalize("NFC", part).casefold()
+        for part in PurePosixPath(value).parts
     )
-    if os.name == "nt":
-        parts = tuple(part.casefold() for part in parts)
-    return parts
 
 
 def _paths_overlap(left: str, right: str) -> bool:

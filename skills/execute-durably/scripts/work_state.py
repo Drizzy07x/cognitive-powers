@@ -433,17 +433,17 @@ def _normalize_owned_path(value: str) -> str:
 def _fold_path_parts(value: str) -> tuple[str, ...]:
     """Fold path components the way the filesystem would resolve them.
 
-    Composition is folded on every platform. macOS resolves the composed and
-    decomposed spellings of a name to one file, and treating them as distinct
-    would hand two owners the same path. Folding everywhere can only refuse a
-    parallel plan that was legal, never permit one that was not.
+    Composition and case are both folded on every platform. macOS resolves the
+    composed and decomposed spellings of a name to one file, and its default
+    filesystem is case-insensitive too, so gating either half on Windows would
+    hand two owners the same path there. Folding everywhere can only refuse a
+    parallel plan that was legal, never permit one that was not, and it keeps
+    this answer identical to the planner's.
     """
-    parts = tuple(
-        unicodedata.normalize("NFC", part) for part in PurePosixPath(value).parts
+    return tuple(
+        unicodedata.normalize("NFC", part).casefold()
+        for part in PurePosixPath(value).parts
     )
-    if os.name == "nt":
-        parts = tuple(part.casefold() for part in parts)
-    return parts
 
 
 def _paths_overlap(left: str, right: str) -> bool:
@@ -2574,6 +2574,7 @@ _UNREADABLE_USAGE = {
     "inputTokens": None,
     "cachedInputTokens": None,
     "outputTokens": None,
+    "sourceSchema": None,
 }
 
 
@@ -2602,13 +2603,17 @@ def _expected_communication_usage(provider_usage: object) -> dict[str, object]:
             f"cannot load the shared usage conversion: {path}"
         ) from error
     try:
-        total, cached, output, _schema = module.normalize_usage(provider_usage)
+        total, cached, output, schema = module.normalize_usage(provider_usage)
     except module.UsageError:
         return dict(_UNREADABLE_USAGE)
     return {
         "inputTokens": total,
         "cachedInputTokens": cached,
         "outputTokens": output,
+        # Re-derived like the totals. Comparison between receipts is gated on
+        # this field, so trusting the receipt's own copy would leave the one
+        # value that decides comparability unverified.
+        "sourceSchema": schema,
     }
 
 

@@ -219,13 +219,13 @@ its own listing, and whether the agent roles registered. `scripts/doctor.py`
 remains the packaging diagnostic; it describes declarations on disk and never
 claims anything ran.
 
-A `SessionStart` hook refreshes the optional semantic index when Graphify is
-already installed and the working directory is a checkout, so navigation reads
-a graph that matches the worktree. It never installs Graphify, and it writes
-`graphify-out/` into the checkout, so cover that directory with ignore rules
-before working in a repository you do not own. Set
-`COGNITIVE_POWERS_DISABLE_INDEX=1` to turn the refresh off, or
-`COGNITIVE_POWERS_INDEX_TIMEOUT` to change its bound.
+A `SessionStart` hook refreshes the optional semantic index, so navigation
+reads a graph that matches the worktree. It acts only when Graphify is already
+installed, the working directory is a checkout, and an index is already there:
+it never installs Graphify and never creates an index, so a repository you do
+not own is left untouched. It also skips the rebuild when Git reports the
+worktree unchanged since the last run. Set `COGNITIVE_POWERS_DISABLE_INDEX=1`
+to turn it off, or `COGNITIVE_POWERS_INDEX_TIMEOUT` to change its bound.
 
 Verify an explicitly authorized installed copy against the immutable tag:
 

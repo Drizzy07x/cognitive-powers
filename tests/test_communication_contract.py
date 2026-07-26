@@ -193,6 +193,29 @@ class AnthropicUsageTests(unittest.TestCase):
         )
         self.assertEqual((total, cached, output, schema), (500, 200, 30, "codex"))
 
+    def test_a_cache_write_without_a_read_is_readable(self) -> None:
+        """A first turn writes the cache and reads nothing back."""
+        total, cached, output, schema = contract.normalize_usage(
+            {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 50,
+                "output_tokens": 10,
+            }
+        )
+        self.assertEqual((total, cached, output, schema), (150, 0, 10, "anthropic"))
+
+    def test_a_record_mixing_both_schemas_is_refused(self) -> None:
+        """Codex input_tokens already contains what the Anthropic keys state."""
+        with self.assertRaises(contract.ContractError):
+            contract.normalize_usage(
+                {
+                    "input_tokens": 1000,
+                    "cached_input_tokens": 900,
+                    "cache_read_input_tokens": 900,
+                    "output_tokens": 10,
+                }
+            )
+
     def test_the_codex_guard_still_holds(self) -> None:
         with self.assertRaises(contract.ContractError):
             contract.normalize_usage(
@@ -223,6 +246,13 @@ class CrossSchemaComparisonTests(unittest.TestCase):
             contract.compare_receipts(
                 self._receipt("codex"), self._receipt("anthropic")
             )
+
+    def test_a_receipt_without_a_usage_object_reports_cleanly(self) -> None:
+        """The schema check runs first, so .get on a list would traceback."""
+        broken = self._receipt("codex")
+        broken["usage"] = []
+        with self.assertRaises(contract.ContractError):
+            contract.compare_receipts(broken, self._receipt("codex"))
 
     def test_matching_schemas_still_compare(self) -> None:
         result = contract.compare_receipts(
@@ -277,6 +307,16 @@ class TranscriptUsageTests(unittest.TestCase):
         total, cached, output, schema = contract.normalize_usage(record["usage"])
         self.assertEqual(schema, "anthropic")
         self.assertEqual((total, cached, output), (1005, 900, 50))
+
+    def test_host_generated_rows_are_excluded_not_fatal(self) -> None:
+        """Claude Code writes its own rows with a placeholder model name."""
+        synthetic = self._row("msg_host")
+        synthetic["message"]["model"] = "<synthetic>"
+        path = self._write([self._row("msg_a"), synthetic])
+        record = contract.usage_from_transcript(path)
+        self.assertEqual(record["model"], "claude-opus-5")
+        self.assertEqual(record["messageCount"], 1)
+        self.assertEqual(record["hostGeneratedRowsExcluded"], 1)
 
     def test_a_session_filter_excludes_other_sessions(self) -> None:
         other = self._row("msg_c")
@@ -369,7 +409,7 @@ class DurableConsumerAgreementTests(unittest.TestCase):
         ]
         for usage in cases:
             with self.subTest(usage=sorted(usage)):
-                total, cached, output, _schema = contract.normalize_usage(usage)
+                total, cached, output, schema = contract.normalize_usage(usage)
                 derived = self.work_state._expected_communication_usage(usage)
                 self.assertEqual(
                     derived,
@@ -377,6 +417,7 @@ class DurableConsumerAgreementTests(unittest.TestCase):
                         "inputTokens": total,
                         "cachedInputTokens": cached,
                         "outputTokens": output,
+                        "sourceSchema": schema,
                     },
                 )
 

@@ -2,6 +2,23 @@
 
 ## 1.7.0 - 2026-07-26
 
+Review follow-ups, all against defects introduced earlier in this release:
+
+- Let a session be addressed by the identifier `init` reports. The collision guard compared the caller's name against the stored pre-fold name, but the hook and the tool's own output use the folded id, so it rejected the right session. `record-validation` died with an uncaught traceback and the `Stop` gate emitted nothing at all, for any name containing a space, slash, colon, or accent.
+- Stopped an unreadable `state.json` from becoming a traceback. `UnicodeDecodeError` is a `ValueError`, not a `JSONDecodeError`, so a truncated write escaped both the collision guard and `load_state`, defeating the ledger and recovery candidates that exist to survive exactly that corruption.
+- Kept sessions and actor identities recorded before the composition change reachable, by falling back to the pre-composition directory when it is the one that exists.
+- Refused a session name made only of dots, which the character class admitted intact so that `..` resolved a session above its own directory, and moved the truncation before the final strip so a cut can no longer reintroduce a separator.
+- Excluded host-written transcript rows, which carry a placeholder model name, from `usage-from-transcript`. They made the single-model check fail on ordinary sessions, and the count of excluded rows is now reported.
+- Refused a usage record that mixes both provider spellings, which was silently double-counting the cached prefix, and stopped requiring `cache_read_input_tokens`, which rejected a valid first turn that writes the cache without reading it.
+- Re-derived `usage.sourceSchema` in the durable recorder. It was the one field the receipt was trusted on, and the cross-schema comparison guard depends on it.
+- Reported a clean error instead of an `AttributeError` traceback when a receipt has no usage object.
+- Refused a tree whose filenames differ only by Unicode composition. Composing the recorded path merged two files that Linux and Windows keep apart, letting iteration order decide the digest.
+- Folded case as well as composition in owned-path comparison on every platform, so the packet compiler and the durable recorder answer as the planner does; macOS is case-insensitive by default and the previous Windows-only gate could hand two owners one file.
+- Stopped the manifest completeness detector reporting `complete`. It cannot see a file Graphify never indexed, so it now reports `unverified` and results carry `coverage_verified`, restoring fail-closed navigation.
+- Limited the session-start refresh to an index that already exists, and skipped it when Git reports the worktree unchanged. It was creating a generated tree in any checkout opened and re-extracting an untouched repository on every start.
+- Decoded subprocess output as UTF-8 and rejected a non-finite timeout, both of which could raise out of a hook documented never to raise.
+- Made the self-check exercise the Claude-shaped `Stop` output and the real refresh path; both assertions passed by construction before.
+
 - Added a second host surface for Claude Code from the same source tree: a `.claude-plugin/plugin.json` manifest, a marketplace entry, plugin-root agent definitions, and a hook configuration that keeps the existing Codex packaging unchanged.
 - Declared the hook interpreter as a required `userConfig` file value and invoked it through exec form, because no interpreter name resolves correctly on every platform; on Windows the `python3` alias resolves to a Microsoft Store stub that exits without running Python.
 - Exposed all fourteen workflows to automatic model invocation on Claude Code. `disable-model-invocation` removes a skill from the listing the model sees, so the eleven specialized workflows were unreachable to it while the core workflows still instructed it to invoke them by name; that guidance could not be followed. Each description now carries an explicit `when_to_use` trigger contract, and both the routing benchmark and the description quality gate score the description and trigger together, matching the single listing entry the host actually shows. Deterministic routing accuracy is unchanged.

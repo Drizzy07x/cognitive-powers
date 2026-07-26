@@ -415,6 +415,17 @@ class SourceIdentityFilenameNormalizationTests(unittest.TestCase):
 
             self.assertEqual(order(composed), order(decomposed))
 
+    def test_names_differing_only_by_composition_are_refused(self) -> None:
+        """Linux keeps them apart, macOS merges them: no digest fits both."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / unicodedata.normalize("NFC", "café.py")).write_bytes(b"A\n")
+            (root / unicodedata.normalize("NFD", "café.py")).write_bytes(b"B\n")
+            if len(list(root.iterdir())) < 2:
+                self.skipTest("this filesystem merges the two spellings")
+            with self.assertRaises(storage_policy.StoragePolicyError):
+                storage_policy.source_identity(root)
+
     def test_a_real_rename_still_changes_the_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

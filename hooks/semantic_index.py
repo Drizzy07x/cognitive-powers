@@ -11,7 +11,9 @@ session.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -25,6 +27,7 @@ REFRESH_SOURCES = {"startup", "resume"}
 PROJECT_MARKERS = (".git", ".hg", ".svn")
 INDEX_DIRECTORY = "graphify-out"
 DEFAULT_TIMEOUT_SECONDS = 120.0
+STAMP_TIMEOUT_SECONDS = 15.0
 MAX_STDIN_BYTES = 2 * 1024 * 1024
 
 
@@ -78,7 +81,41 @@ def _timeout() -> float:
         value = float(raw)
     except ValueError:
         return DEFAULT_TIMEOUT_SECONDS
-    return value if value > 0 else DEFAULT_TIMEOUT_SECONDS
+    # inf is a natural way to ask for no timeout, but subprocess.run raises
+    # OverflowError for it, which would break this module's never-raise
+    # contract. nan already fails the comparison.
+    if not math.isfinite(value) or value <= 0:
+        return DEFAULT_TIMEOUT_SECONDS
+    return value
+
+
+def _index_stamp(root: Path, runner) -> str | None:
+    """Return a cheap signature of the worktree, or None when unavailable.
+
+    Rebuilding the graph costs seconds; asking Git what changed costs
+    milliseconds. Without this the hook re-extracts an unchanged tree on every
+    startup and resume.
+    """
+    parts = []
+    for argv in (["git", "rev-parse", "HEAD"], ["git", "status", "--porcelain"]):
+        try:
+            completed = runner(
+                argv,
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=STAMP_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
+            return None
+        if completed.returncode != 0:
+            return None
+        parts.append(completed.stdout or "")
+    digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+    return digest
 
 
 def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]:
@@ -101,22 +138,42 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
         # The provider is optional. Its absence is the normal case, not a fault.
         return {"status": "skipped", "reason": "graphify is not installed"}
 
-    existing = (root / INDEX_DIRECTORY).is_dir()
+    index = root / INDEX_DIRECTORY
+    if not index.is_dir():
+        # Refreshing an existing index is maintenance; creating one installs a
+        # provider into a checkout the user may not own, which the navigation
+        # reference reserves as their decision.
+        return {"status": "skipped", "reason": "no existing index to refresh"}
+
+    stamp = _index_stamp(root, runner)
+    stamp_path = index / ".cognitive-powers-stamp"
+    if stamp is not None:
+        try:
+            if stamp_path.read_text(encoding="utf-8").strip() == stamp:
+                return {"status": "current", "reason": "worktree unchanged"}
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    timeout = _timeout()
     try:
         completed = runner(
             [executable, "update", str(root)],
             cwd=str(root),
             capture_output=True,
             text=True,
-            timeout=_timeout(),
+            # graphify emits UTF-8 whatever the console codepage; decoding it
+            # with the ANSI page raises on bytes that page leaves undefined.
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired:
         return {
             "status": "timeout",
-            "reason": f"graphify update exceeded {_timeout()}s",
+            "reason": f"graphify update exceeded {timeout}s",
         }
-    except OSError as error:
+    except (OSError, ValueError, OverflowError) as error:
         return {"status": "error", "reason": f"graphify update failed: {error}"}
 
     if completed.returncode != 0:
@@ -126,10 +183,12 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
             "reason": f"graphify update exited {completed.returncode}",
             "detail": tail[-1] if tail else "",
         }
-    return {
-        "status": "created" if not existing else "refreshed",
-        "root": str(root),
-    }
+    if stamp is not None:
+        try:
+            stamp_path.write_text(stamp, encoding="utf-8")
+        except OSError:
+            pass
+    return {"status": "refreshed", "root": str(root)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -145,12 +204,12 @@ def main(argv: list[str] | None = None) -> int:
     # Quiet on the ordinary paths. A refreshed index changes what navigation is
     # allowed to trust, so that one is worth a line; a missing optional
     # provider is not.
-    if outcome["status"] in {"created", "refreshed"}:
+    if outcome["status"] == "refreshed":
         print(
             json.dumps(
                 {
                     "systemMessage": (
-                        f"Cognitive Powers {outcome['status']} the semantic index "
+                        "Cognitive Powers refreshed the semantic index "
                         "for this project."
                     ),
                     "suppressOutput": True,

@@ -14,6 +14,8 @@ from typing import Any
 
 
 KINDS = {"progress", "handoff", "answer", "diagnosis", "decision", "warning"}
+# A host placeholder rather than a model identifier, e.g. "<synthetic>".
+HOST_GENERATED_MODEL = re.compile(r"<[^>]*>")
 COMPLEXITIES = {"low", "medium", "high"}
 CONSEQUENCES = {"reversible", "material", "irreversible"}
 
@@ -249,6 +251,7 @@ def usage_from_transcript(
     versions: list[str] = []
     skipped = 0
     unexpected = 0
+    host_generated = 0
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -271,6 +274,15 @@ def usage_from_transcript(
             if not isinstance(usage, dict) or not isinstance(identifier, str):
                 continue
             if identifier in seen:
+                continue
+            model = message.get("model")
+            if isinstance(model, str) and HOST_GENERATED_MODEL.fullmatch(model):
+                # The host writes its own assistant rows with a placeholder
+                # model such as "<synthetic>". Their tokens belong to no model
+                # this record can name, so counting them would misattribute
+                # usage and listing them would make every real transcript fail
+                # the single-model check.
+                host_generated += 1
                 continue
             # Every field must be readable. A partially recognised row would
             # silently undercount, which reads as a real efficiency result.
@@ -312,6 +324,9 @@ def usage_from_transcript(
         "source": str(path),
         "messageCount": len(seen),
         "unparsableLines": skipped,
+        # Host-written rows carry real tokens this record cannot attribute to a
+        # model. Reporting the count keeps the omission visible.
+        "hostGeneratedRowsExcluded": host_generated,
         # Pin the host that wrote this shape. When the format later changes,
         # the recorded version says which build the numbers came from instead
         # of leaving a silent discrepancy to explain.
@@ -329,6 +344,12 @@ def compare_receipts(
         raise ContractError("both inputs must be communication usage receipts")
     if baseline.get("taskId") != candidate.get("taskId"):
         raise ContractError("receipt task IDs do not match")
+    for label, receipt in (("baseline", baseline), ("candidate", candidate)):
+        if not isinstance(receipt.get("usage"), dict):
+            # Reached before the numeric loop, so an unreadable receipt would
+            # otherwise raise AttributeError, which the CLI handler does not
+            # catch and which used to surface as a clean error.
+            raise ContractError(f"{label} receipt has no usage object")
     # A provider that excludes the cached prefix from input_tokens and one that
     # includes it do not produce comparable totals, so a cross-schema delta
     # would read as an efficiency result that no measurement supports.

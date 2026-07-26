@@ -1461,6 +1461,9 @@ class HostileInputTests(unittest.TestCase):
 
     UNHASHABLE = ([], {}, [[]], {"a": 1}, [None])
     ENUM_FIELDS = ("schema_version", "request_mode", "phase", "authorization")
+    # The catch-all in select_agent_plan also yields a solo plan, so asserting
+    # only on the mode cannot tell a working field guard from a deleted one.
+    BACKSTOP_MARKER = "planner input could not be evaluated"
 
     def test_an_unhashable_enum_field_degrades_to_solo(self) -> None:
         for field in self.ENUM_FIELDS:
@@ -1470,6 +1473,11 @@ class HostileInputTests(unittest.TestCase):
                     self.assertEqual(plan["mode"], "solo")
                     self.assertFalse(plan["valid_input"])
                     self.assertEqual(plan["spawn_count"], 0)
+                    self.assertNotIn(
+                        self.BACKSTOP_MARKER,
+                        " ".join(plan["reasons"]),
+                        "the field guard must reject this, not the backstop",
+                    )
 
     def test_an_unhashable_unit_role_degrades_to_solo(self) -> None:
         plan = policy.select_agent_plan(
@@ -1477,6 +1485,7 @@ class HostileInputTests(unittest.TestCase):
         )
         self.assertEqual(plan["mode"], "solo")
         self.assertFalse(plan["valid_input"])
+        self.assertNotIn(self.BACKSTOP_MARKER, " ".join(plan["reasons"]))
 
     def test_a_boolean_is_never_accepted_as_a_schema_version(self) -> None:
         """Python evaluates ``True in {1, 2}`` as true; the enum must not."""
@@ -1485,6 +1494,7 @@ class HostileInputTests(unittest.TestCase):
                 plan = policy.select_agent_plan(agent_signals_v2(schema_version=value))
                 self.assertEqual(plan["mode"], "solo")
                 self.assertFalse(plan["valid_input"])
+                self.assertNotIn(self.BACKSTOP_MARKER, " ".join(plan["reasons"]))
 
     def test_intensity_selection_rejects_an_unhashable_request_mode(self) -> None:
         with self.assertRaises(policy.OrchestrationError):

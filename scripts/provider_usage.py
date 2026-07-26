@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 ANTHROPIC_KEYS = ("cache_read_input_tokens", "cache_creation_input_tokens")
+CODEX_CACHE_KEY = "cached_input_tokens"
 
 
 class UsageError(ValueError):
@@ -44,9 +45,22 @@ def normalize_usage(usage: dict[str, Any]) -> tuple[int, int, int, str]:
     """
     if not isinstance(usage, dict):
         raise UsageError("usage must be an object")
-    if any(key in usage for key in ANTHROPIC_KEYS):
+    anthropic = [key for key in ANTHROPIC_KEYS if key in usage]
+    if anthropic and CODEX_CACHE_KEY in usage:
+        # The two spellings mean different things: the Codex total already
+        # contains the cached prefix the Anthropic keys state separately.
+        # Guessing which one is authoritative would silently inflate or
+        # deflate the total, so refuse the record instead.
+        raise UsageError(
+            "usage mixes provider schemas: "
+            f"{CODEX_CACHE_KEY} with {', '.join(anthropic)}"
+        )
+    if anthropic:
         uncached = _usage_int(usage, "input_tokens")
-        cache_read = _usage_int(usage, "cache_read_input_tokens")
+        # Either key alone selects this branch, so neither may be required: a
+        # first turn writes the cache without reading it, and a fully cached
+        # turn reads without writing.
+        cache_read = _usage_int(usage, "cache_read_input_tokens", default=0)
         cache_creation = _usage_int(usage, "cache_creation_input_tokens", default=0)
         output_tokens = _usage_int(usage, "output_tokens")
         # Writing the cache is billed as fresh input: it was not read back.

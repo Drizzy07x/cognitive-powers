@@ -667,6 +667,9 @@ class ClaudeSemanticIndexTests(unittest.TestCase):
         self._checkout = tempfile.TemporaryDirectory()
         self.root = Path(self._checkout.name).resolve()
         (self.root / ".git").mkdir()
+        # The hook refreshes an existing index and never initialises one, so a
+        # fixture without this directory exercises the skip path instead.
+        (self.root / "graphify-out").mkdir()
         self.addCleanup(self._checkout.cleanup)
 
     @contextlib.contextmanager
@@ -699,8 +702,49 @@ class ClaudeSemanticIndexTests(unittest.TestCase):
 
         with self._graphify():
             outcome = self.module.refresh(self._payload(), runner=runner)
-        self.assertEqual(outcome["status"], "created")
-        self.assertEqual(calls[0][1:], ["update", str(self.root)])
+        self.assertEqual(outcome["status"], "refreshed")
+        self.assertEqual(calls[-1][1:], ["update", str(self.root)])
+
+    def test_it_never_initialises_an_index_that_does_not_exist(self) -> None:
+        """Creating one installs a provider into a checkout the user may own."""
+        (self.root / "graphify-out").rmdir()
+        with self._graphify():
+            outcome = self.module.refresh(
+                self._payload(),
+                runner=lambda *a, **k: self.fail("must not run graphify"),
+            )
+        self.assertEqual(outcome["status"], "skipped")
+        self.assertFalse((self.root / "graphify-out").exists())
+
+    def test_an_unchanged_worktree_is_not_rebuilt(self) -> None:
+        """Re-extracting an untouched tree costs seconds for no new answer."""
+        stamp = self.root / "graphify-out" / ".cognitive-powers-stamp"
+
+        def runner(argv, **kwargs):
+            if argv[0] == "git":
+                return subprocess.CompletedProcess(argv, 0, "deadbeef", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with self._graphify():
+            first = self.module.refresh(self._payload(), runner=runner)
+            self.assertEqual(first["status"], "refreshed")
+            self.assertTrue(stamp.is_file())
+            second = self.module.refresh(self._payload(), runner=runner)
+        self.assertEqual(second["status"], "current")
+
+    def test_a_non_finite_timeout_falls_back(self) -> None:
+        """subprocess.run raises OverflowError for inf, breaking never-raise."""
+        original = os.environ.get("COGNITIVE_POWERS_INDEX_TIMEOUT")
+        os.environ["COGNITIVE_POWERS_INDEX_TIMEOUT"] = "inf"
+        try:
+            self.assertEqual(
+                self.module._timeout(), self.module.DEFAULT_TIMEOUT_SECONDS
+            )
+        finally:
+            if original is None:
+                os.environ.pop("COGNITIVE_POWERS_INDEX_TIMEOUT", None)
+            else:
+                os.environ["COGNITIVE_POWERS_INDEX_TIMEOUT"] = original
 
     def test_skips_sources_where_nothing_on_disk_moved(self) -> None:
         for source in ("compact", "clear", "fork"):

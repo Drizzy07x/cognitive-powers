@@ -158,19 +158,36 @@ def _manifest_completeness(
         else:
             deleted.append(str(rel))
 
-    complete = not deleted
+    if deleted:
+        return (
+            {
+                "status": "incomplete",
+                "detector": "manifest",
+                "new_file_detection": "unavailable",
+                "corpus_file_count": indexed,
+                "pending_file_count": 0,
+                "deleted_file_count": len(deleted),
+                "walk_error_count": 0,
+                "warnings": sorted(deleted)[:20],
+            },
+            "graphify index is incomplete",
+        )
+    # Not "complete". Every indexed file was already resolved and hashed
+    # upstream, so this detector adds no verdict of its own, and it cannot see
+    # a file graphify has never indexed. Saying "complete" would report a graph
+    # missing an arbitrary number of files as a fully covering one.
     return (
         {
-            "status": "complete" if complete else "incomplete",
+            "status": "unverified",
             "detector": "manifest",
             "new_file_detection": "unavailable",
             "corpus_file_count": indexed,
             "pending_file_count": 0,
-            "deleted_file_count": len(deleted),
+            "deleted_file_count": 0,
             "walk_error_count": 0,
-            "warnings": sorted(deleted)[:20],
+            "warnings": [],
         },
-        None if complete else "graphify index is incomplete",
+        None,
     )
 
 
@@ -411,6 +428,10 @@ def _inspect_graphify(
         base["reason"] = completeness_error
         base["warnings"] = completeness.get("warnings", [])[:20]
         return base, None
+    # Only the provider's own detector establishes that the graph covers the
+    # tree. Without it every indexed file is known to be current, but files it
+    # never indexed are invisible, so callers must not read this as coverage.
+    base["completeness_verified"] = completeness.get("status") == "complete"
     base.update(usable=True, fresh=True, reason=None)
     return base, payload
 
@@ -452,7 +473,16 @@ def _lexical(root: Path, query: str, reason: str | None) -> dict[str, Any]:
 
 
 def _result(
-    root, provider, mode, semantic, fresh, bound, candidates, reason=None, raw=None
+    root,
+    provider,
+    mode,
+    semantic,
+    fresh,
+    bound,
+    candidates,
+    reason=None,
+    raw=None,
+    coverage_verified=True,
 ):
     return {
         "schema_version": 1,
@@ -466,6 +496,10 @@ def _result(
         "candidates": candidates,
         "proof_status": "navigation_only",
         "requires_behavioral_verification": True,
+        # False when freshness was established but coverage was not: every
+        # indexed file matches, yet a file the provider never indexed cannot be
+        # seen. Absence from these candidates is then not evidence of absence.
+        "coverage_verified": coverage_verified,
         "reason": reason,
         "raw": raw,
     }
@@ -568,6 +602,7 @@ def search(
                 True,
                 True,
                 _graph_candidates(graph or {}, query),
+                coverage_verified=bool(p.get("completeness_verified")),
             )
         if provider == "graphify":
             return _lexical(root, query, str(p["reason"]))
@@ -620,6 +655,7 @@ def affected(root: str | Path, changed_files: Sequence[str], **kwargs):
             True,
             True,
             _graph_candidates(graph or {}, " ".join(changed), changed),
+            coverage_verified=bool(p.get("completeness_verified")),
         )
     result = search(root, " ".join(Path(x).stem for x in changed), **kwargs)
     result["mode"] = "affected"

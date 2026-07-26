@@ -1019,6 +1019,7 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
                         "freshInputTokens": 75,
                         "outputTokens": 31,
                         "totalTokens": 130,
+                        "sourceSchema": "codex",
                     },
                     "providerRecord": str(provider_record.resolve()),
                     "providerRecordSha256": work_state._sha256_file(provider_record),
@@ -2625,6 +2626,34 @@ class SessionNameCollisionTests(unittest.TestCase):
         self.assertEqual(
             json.loads(status.stdout)["objective"], "work for release/alpha"
         )
+
+    def test_a_session_is_reachable_by_the_id_init_printed(self) -> None:
+        """init reports the folded id, and the hook reads it back from state."""
+        self.assertEqual(self._init("release alpha").returncode, 0)
+        for addressed in ("release alpha", "release-alpha"):
+            with self.subTest(session=addressed):
+                status = self.cli("status", "--session", addressed, "--json")
+                self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+                self.assertEqual(
+                    json.loads(status.stdout)["objective"], "work for release alpha"
+                )
+
+    def test_a_dot_only_name_cannot_escape_the_sessions_directory(self) -> None:
+        """The character class admits dots, so ".." used to survive intact."""
+        for name in ("..", "."):
+            with self.subTest(session=name):
+                created = self._init(name)
+                self.assertNotEqual(created.returncode, 0)
+        self.assertEqual(list(self.data_root.glob("projects/*/state.json")), [])
+
+    def test_an_unreadable_state_falls_back_to_the_ledger(self) -> None:
+        """This corruption is what the ledger snapshot exists to survive."""
+        self.assertEqual(self._init("legacy").returncode, 0)
+        state_path = next(self.data_root.glob("projects/*/sessions/legacy/state.json"))
+        state_path.write_bytes(b'{"session_name": "\xff\xfe"}')
+        status = self.cli("status", "--session", "legacy", "--json")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        self.assertNotIn("Traceback", status.stderr)
 
     def test_names_sharing_a_long_prefix_are_distinguished(self) -> None:
         prefix = "release-" + "x" * 75

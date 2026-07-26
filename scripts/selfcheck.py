@@ -47,6 +47,11 @@ def _run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         argv,
         capture_output=True,
         text=True,
+        # The children emit UTF-8 whatever the console codepage. Decoding with
+        # the ANSI page raises on bytes that page leaves undefined, and a
+        # diagnostic must not fail on the output it is reading.
+        encoding="utf-8",
+        errors="replace",
         timeout=SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
         **kwargs,
@@ -91,6 +96,11 @@ def check_hook_scripts_execute() -> list[CheckResult]:
             target.write_text("value = 1\n", encoding="utf-8")
             environment = dict(os.environ)
             environment["COGNITIVE_POWERS_DATA"] = str(data)
+            # Claude Code exports this to hook processes only, and selfcheck is
+            # an ordinary tool call, so reading it from our own environment
+            # would leave the Claude-shaped assertion below permanently
+            # unevaluated. Set it deliberately to exercise that path.
+            environment["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN_ROOT)
 
             post = _run(
                 [sys.executable, str(HOOK_SCRIPT), "post-tool-use"],
@@ -163,9 +173,7 @@ def check_hook_scripts_execute() -> list[CheckResult]:
                             "an uncovered edit produced no warning",
                         )
                     )
-                elif environment.get("CLAUDE_PLUGIN_ROOT") and (
-                    "hookSpecificOutput" not in payload
-                ):
+                elif "hookSpecificOutput" not in payload:
                     results.append(
                         CheckResult(
                             "hooks.stop",
@@ -315,15 +323,28 @@ def check_index_hook() -> CheckResult:
     """The session-start refresh must stay advisory: exit 0 whatever happens."""
     if not INDEX_SCRIPT.is_file():
         return CheckResult("hooks.session_start", "fail", f"missing {INDEX_SCRIPT}")
-    completed = _run(
-        [sys.executable, str(INDEX_SCRIPT), "session-start"],
-        input=json.dumps({"cwd": str(PLUGIN_ROOT), "source": "compact"}),
-    )
+    # Drive the real startup path against a checkout with no index. A
+    # "compact" source would short-circuit before any of the refresh logic ran,
+    # so the check would pass without exercising what it claims to.
+    with tempfile.TemporaryDirectory() as repo_raw:
+        repo = Path(repo_raw).resolve()
+        (repo / ".git").mkdir()
+        completed = _run(
+            [sys.executable, str(INDEX_SCRIPT), "session-start"],
+            input=json.dumps({"cwd": str(repo), "source": "startup"}),
+        )
+        created = (repo / "graphify-out").exists()
     if completed.returncode != 0:
         return CheckResult(
             "hooks.session_start",
             "fail",
             f"an advisory hook exited {completed.returncode}",
+        )
+    if created:
+        return CheckResult(
+            "hooks.session_start",
+            "fail",
+            "the refresh hook created an index in a checkout that had none",
         )
     return CheckResult(
         "hooks.session_start", "pass", "the refresh hook is advisory and exits 0"
