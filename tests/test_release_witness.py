@@ -61,6 +61,7 @@ def passing_receipt(root: Path) -> dict:
         "source": {
             "sha256": source_sha256,
             "fileCount": 2,
+            "algorithm": witness.SOURCE_IDENTITY_ALGORITHM,
             "initialSha256": source_sha256,
             "identityStable": True,
         },

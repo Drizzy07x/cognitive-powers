@@ -255,7 +255,11 @@ class ValidateAllTests(unittest.TestCase):
             mock.patch.object(
                 validator,
                 "source_identity",
-                return_value={"sha256": "b" * 64, "fileCount": 10},
+                return_value={
+                    "sha256": "b" * 64,
+                    "fileCount": 10,
+                    "algorithm": validator.SOURCE_IDENTITY_ALGORITHM,
+                },
             ),
             mock.patch.object(
                 validator,
@@ -298,7 +302,11 @@ class ValidateAllTests(unittest.TestCase):
             mock.patch.object(
                 validator,
                 "source_identity",
-                return_value={"sha256": "b" * 64, "fileCount": 10},
+                return_value={
+                    "sha256": "b" * 64,
+                    "fileCount": 10,
+                    "algorithm": validator.SOURCE_IDENTITY_ALGORITHM,
+                },
             ),
             mock.patch.object(validator, "run_command", side_effect=execute),
         ):

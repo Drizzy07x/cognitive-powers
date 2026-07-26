@@ -1,0 +1,13 @@
+# Source identity is computed from LF-normalized text content, so a checkout
+# must not depend on the platform or on core.autocrlf. See source_identity()
+# in scripts/storage_policy.py.
+* text=auto eol=lf
+
+# Binary content is hashed exactly and must never be translated.
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary

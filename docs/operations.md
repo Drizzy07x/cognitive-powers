@@ -19,6 +19,23 @@ Adding counters there would create misleading telemetry or broaden the write
 surface. Therefore no counter database and no fake disable, status, reset, or
 export controls are implemented.
 
+## Read a source identity
+
+`source.sha256` in a validation receipt identifies a commit's content, not one
+checkout of it. Text files are folded to LF before hashing and binary files are
+hashed exactly, so Windows, Linux, and macOS agree on the digest for a given
+commit regardless of `core.autocrlf`. Binary detection uses Git's own heuristic:
+a NUL byte anywhere in the content.
+
+The receipt also carries `source.algorithm`. Digests from different schemes are
+not comparable, so a receipt naming another scheme is rejected rather than
+reported as a content change. The current value is `sha256-text-normalized-v2`.
+
+Receipts produced before this scheme recorded raw-byte digests and cannot be
+compared against current ones. Re-run the canonical entrypoint to produce a
+current receipt; do not treat the differing digest as evidence that the source
+changed.
+
 ## Inspect both host surfaces
 
 The `hosts` section of the doctor report describes the Codex and Claude Code

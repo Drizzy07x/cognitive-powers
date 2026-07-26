@@ -13,6 +13,10 @@ from typing import Iterable, Iterator, Sequence
 
 
 POLICY_VERSION = 1
+# Bump when the source-identity digest scheme changes. Digests are not
+# comparable across schemes, so consumers must reject an unexpected value
+# instead of reporting a content change.
+SOURCE_IDENTITY_ALGORITHM = "sha256-text-normalized-v2"
 
 # Component names are matched case-insensitively at every depth. Keep source
 # benchmark definitions ("benchmarks") distinct from generated benchmark output.
@@ -507,15 +511,38 @@ def bounded_copy_tree(
     return measurement
 
 
+def identity_bytes(data: bytes) -> bytes:
+    """Return the platform-independent identity form of one file's content.
+
+    Line-ending translation is the only way a checkout of a fixed commit can
+    differ between platforms: with `core.autocrlf=true` Git writes CRLF into the
+    worktree while the object store keeps LF. Hashing raw bytes therefore made
+    source identity a property of the checkout rather than of the commit.
+
+    Binary content is hashed exactly. Binary detection uses Git's own heuristic,
+    a NUL byte anywhere in the content, so exactly the files Git may translate
+    are the files normalized here.
+    """
+    if b"\x00" in data:
+        return data
+    return data.replace(b"\r\n", b"\n")
+
+
 def source_identity(root: Path) -> dict[str, int | str]:
-    """Hash the shared source-oriented file surface deterministically."""
+    """Hash the shared source-oriented file surface deterministically.
+
+    The digest identifies a commit's content, not one checkout of it: Windows,
+    Linux, and macOS produce the same value for the same commit regardless of
+    line-ending configuration. `algorithm` names the scheme so a digest produced
+    by a different one is detected instead of being read as a content change.
+    """
     root = _require_directory(root)
     aggregate = hashlib.sha256()
     count = 0
     for path in iter_tree_files(root):
         relative = path.relative_to(root).as_posix()
         try:
-            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            file_hash = hashlib.sha256(identity_bytes(path.read_bytes())).hexdigest()
         except OSError as error:
             raise StoragePolicyError(
                 f"cannot fingerprint source file {relative}: {error}"
@@ -525,4 +552,8 @@ def source_identity(root: Path) -> dict[str, int | str]:
         aggregate.update(file_hash.encode("ascii"))
         aggregate.update(b"\n")
         count += 1
-    return {"sha256": aggregate.hexdigest(), "fileCount": count}
+    return {
+        "sha256": aggregate.hexdigest(),
+        "fileCount": count,
+        "algorithm": SOURCE_IDENTITY_ALGORITHM,
+    }

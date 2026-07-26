@@ -17,6 +17,7 @@ from typing import Any, Iterable, Sequence
 try:
     from scripts.storage_policy import (
         EXCLUDED_DIRECTORY_NAMES,
+        SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         iter_tree_files,
         source_identity as shared_source_identity,
@@ -24,6 +25,7 @@ try:
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from storage_policy import (
         EXCLUDED_DIRECTORY_NAMES,
+        SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         iter_tree_files,
         source_identity as shared_source_identity,
@@ -153,6 +155,13 @@ def source_identity(root: Path) -> dict[str, Any]:
         raise ValidationError(str(error)) from error
     if identity["fileCount"] == 0:
         raise ValidationError("plugin root has no source files")
+    # A receipt must name the scheme that produced its digest, and digests from
+    # different schemes are not comparable.
+    if identity.get("algorithm") != SOURCE_IDENTITY_ALGORITHM:
+        raise ValidationError(
+            f"unexpected source identity algorithm: {identity.get('algorithm')!r}, "
+            f"expected {SOURCE_IDENTITY_ALGORITHM!r}"
+        )
     return identity
 
 
@@ -294,6 +303,7 @@ def build_receipt(
     source["identityStable"] = source_before == {
         "sha256": source["sha256"],
         "fileCount": source["fileCount"],
+        "algorithm": source["algorithm"],
     }
 
     offline_records = [item for item in records if item["category"] == "offline"]

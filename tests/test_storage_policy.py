@@ -15,6 +15,118 @@ if str(SCRIPTS) not in sys.path:
 import storage_policy  # noqa: E402
 
 
+class SourceIdentityNormalizationTests(unittest.TestCase):
+    """Source identity must describe a commit, not one checkout of it."""
+
+    def build(self, root: Path, newline: bytes) -> None:
+        (root / "pkg").mkdir()
+        (root / "pkg" / "module.py").write_bytes(
+            newline.join([b"import os", b"", b"value = 1", b""])
+        )
+        (root / "README.md").write_bytes(newline.join([b"# Title", b"", b"Body", b""]))
+        # A PNG header carries a NUL byte, so it must be hashed exactly.
+        (root / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x01\x02\r\n\x03")
+
+    def test_crlf_and_lf_checkouts_share_one_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            windows = base / "windows"
+            posix = base / "posix"
+            windows.mkdir()
+            posix.mkdir()
+            self.build(windows, b"\r\n")
+            self.build(posix, b"\n")
+
+            windows_identity = storage_policy.source_identity(windows)
+            posix_identity = storage_policy.source_identity(posix)
+
+        self.assertNotEqual(
+            (windows / "pkg" / "module.py"),
+            (posix / "pkg" / "module.py"),
+            "the fixtures must differ on disk for this test to mean anything",
+        )
+        self.assertEqual(windows_identity["sha256"], posix_identity["sha256"])
+        self.assertEqual(windows_identity["fileCount"], posix_identity["fileCount"])
+
+    def test_identity_reports_its_algorithm(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.build(root, b"\n")
+            identity = storage_policy.source_identity(root)
+        self.assertEqual(
+            identity["algorithm"], storage_policy.SOURCE_IDENTITY_ALGORITHM
+        )
+
+    def test_real_content_changes_still_change_the_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.build(root, b"\n")
+            before = storage_policy.source_identity(root)
+            (root / "pkg" / "module.py").write_bytes(b"import os\n\nvalue = 2\n")
+            after = storage_policy.source_identity(root)
+        self.assertNotEqual(before["sha256"], after["sha256"])
+
+    def test_binary_content_is_hashed_exactly(self) -> None:
+        payload = b"\x00\r\n\x01"
+        self.assertEqual(storage_policy.identity_bytes(payload), payload)
+
+    def test_text_content_folds_crlf_only(self) -> None:
+        self.assertEqual(storage_policy.identity_bytes(b"a\r\nb\n"), b"a\nb\n")
+        # A lone CR is content, not a line ending Git would translate.
+        self.assertEqual(storage_policy.identity_bytes(b"a\rb"), b"a\rb")
+
+    def test_binary_files_differing_only_in_line_endings_stay_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            first = base / "first"
+            second = base / "second"
+            first.mkdir()
+            second.mkdir()
+            (first / "blob.dat").write_bytes(b"\x00A\r\nB")
+            (second / "blob.dat").write_bytes(b"\x00A\nB")
+            self.assertNotEqual(
+                storage_policy.source_identity(first)["sha256"],
+                storage_policy.source_identity(second)["sha256"],
+            )
+
+
+class CheckoutNormalizationTests(unittest.TestCase):
+    def test_repository_checks_out_lf_and_protects_binary_content(self) -> None:
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("* text=auto eol=lf", attributes)
+        for suffix in (".png", ".ico", ".jpg", ".gif", ".pdf", ".zip"):
+            with self.subTest(suffix=suffix):
+                self.assertIn(f"*{suffix} binary", attributes)
+
+    def test_tracked_binary_assets_are_declared_binary(self) -> None:
+        completed = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            self.skipTest("not a Git checkout")
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        declared = {
+            line.split(" ", 1)[0].removeprefix("*")
+            for line in attributes.splitlines()
+            if line.endswith(" binary")
+        }
+        for relative in completed.stdout.splitlines():
+            path = ROOT / relative
+            if not path.is_file():
+                continue
+            if b"\x00" not in path.read_bytes()[:8192]:
+                continue
+            with self.subTest(path=relative):
+                self.assertIn(
+                    Path(relative).suffix,
+                    declared,
+                    f"{relative} is binary but Git may still translate it",
+                )
+
+
 class StoragePolicyTests(unittest.TestCase):
     def test_shared_policy_excludes_dependency_and_generated_trees(self) -> None:
         excluded = (

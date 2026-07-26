@@ -16,12 +16,14 @@ from typing import Any, Iterable, Sequence
 try:
     from scripts.storage_policy import (
         EXCLUDED_DIRECTORY_NAMES,
+        SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         iter_tree_files,
     )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from storage_policy import (
         EXCLUDED_DIRECTORY_NAMES,
+        SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         iter_tree_files,
     )
@@ -221,6 +223,14 @@ def _validate_receipt(
         or source["fileCount"] <= 0
     ):
         raise WitnessError(f"validation receipt source file count is invalid: {label}")
+    # Digests from different identity schemes are not comparable, so a receipt
+    # produced by another scheme cannot witness a release built with this one.
+    if source.get("algorithm") != SOURCE_IDENTITY_ALGORITHM:
+        raise WitnessError(
+            "validation receipt uses source identity algorithm "
+            f"{source.get('algorithm')!r}, expected "
+            f"{SOURCE_IDENTITY_ALGORITHM!r}: {label}"
+        )
     commands = value.get("commands")
     if not isinstance(commands, list) or not commands:
         raise WitnessError(f"validation receipt has no command results: {label}")
