@@ -25,7 +25,16 @@ The result separates `integrityPassed`, `budgetPassed`, and `fillerPassed`. Over
 
 ## Usage receipts
 
-`receipt` accepts a provider or harness JSON file containing a `usage` object with non-negative integer `input_tokens`, `cached_input_tokens`, and `output_tokens`. It records the source hash, model/provider metadata, task ID, variant, success, quality score, and critical-failure status. `fresh_input_tokens` is calculated as `input_tokens - cached_input_tokens`.
+`receipt` accepts a provider or harness JSON file containing a `usage` object, in either of the two shapes the supported hosts produce. It records the source hash, model/provider metadata, task ID, variant, success, quality score, and critical-failure status, and names the shape it read in `usage.sourceSchema`.
+
+- Codex: non-negative integer `input_tokens`, `cached_input_tokens`, and `output_tokens`. `input_tokens` already contains the cached prefix, so `cached_input_tokens` may not exceed it.
+- Anthropic: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and optional `cache_creation_input_tokens`. Here `input_tokens` counts uncached input only, so total input is the sum of all three input fields and a cache read routinely dwarfs the uncached remainder.
+
+The recorded `inputTokens` is total input under both shapes, and `freshInputTokens` is the part that was not read from cache; writing the cache counts as fresh. Treating the Anthropic field as a renamed `cached_input_tokens` would report a total that omits the cached prefix, so the conversion is not optional.
+
+`compare` refuses two receipts whose `sourceSchema` differs, because the two providers do not count a cached prompt the same way and the delta would not measure anything.
+
+`usage-from-transcript` builds an Anthropic record from a Claude Code transcript JSONL, whose path hooks receive as `transcript_path`. The host writes one row per content block and repeats the identical usage on each, so usage is taken once per `message.id`; summing rows would multiply a single message's cost. The record reports `messageCount` and `unparsableLines` so a caller can see how much it rests on. A transcript covering more than one model is refused. This reads an on-disk format the host does not publish as an interface, so treat a schema change there as expected rather than exceptional.
 
 `compare` requires matching task IDs and refuses an efficiency verdict unless both runs succeeded, neither has a critical failure, and the candidate quality is no lower than the baseline. Report input, fresh-input, output, and total deltas separately.
 

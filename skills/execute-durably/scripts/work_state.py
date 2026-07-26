@@ -2549,6 +2549,47 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
     }, 0
 
 
+def _expected_communication_usage(provider_usage: object) -> dict[str, object]:
+    """Re-derive receipt totals from the raw provider record.
+
+    This deliberately re-derives rather than trusting the receipt, so it must
+    read every provider schema the receipt writer accepts. It stays in step
+    with ``normalize_usage`` in the communicate-efficiently contract script; a
+    test asserts the two agree, because a silent divergence here would reject
+    correct evidence instead of failing loudly.
+
+    Anthropic states ``input_tokens`` for uncached input only and reports the
+    cached prefix separately, so its total input is the sum of the three input
+    fields. Codex already includes the cached prefix in ``input_tokens``.
+    """
+    if not isinstance(provider_usage, dict):
+        return {"inputTokens": None, "cachedInputTokens": None, "outputTokens": None}
+    anthropic_keys = ("cache_read_input_tokens", "cache_creation_input_tokens")
+    if any(key in provider_usage for key in anthropic_keys):
+        uncached = provider_usage.get("input_tokens")
+        cache_read = provider_usage.get("cache_read_input_tokens")
+        cache_creation = provider_usage.get("cache_creation_input_tokens", 0)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (uncached, cache_read, cache_creation)
+        ):
+            return {
+                "inputTokens": None,
+                "cachedInputTokens": None,
+                "outputTokens": None,
+            }
+        return {
+            "inputTokens": uncached + cache_creation + cache_read,
+            "cachedInputTokens": cache_read,
+            "outputTokens": provider_usage.get("output_tokens"),
+        }
+    return {
+        "inputTokens": provider_usage.get("input_tokens"),
+        "cachedInputTokens": provider_usage.get("cached_input_tokens"),
+        "outputTokens": provider_usage.get("output_tokens"),
+    }
+
+
 def record_communication_evidence(
     args: argparse.Namespace,
 ) -> tuple[dict[str, object], int]:
@@ -2617,17 +2658,7 @@ def record_communication_evidence(
     provider_usage = (
         provider_payload.get("usage") if isinstance(provider_payload, dict) else None
     )
-    expected_usage = {
-        "inputTokens": provider_usage.get("input_tokens")
-        if isinstance(provider_usage, dict)
-        else None,
-        "cachedInputTokens": provider_usage.get("cached_input_tokens")
-        if isinstance(provider_usage, dict)
-        else None,
-        "outputTokens": provider_usage.get("output_tokens")
-        if isinstance(provider_usage, dict)
-        else None,
-    }
+    expected_usage = _expected_communication_usage(provider_usage)
     if any(usage.get(field) != value for field, value in expected_usage.items()):
         raise WorkStateError("communication usage does not match the provider record")
     if (

@@ -28,7 +28,9 @@ Do not use deliberately broken grammar or remove words whose absence makes scope
 
 ## Measure honestly
 
-Use `scripts/communication_contract.py receipt` only with usage produced by the provider or execution harness. Never estimate a counterfactual baseline. Use `compare` only for the same task and only when both variants succeeded without critical failures.
+Use `scripts/communication_contract.py receipt` only with usage produced by the provider or execution harness. Never estimate a counterfactual baseline. Use `compare` only for the same task and only when both variants succeeded without critical failures, and never across providers: `compare` refuses two receipts whose recorded schemas differ, because they do not count a cached prompt the same way.
+
+When the host does not hand you a usage record directly, derive one from its own transcript with `scripts/communication_contract.py usage-from-transcript --transcript <path>`. Hooks receive that path. Read [communication-contract.md](references/communication-contract.md) before relying on the result.
 
 Use `assess` for deterministic contract checks such as required facts, exact literals, prohibited filler, and a case-specific word ceiling. Passing this check establishes presentation-contract compliance only; it does not establish improved model quality or lower end-to-end token use.
 

@@ -156,5 +156,195 @@ class CommunicationContractTests(unittest.TestCase):
                 )
 
 
+class AnthropicUsageTests(unittest.TestCase):
+    """Anthropic and Codex count a cached prompt differently."""
+
+    def test_the_cached_prefix_is_added_back_into_total_input(self) -> None:
+        total, cached, output, schema = contract.normalize_usage(
+            {
+                "input_tokens": 2,
+                "cache_creation_input_tokens": 886,
+                "cache_read_input_tokens": 335976,
+                "output_tokens": 1793,
+            }
+        )
+        self.assertEqual(schema, "anthropic")
+        # A rename would have reported 2 input tokens for a 336k-token prompt.
+        self.assertEqual(total, 2 + 886 + 335976)
+        self.assertEqual(cached, 335976)
+        self.assertEqual(total - cached, 888, "cache writes are billed as fresh")
+        self.assertEqual(output, 1793)
+
+    def test_a_cache_read_larger_than_uncached_input_is_normal(self) -> None:
+        """The Codex guard would reject this; for Anthropic it is the usual case."""
+        total, cached, _output, _schema = contract.normalize_usage(
+            {
+                "input_tokens": 1,
+                "cache_read_input_tokens": 900000,
+                "output_tokens": 10,
+            }
+        )
+        self.assertGreater(cached, 1)
+        self.assertEqual(total, 900001)
+
+    def test_the_codex_shape_is_unchanged(self) -> None:
+        total, cached, output, schema = contract.normalize_usage(
+            {"input_tokens": 500, "cached_input_tokens": 200, "output_tokens": 30}
+        )
+        self.assertEqual((total, cached, output, schema), (500, 200, 30, "codex"))
+
+    def test_the_codex_guard_still_holds(self) -> None:
+        with self.assertRaises(contract.ContractError):
+            contract.normalize_usage(
+                {"input_tokens": 10, "cached_input_tokens": 11, "output_tokens": 1}
+            )
+
+
+class CrossSchemaComparisonTests(unittest.TestCase):
+    def _receipt(self, schema: str) -> dict:
+        return {
+            "type": "communication_usage_evidence",
+            "taskId": "t1",
+            "success": True,
+            "criticalFailure": False,
+            "qualityScore": 90.0,
+            "usage": {
+                "inputTokens": 100,
+                "cachedInputTokens": 10,
+                "freshInputTokens": 90,
+                "outputTokens": 20,
+                "totalTokens": 120,
+                "sourceSchema": schema,
+            },
+        }
+
+    def test_receipts_from_different_providers_are_not_comparable(self) -> None:
+        with self.assertRaises(contract.ContractError):
+            contract.compare_receipts(
+                self._receipt("codex"), self._receipt("anthropic")
+            )
+
+    def test_matching_schemas_still_compare(self) -> None:
+        result = contract.compare_receipts(
+            self._receipt("anthropic"), self._receipt("anthropic")
+        )
+        self.assertEqual(result["metrics"]["totalTokens"]["delta"], 0)
+
+
+class TranscriptUsageTests(unittest.TestCase):
+    """Claude Code repeats one message's usage across several rows."""
+
+    USAGE = {
+        "input_tokens": 5,
+        "cache_creation_input_tokens": 100,
+        "cache_read_input_tokens": 900,
+        "output_tokens": 50,
+    }
+
+    def _write(self, rows: list[dict]) -> Path:
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=".jsonl", delete=False, encoding="utf-8"
+        )
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+        handle.close()
+        path = Path(handle.name)
+        self.addCleanup(path.unlink)
+        return path
+
+    def _row(self, identifier: str) -> dict:
+        return {
+            "type": "assistant",
+            "sessionId": "s1",
+            "message": {
+                "id": identifier,
+                "role": "assistant",
+                "model": "claude-opus-5",
+                "usage": dict(self.USAGE),
+            },
+        }
+
+    def test_repeated_rows_for_one_message_are_counted_once(self) -> None:
+        path = self._write([self._row("msg_a")] * 4 + [self._row("msg_b")])
+        record = contract.usage_from_transcript(path)
+        self.assertEqual(record["messageCount"], 2)
+        self.assertEqual(record["usage"]["output_tokens"], 100)
+        self.assertEqual(record["usage"]["cache_read_input_tokens"], 1800)
+
+    def test_the_record_feeds_the_receipt_writer(self) -> None:
+        path = self._write([self._row("msg_a")])
+        record = contract.usage_from_transcript(path)
+        total, cached, output, schema = contract.normalize_usage(record["usage"])
+        self.assertEqual(schema, "anthropic")
+        self.assertEqual((total, cached, output), (1005, 900, 50))
+
+    def test_a_session_filter_excludes_other_sessions(self) -> None:
+        other = self._row("msg_c")
+        other["sessionId"] = "s2"
+        path = self._write([self._row("msg_a"), other])
+        record = contract.usage_from_transcript(path, session_id="s1")
+        self.assertEqual(record["messageCount"], 1)
+
+    def test_unreadable_lines_are_reported_not_guessed(self) -> None:
+        path = self._write([self._row("msg_a")])
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("{not json\n")
+        record = contract.usage_from_transcript(path)
+        self.assertEqual(record["unparsableLines"], 1)
+
+    def test_a_transcript_without_usage_fails_loudly(self) -> None:
+        path = self._write([{"type": "user", "message": {"role": "user"}}])
+        with self.assertRaises(contract.ContractError):
+            contract.usage_from_transcript(path)
+
+    def test_mixed_models_are_refused(self) -> None:
+        second = self._row("msg_b")
+        second["message"]["model"] = "claude-sonnet-5"
+        path = self._write([self._row("msg_a"), second])
+        with self.assertRaises(contract.ContractError):
+            contract.usage_from_transcript(path)
+
+
+class DurableConsumerAgreementTests(unittest.TestCase):
+    """The durable recorder re-derives totals and must not drift from here.
+
+    It verifies rather than trusts the receipt, so if it reads fewer provider
+    schemas than the writer accepts it rejects correct evidence.
+    """
+
+    def setUp(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "work_state_for_usage",
+            PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_state.py",
+        )
+        assert spec is not None and spec.loader is not None
+        self.work_state = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.work_state)
+
+    def test_both_implementations_derive_the_same_totals(self) -> None:
+        cases = [
+            {
+                "input_tokens": 2,
+                "cache_creation_input_tokens": 886,
+                "cache_read_input_tokens": 335976,
+                "output_tokens": 1793,
+            },
+            {"input_tokens": 1, "cache_read_input_tokens": 900000, "output_tokens": 10},
+            {"input_tokens": 500, "cached_input_tokens": 200, "output_tokens": 30},
+        ]
+        for usage in cases:
+            with self.subTest(usage=sorted(usage)):
+                total, cached, output, _schema = contract.normalize_usage(usage)
+                derived = self.work_state._expected_communication_usage(usage)
+                self.assertEqual(
+                    derived,
+                    {
+                        "inputTokens": total,
+                        "cachedInputTokens": cached,
+                        "outputTokens": output,
+                    },
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -131,6 +131,47 @@ def _usage_int(usage: dict[str, Any], key: str) -> int:
     return value
 
 
+def normalize_usage(usage: dict[str, Any]) -> tuple[int, int, int, str]:
+    """Return ``(input, cached, output, schema)`` from either provider shape.
+
+    The two providers count a cached prompt differently, so this is a
+    conversion rather than a rename:
+
+    - Codex reports one ``input_tokens`` that already contains the cached
+      prefix, alongside ``cached_input_tokens``.
+    - Anthropic reports ``input_tokens`` for uncached input only, and states
+      the cached prefix separately as ``cache_read_input_tokens`` plus
+      ``cache_creation_input_tokens``.
+
+    Renaming the Anthropic field would report a total that omits the cached
+    prefix entirely and would trip the cached-exceeds-input guard, since a
+    cache read routinely dwarfs the uncached remainder.
+    """
+    anthropic_keys = ("cache_read_input_tokens", "cache_creation_input_tokens")
+    if any(key in usage for key in anthropic_keys):
+        uncached = _usage_int(usage, "input_tokens")
+        cache_read = _usage_int(usage, "cache_read_input_tokens")
+        cache_creation = (
+            _usage_int(usage, "cache_creation_input_tokens")
+            if "cache_creation_input_tokens" in usage
+            else 0
+        )
+        output_tokens = _usage_int(usage, "output_tokens")
+        # Writing the cache is billed as fresh input: it was not read back.
+        return (
+            uncached + cache_creation + cache_read,
+            cache_read,
+            output_tokens,
+            "anthropic",
+        )
+    input_tokens = _usage_int(usage, "input_tokens")
+    cached_tokens = _usage_int(usage, "cached_input_tokens")
+    output_tokens = _usage_int(usage, "output_tokens")
+    if cached_tokens > input_tokens:
+        raise ContractError("cached input tokens cannot exceed input tokens")
+    return input_tokens, cached_tokens, output_tokens, "codex"
+
+
 def create_receipt(
     source_path: str | Path,
     *,
@@ -145,11 +186,7 @@ def create_receipt(
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         raise ContractError("provider record must contain a usage object")
-    input_tokens = _usage_int(usage, "input_tokens")
-    cached_tokens = _usage_int(usage, "cached_input_tokens")
-    output_tokens = _usage_int(usage, "output_tokens")
-    if cached_tokens > input_tokens:
-        raise ContractError("cached input tokens cannot exceed input tokens")
+    input_tokens, cached_tokens, output_tokens, usage_schema = normalize_usage(usage)
     provider = payload.get("provider")
     model = payload.get("model")
     if (
@@ -182,10 +219,92 @@ def create_receipt(
             "freshInputTokens": input_tokens - cached_tokens,
             "outputTokens": output_tokens,
             "totalTokens": input_tokens + output_tokens,
+            # Two providers count a cached prompt differently, so a comparison
+            # across schemas is not like for like.
+            "sourceSchema": usage_schema,
         },
         "providerRecord": str(source),
         "providerRecordSha256": sha256_file(source),
         "counterfactualEstimated": False,
+    }
+
+
+def usage_from_transcript(
+    transcript_path: str | Path, *, session_id: str | None = None
+) -> dict[str, Any]:
+    """Build a provider record from a Claude Code transcript.
+
+    The host writes several rows per assistant message, one per content block,
+    and repeats the identical usage object on each. Summing rows would multiply
+    a single message's cost, so usage is taken once per ``message.id``. The
+    nested ``iterations`` array restates the same figures and is ignored for
+    the same reason.
+
+    This reads the host's on-disk transcript, which is not a published
+    interface. A row that does not carry the expected shape is skipped rather
+    than guessed at, and the returned record reports how many messages were
+    counted so a caller can see when the answer rests on nothing.
+    """
+    path = Path(transcript_path).expanduser().resolve()
+    if not path.is_file():
+        raise ContractError(f"transcript is not a file: {path}")
+
+    totals = {
+        "input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 0,
+    }
+    seen: set[str] = set()
+    models: list[str] = []
+    skipped = 0
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                skipped += 1
+                continue
+            if not isinstance(row, dict) or row.get("type") != "assistant":
+                continue
+            if session_id and row.get("sessionId") != session_id:
+                continue
+            message = row.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            identifier = message.get("id")
+            if not isinstance(usage, dict) or not isinstance(identifier, str):
+                continue
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+            for key in totals:
+                value = usage.get(key, 0)
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    continue
+                totals[key] += value
+            model = message.get("model")
+            if isinstance(model, str) and model and model not in models:
+                models.append(model)
+
+    if not seen:
+        raise ContractError(f"transcript contains no assistant usage: {path}")
+    if len(models) != 1:
+        raise ContractError(
+            "transcript must cover exactly one model to be a usage record, "
+            f"found {models or 'none'}"
+        )
+    return {
+        "provider": "anthropic",
+        "model": models[0],
+        "usage": dict(totals),
+        "source": str(path),
+        "messageCount": len(seen),
+        "unparsableLines": skipped,
     }
 
 
@@ -199,6 +318,18 @@ def compare_receipts(
         raise ContractError("both inputs must be communication usage receipts")
     if baseline.get("taskId") != candidate.get("taskId"):
         raise ContractError("receipt task IDs do not match")
+    # A provider that excludes the cached prefix from input_tokens and one that
+    # includes it do not produce comparable totals, so a cross-schema delta
+    # would read as an efficiency result that no measurement supports.
+    schemas = {
+        baseline["usage"].get("sourceSchema", "codex"),
+        candidate["usage"].get("sourceSchema", "codex"),
+    }
+    if len(schemas) > 1:
+        raise ContractError(
+            "receipts come from different provider usage schemas and count a "
+            f"cached prompt differently: {sorted(schemas)}"
+        )
     eligible = (
         baseline.get("success") is True
         and candidate.get("success") is True
@@ -270,6 +401,10 @@ def main() -> int:
     compare_parser = subparsers.add_parser("compare")
     compare_parser.add_argument("--baseline", required=True)
     compare_parser.add_argument("--candidate", required=True)
+    transcript_parser = subparsers.add_parser("usage-from-transcript")
+    transcript_parser.add_argument("--transcript", required=True)
+    transcript_parser.add_argument("--session-id")
+    transcript_parser.add_argument("--output")
     args = parser.parse_args()
     try:
         if args.command == "select":
@@ -291,6 +426,10 @@ def main() -> int:
                 critical_failure=args.critical_failure,
             )
             write_json(args.output, result)
+        elif args.command == "usage-from-transcript":
+            result = usage_from_transcript(args.transcript, session_id=args.session_id)
+            if args.output:
+                write_json(args.output, result)
         else:
             result = compare_receipts(
                 load_object(args.baseline), load_object(args.candidate)
