@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import unicodedata
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,6 +144,64 @@ class ContextPipelineTests(unittest.TestCase):
         result.receipt.mark_consumed(["new-b"])
         relinted = pipeline.lint_context(items, result.receipt)
         self.assertNotIn("unconsumed", [issue.code for issue in relinted])
+
+    def test_context_lint_compares_content_independently_of_composition(self) -> None:
+        """Content that renders identically must count as one duplicate.
+
+        Two items differing only in Unicode composition cost the budget twice
+        while telling the model the same thing.
+        """
+        composed = unicodedata.normalize("NFC", "El café está listo")
+        decomposed = unicodedata.normalize("NFD", "El café está listo")
+        self.assertNotEqual(composed.encode("utf-8"), decomposed.encode("utf-8"))
+
+        issues = pipeline.lint_context(
+            [
+                pipeline.ContextItem("a", "one", composed),
+                pipeline.ContextItem("b", "two", decomposed),
+            ]
+        )
+
+        self.assertEqual([issue.code for issue in issues], ["duplicate"])
+        self.assertEqual(issues[0].item_ids, ("a", "b"))
+
+    def test_context_lint_compares_fact_keys_independently_of_composition(self) -> None:
+        composed = unicodedata.normalize("NFC", "versión")
+        decomposed = unicodedata.normalize("NFD", "versión")
+
+        issues = pipeline.lint_context(
+            [
+                pipeline.ContextItem(
+                    "a", "one", "first", {"fact_key": composed, "fact_value": "1"}
+                ),
+                pipeline.ContextItem(
+                    "b", "two", "second", {"fact_key": decomposed, "fact_value": "2"}
+                ),
+            ]
+        )
+
+        self.assertEqual([issue.code for issue in issues], ["contradiction"])
+
+    def test_context_lint_does_not_invent_composition_contradictions(self) -> None:
+        """One value spelled two ways is not a conflict."""
+        composed = unicodedata.normalize("NFC", "café")
+        decomposed = unicodedata.normalize("NFD", "café")
+
+        issues = pipeline.lint_context(
+            [
+                pipeline.ContextItem(
+                    "a", "one", "first", {"fact_key": "drink", "fact_value": composed}
+                ),
+                pipeline.ContextItem(
+                    "b",
+                    "two",
+                    "second",
+                    {"fact_key": "drink", "fact_value": decomposed},
+                ),
+            ]
+        )
+
+        self.assertNotIn("contradiction", [issue.code for issue in issues])
 
     def test_mark_consumed_rejects_unknown_item(self) -> None:
         runner = pipeline.ContextPipeline(

@@ -6,12 +6,23 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 
 WORD_PATTERN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/-]*")
+
+
+def _composed(value: str) -> str:
+    """Collapse Unicode composition differences before any comparison.
+
+    Text that renders identically must compare equal here. Without this a
+    decomposed copy of an included item is neither reported as a duplicate nor
+    matched against the composed spelling of the same fact.
+    """
+    return unicodedata.normalize("NFC", value)
 
 
 def _utc_now() -> datetime:
@@ -547,14 +558,16 @@ def lint_context(
     facts: dict[str, dict[str, list[str]]] = {}
     current_time = (now or _utc_now()).astimezone(timezone.utc)
     for item in items:
-        normalized = " ".join(item.content.split()).casefold()
+        normalized = _composed(" ".join(item.content.split())).casefold()
         by_hash.setdefault(_content_hash(normalized), []).append(item.item_id)
         fact_key = item.metadata.get("fact_key")
         fact_value = item.metadata.get("fact_value")
         if isinstance(fact_key, str) and fact_key and fact_value is not None:
-            facts.setdefault(fact_key, {}).setdefault(str(fact_value), []).append(
-                item.item_id
-            )
+            # Composition only, not case: "Yes" and "yes" stay distinct values
+            # because a real disagreement can be spelled either way.
+            facts.setdefault(_composed(fact_key), {}).setdefault(
+                _composed(str(fact_value)), []
+            ).append(item.item_id)
         raw_valid_until = item.metadata.get("valid_until")
         valid_until = _parse_timestamp(raw_valid_until)
         if "valid_until" in item.metadata and valid_until is None:
