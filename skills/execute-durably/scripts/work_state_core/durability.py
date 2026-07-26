@@ -16,6 +16,7 @@ import secrets
 import subprocess
 import sys
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -107,7 +108,20 @@ def utc_now() -> str:
 
 
 def sanitize_identifier(value: str, label: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")[:80]
+    """Reduce an actor or session name to one stable identity.
+
+    Compose first. Without it the substitution below reads the two Unicode
+    spellings of one name differently: composed ``é`` is a single unmapped
+    codepoint and disappears entirely, while decomposed ``é`` keeps its ``e``
+    and loses only the combining mark. ``agent-café`` then yields
+    ``agent-caf`` or ``agent-cafe`` depending on how it was typed.
+
+    That is not cosmetic. Executor and verifier identities are compared to
+    refuse self-verification, so one actor could present each form and confirm
+    its own work.
+    """
+    composed = unicodedata.normalize("NFC", value)
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", composed.strip()).strip("-")[:80]
     if not sanitized:
         raise WorkStateError(
             f"{label} must contain letters, digits, dots, underscores, or hyphens"

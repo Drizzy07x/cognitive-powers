@@ -12,6 +12,7 @@ import random
 import re
 import subprocess
 import sys
+import unicodedata
 import tempfile
 import zipfile
 import zlib
@@ -428,12 +429,25 @@ def _normalize_owned_path(value: str) -> str:
     return path.as_posix()
 
 
-def _paths_overlap(left: str, right: str) -> bool:
-    left_parts = PurePosixPath(left).parts
-    right_parts = PurePosixPath(right).parts
+def _fold_path_parts(value: str) -> tuple[str, ...]:
+    """Fold path components the way the filesystem would resolve them.
+
+    Composition is folded on every platform. macOS resolves the composed and
+    decomposed spellings of a name to one file, and treating them as distinct
+    would hand two owners the same path. Folding everywhere can only refuse a
+    parallel plan that was legal, never permit one that was not.
+    """
+    parts = tuple(
+        unicodedata.normalize("NFC", part) for part in PurePosixPath(value).parts
+    )
     if os.name == "nt":
-        left_parts = tuple(part.casefold() for part in left_parts)
-        right_parts = tuple(part.casefold() for part in right_parts)
+        parts = tuple(part.casefold() for part in parts)
+    return parts
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    left_parts = _fold_path_parts(left)
+    right_parts = _fold_path_parts(right)
     shortest = min(len(left_parts), len(right_parts))
     return left_parts[:shortest] == right_parts[:shortest]
 

@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -78,12 +79,24 @@ def _normalize_owned_path(value: str, packet_id: str) -> str:
     return path.as_posix()
 
 
-def _paths_overlap(left: str, right: str) -> bool:
-    left_parts = PurePosixPath(left).parts
-    right_parts = PurePosixPath(right).parts
+def _fold_path_parts(value: str) -> tuple[str, ...]:
+    """Fold path components the way the filesystem would resolve them.
+
+    Composition is folded on every platform: macOS resolves the composed and
+    decomposed spellings of a name to one file, so treating them as distinct
+    would let one packet plan give two owners the same path.
+    """
+    parts = tuple(
+        unicodedata.normalize("NFC", part) for part in PurePosixPath(value).parts
+    )
     if os.name == "nt":
-        left_parts = tuple(part.casefold() for part in left_parts)
-        right_parts = tuple(part.casefold() for part in right_parts)
+        parts = tuple(part.casefold() for part in parts)
+    return parts
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    left_parts = _fold_path_parts(left)
+    right_parts = _fold_path_parts(right)
     shortest = min(len(left_parts), len(right_parts))
     return left_parts[:shortest] == right_parts[:shortest]
 

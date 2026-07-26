@@ -2417,5 +2417,161 @@ with module["_state_lock_guard"](lock_path):
             )
 
 
+class ActorIdentityTests(unittest.TestCase):
+    """One actor must not become two identities by changing Unicode form.
+
+    Executor and verifier identities are compared to refuse self-verification.
+    The sanitizer used to substitute unmapped characters without composing
+    first, so composed ``é`` vanished entirely while decomposed ``é`` kept its
+    ``e``: ``agent-café`` became ``agent-caf`` or ``agent-cafe`` depending only
+    on how it was typed, and one actor could confirm its own claim.
+    """
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary_directory.name)
+        self.workspace = self.base / "workspace"
+        self.data_root = self.base / "durable-data"
+        self.workspace.mkdir()
+        (self.workspace / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+        self.addCleanup(self.temporary_directory.cleanup)
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        environment = dict(os.environ)
+        environment["PYTHONIOENCODING"] = "utf-8"
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--root",
+                str(self.workspace),
+                "--data-root",
+                str(self.data_root),
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=environment,
+            check=False,
+        )
+
+    def test_both_unicode_forms_yield_one_identity(self) -> None:
+        import unicodedata
+
+        name = "agent-café"
+        composed = unicodedata.normalize("NFC", name)
+        decomposed = unicodedata.normalize("NFD", name)
+        self.assertNotEqual(composed, decomposed)
+        self.assertEqual(
+            work_state.sanitize_identifier(composed, "executor"),
+            work_state.sanitize_identifier(decomposed, "verifier"),
+        )
+
+    def test_an_actor_cannot_verify_itself_through_another_form(self) -> None:
+        import unicodedata
+
+        name = "agent-café"
+        composed = unicodedata.normalize("NFC", name)
+        decomposed = unicodedata.normalize("NFD", name)
+
+        self.cli(
+            "init",
+            "--session",
+            "s",
+            "--objective",
+            "guard independent verification",
+            "--criterion",
+            "c1 holds",
+        )
+        self.cli(
+            "run",
+            "--session",
+            "s",
+            "--criterion",
+            "c1",
+            "--executor",
+            composed,
+            "--",
+            sys.executable,
+            "-c",
+            "print('ok')",
+        )
+        verified = self.cli(
+            "verify",
+            "--session",
+            "s",
+            "--criterion",
+            "c1",
+            "--verifier",
+            decomposed,
+            "--verdict",
+            "confirmed",
+            "--note",
+            "the same actor in another form",
+            "--json",
+        )
+        self.assertNotEqual(verified.returncode, 0, verified.stdout)
+        self.assertIn("own claim", verified.stdout + verified.stderr)
+
+        completed = self.cli("complete", "--session", "s", "--json")
+        self.assertNotEqual(
+            completed.returncode, 0, "an unverified criterion must block completion"
+        )
+
+    def test_a_genuinely_different_verifier_still_confirms(self) -> None:
+        self.cli(
+            "init",
+            "--session",
+            "s",
+            "--objective",
+            "guard independent verification",
+            "--criterion",
+            "c1 holds",
+        )
+        self.cli(
+            "run",
+            "--session",
+            "s",
+            "--criterion",
+            "c1",
+            "--executor",
+            "agent-a",
+            "--",
+            sys.executable,
+            "-c",
+            "print('ok')",
+        )
+        verified = self.cli(
+            "verify",
+            "--session",
+            "s",
+            "--criterion",
+            "c1",
+            "--verifier",
+            "agent-b",
+            "--verdict",
+            "confirmed",
+            "--note",
+            "independent review of the receipt",
+            "--json",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+
+
+class OwnedPathFoldingTests(unittest.TestCase):
+    def test_composed_and_decomposed_owned_paths_overlap(self) -> None:
+        """macOS resolves both spellings to one file, so both name one owner."""
+        import unicodedata
+
+        composed = unicodedata.normalize("NFC", "src/café.py")
+        decomposed = unicodedata.normalize("NFD", "src/café.py")
+        self.assertNotEqual(composed, decomposed)
+        self.assertTrue(work_state._paths_overlap(composed, decomposed))
+
+    def test_distinct_names_do_not_overlap(self) -> None:
+        self.assertFalse(work_state._paths_overlap("src/a.py", "src/b.py"))
+
+
 if __name__ == "__main__":
     unittest.main()
