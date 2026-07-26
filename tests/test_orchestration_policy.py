@@ -1390,5 +1390,58 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
 
+class HostileInputTests(unittest.TestCase):
+    """The planner promises solo on bad input, so it must not raise instead.
+
+    ``value in some_set`` raises ``TypeError`` for an unhashable value, and the
+    fail-closed handler catches only ``OrchestrationError``. A caller that
+    received a traceback would have no plan at all, which is worse than the
+    conservative plan the contract promises.
+    """
+
+    UNHASHABLE = ([], {}, [[]], {"a": 1}, [None])
+    ENUM_FIELDS = ("schema_version", "request_mode", "phase", "authorization")
+
+    def test_an_unhashable_enum_field_degrades_to_solo(self) -> None:
+        for field in self.ENUM_FIELDS:
+            for value in self.UNHASHABLE:
+                with self.subTest(field=field, value=value):
+                    plan = policy.select_agent_plan(agent_signals_v2(**{field: value}))
+                    self.assertEqual(plan["mode"], "solo")
+                    self.assertFalse(plan["valid_input"])
+                    self.assertEqual(plan["spawn_count"], 0)
+
+    def test_an_unhashable_unit_role_degrades_to_solo(self) -> None:
+        plan = policy.select_agent_plan(
+            agent_signals_v2(units=[unit("lane-a", role=[]), unit("lane-b")])
+        )
+        self.assertEqual(plan["mode"], "solo")
+        self.assertFalse(plan["valid_input"])
+
+    def test_a_boolean_is_never_accepted_as_a_schema_version(self) -> None:
+        """Python evaluates ``True in {1, 2}`` as true; the enum must not."""
+        for value in (True, False):
+            with self.subTest(value=value):
+                plan = policy.select_agent_plan(agent_signals_v2(schema_version=value))
+                self.assertEqual(plan["mode"], "solo")
+                self.assertFalse(plan["valid_input"])
+
+    def test_intensity_selection_rejects_an_unhashable_request_mode(self) -> None:
+        with self.assertRaises(policy.OrchestrationError):
+            policy.select_intensity(signals(request_mode=[]))
+
+    def test_the_cli_reports_bad_input_instead_of_a_traceback(self) -> None:
+        payload = json.dumps(agent_signals_v2(authorization=[]))
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--agent-plan", "-", "--json"],
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotIn("Traceback", completed.stderr)
+        plan = json.loads(completed.stdout)
+        self.assertEqual(plan["mode"], "solo")
+
+
 if __name__ == "__main__":
     unittest.main()

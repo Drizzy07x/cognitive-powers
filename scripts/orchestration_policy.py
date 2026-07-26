@@ -33,6 +33,25 @@ class OrchestrationError(ValueError):
     """Raised when task signals violate the orchestration contract."""
 
 
+def _member(value: object, allowed: Any) -> bool:
+    """Membership that rejects hostile input rather than raising on it.
+
+    ``value in some_set`` raises ``TypeError`` when ``value`` is unhashable,
+    and that escapes the planner's fail-closed handler, which catches only
+    ``OrchestrationError``. A malformed enum field must degrade to a solo plan,
+    never crash the caller.
+
+    Booleans are refused outright: Python treats ``True`` as ``1``, so an enum
+    of integers would otherwise accept ``True`` as schema version 1.
+    """
+    if isinstance(value, bool):
+        return False
+    try:
+        return value in allowed
+    except TypeError:
+        return False
+
+
 def _boolean(payload: dict[str, Any], field: str) -> bool:
     value = payload.get(field)
     if not isinstance(value, bool):
@@ -70,7 +89,7 @@ def select_intensity(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("schema_version") != 1:
         raise OrchestrationError("schema_version must be 1")
     request_mode = payload.get("request_mode")
-    if request_mode not in REQUEST_MODES:
+    if not _member(request_mode, REQUEST_MODES):
         raise OrchestrationError(
             "request_mode must be answer, diagnose, change, or monitor"
         )
@@ -126,7 +145,7 @@ def select_intensity(payload: dict[str, Any]) -> dict[str, Any]:
 
 def agent_plan_template(schema_version: int = 2) -> dict[str, Any]:
     """Return the compact, versioned planning-input interface."""
-    if schema_version not in AGENT_PLAN_INPUT_VERSIONS:
+    if not _member(schema_version, AGENT_PLAN_INPUT_VERSIONS):
         raise OrchestrationError("agent-plan template version must be 1 or 2")
     unit = {
         "id": "lane-a",
@@ -343,7 +362,7 @@ def _normalize_unit(
         raise OrchestrationError(f"units[{index}] must be an object")
     unit_id = _string(value, "id")
     role = _string(value, "role")
-    if role not in AGENT_ROLES:
+    if not _member(role, AGENT_ROLES):
         raise OrchestrationError(f"units[{index}].role is unsupported")
     depth = _non_negative_int(value, "depth")
     if depth not in {1, 2}:
@@ -353,7 +372,7 @@ def _normalize_unit(
         raise OrchestrationError(f"units[{index}] read-only role cannot write")
     if role in {"executor", "test-writer"} and read_only:
         raise OrchestrationError(f"units[{index}] write role cannot be read-only")
-    if depth == 2 and (not read_only or role not in READ_ONLY_ROLES):
+    if depth == 2 and (not read_only or not _member(role, READ_ONLY_ROLES)):
         raise OrchestrationError(
             f"units[{index}] depth-2 work must use a read-only role"
         )
@@ -612,16 +631,16 @@ def _retry_record(
 
 def _select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
     schema_version = payload.get("schema_version")
-    if schema_version not in {1, 2}:
+    if not _member(schema_version, {1, 2}):
         raise OrchestrationError("schema_version must be 1 or 2")
     request_mode = payload.get("request_mode")
-    if request_mode not in REQUEST_MODES:
+    if not _member(request_mode, REQUEST_MODES):
         raise OrchestrationError("request_mode is unsupported")
     phase = payload.get("phase")
-    if phase not in PHASES:
+    if not _member(phase, PHASES):
         raise OrchestrationError("phase is unsupported")
     authorization = payload.get("authorization")
-    if authorization not in AUTHORIZATIONS:
+    if not _member(authorization, AUTHORIZATIONS):
         raise OrchestrationError("authorization is unsupported")
 
     boundaries_clear = _boolean(payload, "boundaries_clear")
@@ -958,12 +977,24 @@ def select_agent_plan(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return _solo_plan("input must be an object", valid_input=False)
     durable = payload.get("durable_or_release_critical") is True
+    schema_version = 2 if payload.get("schema_version") == 2 else 1
     try:
         return _select_agent_plan(payload)
     except OrchestrationError as error:
-        schema_version = 2 if payload.get("schema_version") == 2 else 1
         return _solo_plan(
             str(error),
+            valid_input=False,
+            durable=durable,
+            schema_version=schema_version,
+        )
+    except Exception as error:  # noqa: BLE001 - the contract is fail-closed
+        # Every rejection should arrive as OrchestrationError, so reaching here
+        # means a field escaped validation and hit an operation it does not
+        # support. Degrading to solo keeps the caller's guarantee; naming the
+        # exception type keeps the underlying defect visible rather than
+        # silently absorbed.
+        return _solo_plan(
+            f"planner input could not be evaluated: {type(error).__name__}: {error}",
             valid_input=False,
             durable=durable,
             schema_version=schema_version,
@@ -1558,6 +1589,12 @@ def main() -> int:
             result = validate_worker_result(_read_object(args.worker_result))
     except (OrchestrationError, json.JSONDecodeError, OSError) as error:
         print(json.dumps({"error": str(error)}) if args.json else f"ERROR: {error}")
+        return 2
+    except Exception as error:  # noqa: BLE001 - report, never traceback
+        # A caller parsing this output should receive the documented error
+        # shape even when a field reaches an operation it does not support.
+        message = f"{type(error).__name__}: {error}"
+        print(json.dumps({"error": message}) if args.json else f"ERROR: {message}")
         return 2
     print(json.dumps(result, indent=2) if args.json else json.dumps(result))
     if result.get("passed") is False or result.get("valid") is False:
