@@ -14,7 +14,7 @@ For adaptive communication, add a terse control when practical:
 
 - A: Codex base.
 - B: Codex base with only a short instruction such as `Answer concisely.`
-- C: Cognitive Powers with `$communicate-efficiently`.
+- C: Cognitive Powers with `communicate-efficiently`.
 
 This separates generic brevity from the value of profile selection and evidence preservation.
 
@@ -34,7 +34,7 @@ fresh_input_tokens = input_tokens - cached_input_tokens
 
 Compare token use only among paired successful runs, while still reporting every failed run. A cheap incorrect response is not an efficiency win.
 
-When provider usage is available, normalize it with `$communicate-efficiently` receipts. Keep input, cached input, fresh input, output, and total tokens separate. Never derive the missing arm from an assumed savings ratio.
+When provider usage is available, normalize it with `communicate-efficiently` receipts. Keep input, cached input, fresh input, output, and total tokens separate. Never derive the missing arm from an assumed savings ratio.
 
 ## Minimum claim thresholds
 

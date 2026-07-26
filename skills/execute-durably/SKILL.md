@@ -7,6 +7,15 @@ description: Execute long or compaction-prone work with external state, evidence
 
 Use durable state only when its recovery value exceeds its overhead. Keep state outside the repository so public projects do not acquire workflow artifacts.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## 1. Initialize observable criteria
 
 Read [state-contract.md](references/state-contract.md), then initialize one session with the complete objective and falsifiable criteria:
@@ -57,25 +66,25 @@ Use `record` for visual or external artifacts; the tool copies and hashes the ar
 
 When the plugin's selective edit hook is enabled, read [hook-evidence.md](references/hook-evidence.md) before clearing its `Stop` warning. The hook is an observability aid and never substitutes for this session's completion gate.
 
-For a successful normalized receipt from `$verify-web-behavior`, use `record-web`. It rejects failed, empty, malformed, in-repository, or hash-mismatched evidence and copies every declared Playwright artifact into the durable session:
+For a successful normalized receipt from `verify-web-behavior`, use `record-web`. It rejects failed, empty, malformed, in-repository, or hash-mismatched evidence and copies every declared Playwright artifact into the durable session:
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> record-web --session <id> --criterion c1 --executor <agent-id> --receipt <cognitive-playwright-receipt.json>
 ```
 
-For a completed normalized receipt from `$explore-web-adaptively`, use `record-navigation` only when the criterion is discovery itself. The typed receipt remains `navigation_only` and cannot substitute for `record-web` on a behavioral criterion:
+For a completed normalized receipt from `explore-web-adaptively`, use `record-navigation` only when the criterion is discovery itself. The typed receipt remains `navigation_only` and cannot substitute for `record-web` on a behavioral criterion:
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> record-navigation --session <id> --criterion c1 --executor <agent-id> --receipt <cognitive-skyvern-receipt.json>
 ```
 
-For a completed `$design-intentionally` visual contract, use `record-design` only when the criterion is visual review or fidelity. It copies every declared intent, review, browser, and screenshot artifact and remains non-behavioral:
+For a completed `design-intentionally` visual contract, use `record-design` only when the criterion is visual review or fidelity. It copies every declared intent, review, browser, and screenshot artifact and remains non-behavioral:
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> record-design --session <id> --criterion c1 --executor <agent-id> --receipt <cognitive-design-receipt.json>
 ```
 
-For a successful normalized receipt from `$operate-desktop-adaptively`, use `record-desktop`. It copies and hashes the QCU receipt and raw transcript. The receipt must show real actions, correct foreground focus, no stale capture or rejected input, explicit objective verification, and deliberate finish:
+For a successful normalized receipt from `operate-desktop-adaptively`, use `record-desktop`. It copies and hashes the QCU receipt and raw transcript. The receipt must show real actions, correct foreground focus, no stale capture or rejected input, explicit objective verification, and deliberate finish:
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> record-desktop --session <id> --criterion c1 --executor <agent-id> --receipt <cognitive-qcu-receipt.json>
@@ -85,9 +94,9 @@ Desktop evidence may support a behavioral criterion, but it remains `claimed` un
 
 A normalized semantic-navigation result may be captured to preserve why files or tests were selected, but it is navigation evidence only. It cannot complete a behavioral criterion without the selected executable check.
 
-Use `record-context` for a normalized payload produced by `$use-current-docs`. It records the selected library ID, requested and matched version, exact query, provider-response hash, and expiry. Expired context cannot be verified or used to complete a session.
+Use `record-context` for a normalized payload produced by `use-current-docs`. It records the selected library ID, requested and matched version, exact query, provider-response hash, and expiry. Expired context cannot be verified or used to complete a session.
 
-Use `record-communication` for a provider-backed usage receipt produced by `$communicate-efficiently`. It copies and hashes both the normalized receipt and original provider record. This evidence proves recorded usage only; it does not prove task correctness or a missing counterfactual baseline.
+Use `record-communication` for a provider-backed usage receipt produced by `communicate-efficiently`. It copies and hashes both the normalized receipt and original provider record. This evidence proves recorded usage only; it does not prove task correctness or a missing counterfactual baseline.
 
 ```powershell
 & $python <skill-root>/scripts/work_state.py --root <repo> record-communication --session <id> --criterion c1 --executor <agent-id> --receipt <communication-receipt.json>

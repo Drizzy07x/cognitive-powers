@@ -9,6 +9,15 @@ Choose the shortest path that proves the requested outcome. Read no other
 Cognitive Powers skill unless the first focused inspection leaves the boundary
 genuinely unclear.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## Conservative agent control
 
 Obvious one-file work with a nearby check stays with the main agent; do not run

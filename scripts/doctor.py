@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -666,6 +667,123 @@ def validate_release_installation(
     }
 
 
+def _skill_frontmatter(path: Path) -> dict[str, str]:
+    """Read flat scalar frontmatter keys without importing a YAML parser."""
+    fields: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").split("\n")
+    except OSError:
+        return fields
+    if not lines or lines[0].strip() != "---":
+        return fields
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$", line)
+        if match:
+            fields[match.group(1)] = match.group(2).strip()
+    return fields
+
+
+def host_surfaces(root: Path) -> dict[str, Any]:
+    """Describe both packaging surfaces from disk without probing any host."""
+    surfaces: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    versions: dict[str, str] = {}
+
+    codex_path = root / ".codex-plugin" / "plugin.json"
+    codex: dict[str, Any] = {
+        "host": "codex",
+        "manifest": ".codex-plugin/plugin.json",
+        "present": codex_path.is_file(),
+    }
+    if codex["present"]:
+        try:
+            manifest = _read_object(codex_path, "codex plugin manifest")
+        except DoctorError as error:
+            codex["error"] = str(error)
+        else:
+            codex["version"] = manifest.get("version")
+            codex["skillsDeclared"] = manifest.get("skills")
+            codex["hooks"] = manifest.get("hooks")
+            if isinstance(manifest.get("version"), str):
+                versions["codex"] = manifest["version"]
+    surfaces.append(codex)
+
+    claude_path = root / ".claude-plugin" / "plugin.json"
+    claude: dict[str, Any] = {
+        "host": "claude-code",
+        "manifest": ".claude-plugin/plugin.json",
+        "present": claude_path.is_file(),
+    }
+    if claude["present"]:
+        try:
+            manifest = _read_object(claude_path, "claude plugin manifest")
+        except DoctorError as error:
+            claude["error"] = str(error)
+        else:
+            claude["version"] = manifest.get("version")
+            claude["hooks"] = manifest.get("hooks")
+            claude["agents"] = manifest.get("agents")
+            claude["requiredUserConfig"] = sorted(
+                key
+                for key, option in (manifest.get("userConfig") or {}).items()
+                if isinstance(option, dict) and option.get("required")
+            )
+            automatic: list[str] = []
+            manual: list[str] = []
+            for skill in sorted((root / "skills").glob("*/SKILL.md")):
+                fields = _skill_frontmatter(skill)
+                target = (
+                    manual
+                    if fields.get("disable-model-invocation") == "true"
+                    else automatic
+                )
+                target.append(skill.parent.name)
+            claude["skillsDiscovered"] = "skills/"
+            claude["modelInvocableSkills"] = automatic
+            claude["userInvocableOnlySkills"] = manual
+            if isinstance(manifest.get("version"), str):
+                versions["claude-code"] = manifest["version"]
+            if "skills" in manifest:
+                findings.append(
+                    {
+                        "code": "claude-skills-declared",
+                        "severity": "warning",
+                        "message": (
+                            "declaring skills adds to the default skills/ scan and "
+                            "can expose duplicate skill names to Claude Code"
+                        ),
+                    }
+                )
+    else:
+        findings.append(
+            {
+                "code": "claude-manifest-missing",
+                "severity": "warning",
+                "message": "no .claude-plugin/plugin.json; Claude Code cannot load this tree as a plugin",
+            }
+        )
+    surfaces.append(claude)
+
+    aligned = len(set(versions.values())) <= 1
+    if not aligned:
+        findings.append(
+            {
+                "code": "host-version-drift",
+                "severity": "error",
+                "message": f"host manifests declare different versions: {versions}",
+            }
+        )
+    return {
+        "probed": False,
+        "note": "Packaging is read from disk; doctor never executes a host CLI.",
+        "surfaces": surfaces,
+        "versionsAligned": aligned,
+        "findings": findings,
+    }
+
+
 def build_report(
     root: Path,
     *,
@@ -685,6 +803,7 @@ def build_report(
             or Path.home() / ".codex" / "cognitive-powers"
         )
     )
+    hosts = host_surfaces(root)
     report: dict[str, Any] = {
         "schemaVersion": 2,
         "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -701,6 +820,7 @@ def build_report(
         },
         "skills": skill_inventory(root, manifest),
         "hooks": hook_inventory(root, manifest),
+        "hosts": hosts,
         "git": git_identity(root),
         "source": source_identity(root),
         "optionalProviders": provider_declarations(root),
@@ -717,7 +837,7 @@ def build_report(
             "hostMetadataAllowed": sorted(HOST_METADATA_FILES),
         },
         "durableState": durable,
-        "findings": durable["findings"],
+        "findings": durable["findings"] + hosts["findings"],
     }
     if validate_installation:
         report["installationValidation"] = validate_release_installation(

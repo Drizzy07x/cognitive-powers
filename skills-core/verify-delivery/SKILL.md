@@ -7,6 +7,15 @@ description: Audit an already-completed delivery against real evidence. Use when
 
 Audit falsifiable completion claims without extending the implementation scope.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## Bounded audit fast path
 
 When the checkout contains an explicit claim and a small declared evidence surface, do not load another Cognitive Powers file. Use two tool calls after this skill read:

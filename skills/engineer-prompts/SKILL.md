@@ -1,6 +1,7 @@
 ---
 name: engineer-prompts
 description: Build or audit version-neutral prompt contracts with outcomes, boundaries, permissions, evidence, and stop conditions. Use for reusable agent prompts or testable instructions.
+disable-model-invocation: true
 ---
 
 # Engineer Prompts
@@ -16,7 +17,7 @@ Turn an informal request into a prompt whose result can be verified. Keep the co
    - permissions state which reads, writes, network calls, installations, or external side effects are authorized.
 4. Name the tools that may be used and the evidence required before claiming completion.
 5. Define stop conditions for completion, blockers, exhausted retries, or required user decisions.
-6. Include `target_model` only when the user requests model-specific optimization. Invoke `$use-current-docs` before adding model-specific guidance.
+6. Include `target_model` only when the user requests model-specific optimization. Invoke `use-current-docs` before adding model-specific guidance.
 7. Set `$python` to a verified Python 3 executable. Validate the JSON shape with `& $python <skill-root>/scripts/prompt_contract.py validate <contract.json>`, then perform the semantic audit below. Structural validation cannot determine whether prose is genuinely observable or authorized.
 8. Render a stable prompt with `& $python <skill-root>/scripts/prompt_contract.py render <contract.json>` when a textual prompt is needed.
 

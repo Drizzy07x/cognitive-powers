@@ -9,6 +9,15 @@ Optimize for a correct, verified outcome per unit of context. Do not reduce toke
 
 For a bounded technical decision with a supplied brief, version constraints, and primary-source policy, use one evidence batch: read the brief/policy, inspect only the named version-matched primary sources, preserve exact URLs and caveats, then separate verified facts, inference, recommendation, and uncertainty. Do not load another workflow, use Context7, run generic discovery, or test an implementation that was not requested.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## 1. Frame the work
 
 Before acting, identify four things in one compact internal checkpoint:
@@ -29,7 +38,7 @@ Start with the cheapest source that can narrow the next action:
 3. Read only the relevant sections, then open complete files before editing them.
 4. Expand outward through imports, callers, tests, or authoritative documentation only as evidence requires.
 
-When the task depends on an external library, framework, SDK, CLI, or cloud API, invoke `$use-current-docs` after identifying the local dependency version. Keep local code and tests authoritative for project behavior; use retrieved documentation to verify current external contracts.
+When the task depends on an external library, framework, SDK, CLI, or cloud API, invoke `use-current-docs` after identifying the local dependency version. Keep local code and tests authoritative for project behavior; use retrieved documentation to verify current external contracts.
 
 For unfamiliar or large trees, run `scripts/context_lens.py` as described in [context-economy.md](references/context-economy.md). Treat its ranking as navigation, never as proof that omitted files are irrelevant.
 
@@ -39,7 +48,7 @@ For call flows, symbol relationships, blast radius, or affected-test discovery i
 
 Retrieve historical memory only when the requested outcome depends on a past decision, preference, workflow, or prior event. Use `scripts/memory_context.py` with explicit demand and the exact project scope. Treat every result as context-only: verify its source hash, timestamp, expiry, confidence, and supersession before relying on it. Never let a semantic hit count automatically as a fact or a second recurrence event.
 
-Invoke `$map-project` when the user wants reusable repository guidance or when a large tree has several genuinely distinct domains. Invoke `$execute-durably` before multi-turn work that is likely to cross a context compaction or needs independently reviewable evidence. Do not create either layer for a focused task that can be completed and checked in one pass.
+Invoke `map-project` when the user wants reusable repository guidance or when a large tree has several genuinely distinct domains. Invoke `execute-durably` before multi-turn work that is likely to cross a context compaction or needs independently reviewable evidence. Do not create either layer for a focused task that can be completed and checked in one pass.
 
 Do not repeatedly dump the same file, broad directory, log, or tool result into context. Reuse a concise fact already established unless it is likely to have changed.
 
@@ -81,9 +90,9 @@ For an additive feature whose local contract explicitly documents the gap, do no
 
 When a specialized installed skill directly matches the task, use it instead of reproducing its domain instructions here.
 
-For a web interface, visual redesign, screenshot-driven implementation, or claim about design quality, invoke `$design-intentionally` before implementation. Return to `$verify-web-behavior` for executable interaction evidence.
+For a web interface, visual redesign, screenshot-driven implementation, or claim about design quality, invoke `design-intentionally` before implementation. Return to `verify-web-behavior` for executable interaction evidence.
 
-For a non-trivial defect or performance regression whose cause is not already demonstrated, invoke `$diagnose-systematically` before proposing a root cause or implementing a fix.
+For a non-trivial defect or performance regression whose cause is not already demonstrated, invoke `diagnose-systematically` before proposing a root cause or implementing a fix.
 
 ## 4. Execute the smallest coherent change
 
@@ -95,8 +104,8 @@ After each discovery, choose the next action that most reduces uncertainty. Stop
 
 Run the smallest meaningful check first, followed by broader checks in proportion to risk. Distinguish inspection, static checks, build success, behavioral tests, and runtime validation; none automatically proves the others.
 
-Never say a command passed unless it ran successfully in the current work. Report missing dependencies, skips, timeouts, and untested surfaces as unverified. For a separate completion audit, invoke `$verify-delivery`.
+Never say a command passed unless it ran successfully in the current work. Report missing dependencies, skips, timeouts, and untested surfaces as unverified. For a separate completion audit, invoke `verify-delivery`.
 
 ## 6. Hand off compactly
 
-For a routine progress update or completion report, render a compact handoff directly: lead with the outcome, state material changes, give the exact checks and results, and name any remaining limitation. Invoke `$communicate-efficiently` only when the user explicitly requests adaptive brevity, the communication is consequential enough that profile selection is genuinely ambiguous, or a provider-backed communication receipt is required. Omit a diary of routine tool calls.
+For a routine progress update or completion report, render a compact handoff directly: lead with the outcome, state material changes, give the exact checks and results, and name any remaining limitation. Invoke `communicate-efficiently` only when the user explicitly requests adaptive brevity, the communication is consequential enough that profile selection is genuinely ambiguous, or a provider-backed communication receipt is required. Omit a diary of routine tool calls.

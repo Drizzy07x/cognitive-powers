@@ -22,6 +22,15 @@ Internal workflow catalog: `../../skills/audit-capabilities/SKILL.md`,
 `../../skills/verify-delivery/SKILL.md`, and
 `../../skills/verify-web-behavior/SKILL.md`.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## Load the workflow
 
 Read `../../skills/execute-durably/SKILL.md` completely before taking task actions, then follow its state contract and evidence gates. Keep durable artifacts outside the target repository.

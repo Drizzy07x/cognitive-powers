@@ -1,6 +1,7 @@
 ---
 name: use-current-docs
 description: Retrieve current version-matched authoritative docs for external libraries, SDKs, CLIs, or cloud APIs. Use when implementation depends on a specific installed version.
+disable-model-invocation: true
 ---
 
 # Use Current Docs

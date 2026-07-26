@@ -9,6 +9,15 @@ Treat completion as a set of falsifiable claims, not a confident summary.
 
 For a bounded checkout with one explicit claim document and a small declared evidence surface, use a focused audit instead of the remaining broad workflow: one batch for the claim, status, exact local/tracking/remote identity, relevant diff/artifact evidence, and named tests; then run the single focused suite once. Do not load references, inspect unclaimed signing/identity/history, try alternate test frameworks, or run `knowledge_closeout.py` for that bounded case.
 
+## Locate plugin files
+
+Paths written as `scripts/<file>` are relative to this skill's own directory.
+Paths written as `<plugin-root>/...` are relative to the installed Cognitive
+Powers root: the directory that contains `skills/`, `scripts/`, and a
+`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest. Resolve
+both from this skill's own location rather than guessing, and never copy plugin
+scripts into the target repository.
+
 ## 1. Freeze the contract
 
 Extract the requested outcomes, constraints, authorized side effects, and promised verification. Separate explicit requirements from optional improvements. If reviewing code, record the initial repository state and preserve unrelated user changes.
@@ -46,13 +55,13 @@ Classify every claim using [evidence-standard.md](references/evidence-standard.m
 
 Missing tools, skipped checks, timeouts, stale reports, or absent logs are never a pass.
 
-For browser-visible claims, invoke `$verify-web-behavior`. Require a parsed Playwright report with at least one relevant expected test and zero unexpected results. Report flaky retries separately; a screenshot or trace alone is supporting evidence, not a pass.
+For browser-visible claims, invoke `verify-web-behavior`. Require a parsed Playwright report with at least one relevant expected test and zero unexpected results. Report flaky retries separately; a screenshot or trace alone is supporting evidence, not a pass.
 
-Treat `$explore-web-adaptively` receipts, Skyvern completion status, extracted output, recordings, and generated Playwright candidates as navigation evidence. They may explain or discover a flow but cannot verify its requested outcome.
+Treat `explore-web-adaptively` receipts, Skyvern completion status, extracted output, recordings, and generated Playwright candidates as navigation evidence. They may explain or discover a flow but cannot verify its requested outcome.
 
-For design claims, require the current `$design-intentionally` intent, dimension-matched viewport renders, explicit review checks, and relevant Playwright results. Treat `visualContractPassed` as review-contract evidence only. It does not prove subjective quality, cross-browser rendering, performance, accessibility, or behavior that was not asserted.
+For design claims, require the current `design-intentionally` intent, dimension-matched viewport renders, explicit review checks, and relevant Playwright results. Treat `visualContractPassed` as review-contract evidence only. It does not prove subjective quality, cross-browser rendering, performance, accessibility, or behavior that was not asserted.
 
-When changed files cross module boundaries and CodeGraph is already indexed and fresh, use `$solve-efficiently`'s semantic-navigation workflow to obtain candidate affected tests and callers. Run those tests and inspect the relevant consumers; an empty affected set is not proof that no regression exists.
+When changed files cross module boundaries and CodeGraph is already indexed and fresh, use `solve-efficiently`'s semantic-navigation workflow to obtain candidate affected tests and callers. Run those tests and inspect the relevant consumers; an empty affected set is not proof that no regression exists.
 
 ## 4. Test the boundaries
 
@@ -60,7 +69,7 @@ Check the nearest failure modes, not only the happy path. For code changes, cons
 
 Use [evaluation-protocol.md](references/evaluation-protocol.md) when comparing Cognitive Powers, Codex base, or another plugin. Do not infer model-quality improvement from static validation or a single successful task.
 
-For communication-efficiency claims, inspect `$communicate-efficiently` usage receipts. Reject estimated counterfactuals, mismatched task IDs, unsuccessful variants, critical failures, and comparisons whose candidate quality is lower.
+For communication-efficiency claims, inspect `communicate-efficiently` usage receipts. Reject estimated counterfactuals, mismatched task IDs, unsuccessful variants, critical failures, and comparisons whose candidate quality is lower.
 
 For cross-cutting, release-critical, or independently delegated work, select the smallest useful set of perspectives from [review-angles.md](references/review-angles.md). Keep contract evidence out of the quality review and quality preferences out of the contract verdict. Do not force a security review unless the request or changed behavior materially includes a security boundary.
 

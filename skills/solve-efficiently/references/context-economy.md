@@ -57,7 +57,7 @@ The suite reads the installed skill descriptions and checks realistic positives,
 
 ## External documentation boundary
 
-Context Lens selects repository text only. When a decision depends on a versioned external API, invoke `$use-current-docs` after finding the dependency and its version locally. Query one concrete topic, cap the returned payload, and verify the resulting implementation against project tests or runtime behavior.
+Context Lens selects repository text only. When a decision depends on a versioned external API, invoke `use-current-docs` after finding the dependency and its version locally. Query one concrete topic, cap the returned payload, and verify the resulting implementation against project tests or runtime behavior.
 
 ## Common sources of waste
 

@@ -1,6 +1,7 @@
 ---
 name: research-systematically
 description: Conduct reproducible research with frozen pre-registration, experiments, claim-to-evidence mapping, and independent verdict. Use for comparative or experimental investigations.
+disable-model-invocation: true
 ---
 
 # Research Systematically

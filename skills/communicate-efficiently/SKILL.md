@@ -1,6 +1,7 @@
 ---
 name: communicate-efficiently
 description: Adapt progress, answers, and handoffs to the shortest form that preserves evidence. Use for concise reporting, compact handoffs, or high-risk instructions.
+disable-model-invocation: true
 ---
 
 # Communicate Efficiently
@@ -31,7 +32,7 @@ Use `scripts/communication_contract.py receipt` only with usage produced by the 
 
 Use `assess` for deterministic contract checks such as required facts, exact literals, prohibited filler, and a case-specific word ceiling. Passing this check establishes presentation-contract compliance only; it does not establish improved model quality or lower end-to-end token use.
 
-For a product-level efficiency claim, invoke `$verify-delivery` and follow its paired evaluation protocol. Quality and task success take precedence over brevity.
+For a product-level efficiency claim, invoke `verify-delivery` and follow its paired evaluation protocol. Quality and task success take precedence over brevity.
 
 ## Hand off
 

@@ -1,6 +1,7 @@
 ---
 name: operate-desktop-adaptively
 description: Operate and verify native Windows apps through existing QCU. Use for WPF, Win32, installers, or cross-app workflows requiring guarded desktop evidence.
+disable-model-invocation: true
 ---
 
 # Operate Desktop Adaptively
@@ -59,4 +60,4 @@ For a durable criterion, record the successful normalized receipt:
   --receipt <cognitive-qcu-receipt.json>
 ```
 
-Require a different verifier through `$execute-durably`; QCU evidence is eligible to support behavioral verification but does not self-confirm a criterion. Report the expected window, action count, observation IDs, capture reliability, finish reason, and anything not exercised.
+Require a different verifier through `execute-durably`; QCU evidence is eligible to support behavioral verification but does not self-confirm a criterion. Report the expected window, action count, observation IDs, capture reliability, finish reason, and anything not exercised.

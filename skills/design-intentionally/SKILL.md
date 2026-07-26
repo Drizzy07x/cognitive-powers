@@ -1,6 +1,7 @@
 ---
 name: design-intentionally
 description: Define, implement, redesign, or audit deliberate web interface direction. Use for branded UI, screenshot-driven work, responsive visual QA, and fidelity claims.
+disable-model-invocation: true
 ---
 
 # Design Intentionally
@@ -23,7 +24,7 @@ Create a normalized intent with `scripts/design_intent.py create --brief <brief.
 
 ## 2. Choose context, not defaults
 
-Use the existing stack and system unless the user requested a replacement or it cannot satisfy the brief. Invoke `$use-current-docs` before relying on a version-sensitive component, animation, or design-system API.
+Use the existing stack and system unless the user requested a replacement or it cannot satisfy the brief. Invoke `use-current-docs` before relying on a version-sensitive component, animation, or design-system API.
 
 Treat variance, motion, and density as 1–10 control signals, not aesthetic scores. Do not force React, Tailwind, dark mode, gradients, particular fonts, icon libraries, or animation packages.
 
@@ -41,7 +42,7 @@ For React or Next.js work, run the bounded static review in [frontend-performanc
 
 ## 4. Verify the render
 
-Invoke `$verify-web-behavior` for executable browser checks. Exercise relevant interactions and capture real renders at mobile and desktop widths. A screenshot supports visual review but does not prove behavior.
+Invoke `verify-web-behavior` for executable browser checks. Exercise relevant interactions and capture real renders at mobile and desktop widths. A screenshot supports visual review but does not prove behavior.
 
 Create typed visual evidence with `scripts/design_evidence.py create`. It binds the current intent, normalized Playwright receipt, reviewer checks, viewports, screenshots, and hashes. Read [visual-verification.md](references/visual-verification.md) before judging the result.
 
@@ -49,4 +50,4 @@ The visual receipt must remain `behavioralVerificationEligible=false` and `subje
 
 ## 5. Deliver honestly
 
-Report the design read, preserved constraints, material visual changes, tested viewports and interactions, and remaining visual or behavioral gaps. Invoke `$verify-delivery` for a separate release or quality verdict and `$communicate-efficiently` for the final handoff.
+Report the design read, preserved constraints, material visual changes, tested viewports and interactions, and remaining visual or behavioral gaps. Invoke `verify-delivery` for a separate release or quality verdict and `communicate-efficiently` for the final handoff.

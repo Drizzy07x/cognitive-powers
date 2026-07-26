@@ -19,6 +19,35 @@ Adding counters there would create misleading telemetry or broaden the write
 surface. Therefore no counter database and no fake disable, status, reset, or
 export controls are implemented.
 
+## Inspect both host surfaces
+
+The `hosts` section of the doctor report describes the Codex and Claude Code
+packaging read from disk. `probed` is always `false`: doctor never executes a
+host CLI, so this describes packaging, never a live installation.
+
+Check it after changing a manifest, a hook configuration, or skill frontmatter:
+
+```powershell
+& $python scripts/doctor.py --json
+```
+
+`versionsAligned` must be `true`. A `host-version-drift` finding means the two
+manifests disagree and the release is not coherent. For Claude Code the report
+also lists `modelInvocableSkills`, which must contain exactly the three core
+workflows, and `userInvocableOnlySkills`, which must contain the other eleven.
+A workflow that moves between those lists changes how much catalog Claude loads
+on every task.
+
+`requiredUserConfig` lists values Claude Code prompts for when the plugin is
+enabled. `python_executable` has no default because no interpreter name resolves
+on every platform: on Windows `python3` resolves to a Microsoft Store alias that
+exits without running Python. Verify the configured path with
+`<path> --version` before entering it.
+
+Durable evidence defaults to `~/.codex/cognitive-powers` on both hosts. The name
+is historical; the shared location is deliberate so one machine running both
+hosts keeps a single durable state. Override it with `COGNITIVE_POWERS_DATA`.
+
 ## Inspect durable state schema
 
 Durable state currently uses schema version 1. Inspect one session with the
@@ -96,7 +125,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.6.0
+  --installed-root <installed-root> --tag v1.7.0
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.

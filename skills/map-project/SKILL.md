@@ -1,6 +1,7 @@
 ---
 name: map-project
 description: Build or refresh compact hierarchical AGENTS.md guidance. Use for mapping a large or unfamiliar repository or replacing stale project memory.
+disable-model-invocation: true
 ---
 
 # Map Project
@@ -17,7 +18,7 @@ Run the project-map mode from Cognitive Powers' `solve-efficiently` skill:
 & $python <plugin-root>/skills/solve-efficiently/scripts/context_lens.py <repo-root> --project-map --max-depth 3 --json
 ```
 
-Treat scores as candidates, not truth. Read every existing `AGENTS.md` before editing. Inspect entry points, build/test configuration, module boundaries, and explicit project prohibitions. When CodeGraph is already indexed and fresh, use `$solve-efficiently`'s semantic-navigation workflow to identify entry points, cross-directory dependencies, routes, and central public symbols. Otherwise use targeted search and Context Lens.
+Treat scores as candidates, not truth. Read every existing `AGENTS.md` before editing. Inspect entry points, build/test configuration, module boundaries, and explicit project prohibitions. When CodeGraph is already indexed and fresh, use `solve-efficiently`'s semantic-navigation workflow to identify entry points, cross-directory dependencies, routes, and central public symbols. Otherwise use targeted search and Context Lens.
 
 Read existing `CONTEXT.md`, `CONTEXT-MAP.md`, and architectural decision records when present. Keep domain language separate from operational agent guidance.
 

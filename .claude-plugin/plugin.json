@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "cognitive-powers",
+  "displayName": "Cognitive Powers",
+  "version": "1.7.0",
+  "description": "Focused execution with durable evidence and independent verification.",
+  "author": {
+    "name": "DrizzyPC"
+  },
+  "repository": "https://github.com/Drizzy07x/cognitive-powers",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "workflow",
+    "context-efficiency",
+    "token-efficiency",
+    "project-memory",
+    "reproducible-research",
+    "durable-execution",
+    "verification",
+    "benchmarking",
+    "browser-automation",
+    "desktop-automation"
+  ],
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks.claude.json",
+  "userConfig": {
+    "python_executable": {
+      "type": "file",
+      "title": "Python 3 executable",
+      "description": "Absolute path to a working Python 3.11 or newer interpreter. Cognitive Powers hooks run this file directly. On Windows do not point at the Microsoft Store alias in WindowsApps\\python3.exe; it is a stub that fails without installing Python. Verify with: <path> --version",
+      "required": true
+    }
+  }
+}

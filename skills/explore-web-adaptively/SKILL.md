@@ -1,11 +1,12 @@
 ---
 name: explore-web-adaptively
 description: Discover unfamiliar or changing browser workflows through existing Skyvern. Use for exploratory or cross-site navigation when deterministic steps are unknown.
+disable-model-invocation: true
 ---
 
 # Explore Web Adaptively
 
-Use Skyvern for discovery, never as the final judge of browser behavior. Prefer `$verify-web-behavior` when a stable Playwright reproduction already exists.
+Use Skyvern for discovery, never as the final judge of browser behavior. Prefer `verify-web-behavior` when a stable Playwright reproduction already exists.
 
 ## 1. Bound the exploration
 
@@ -27,8 +28,8 @@ Inspect the candidate before copying it into a project. Use stable locators and 
 
 ## 4. Verify through Playwright
 
-Invoke `$verify-web-behavior` and establish a real red/green cycle. Skyvern output, `page.validate`, screenshots, recordings, extracted text, and a `completed` run are navigation evidence only. They cannot complete a behavioral criterion.
+Invoke `verify-web-behavior` and establish a real red/green cycle. Skyvern output, `page.validate`, screenshots, recordings, extracted text, and a `completed` run are navigation evidence only. They cannot complete a behavioral criterion.
 
-Use `$execute-durably record-navigation` only for a criterion about discovery itself. Use `record-web` for the later Playwright evidence.
+Use `execute-durably record-navigation` only for a criterion about discovery itself. Use `record-web` for the later Playwright evidence.
 
 Report the provider, API contract, run ID, final status, step count, side-effect scope, artifact hashes, generated candidate, and all unverified surfaces.

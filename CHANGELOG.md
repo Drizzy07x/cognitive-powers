@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0 - 2026-07-26
+
+- Added a second host surface for Claude Code from the same source tree: a `.claude-plugin/plugin.json` manifest, a marketplace entry, plugin-root agent definitions, and a hook configuration that keeps the existing Codex packaging unchanged.
+- Declared the hook interpreter as a required `userConfig` file value and invoked it through exec form, because no interpreter name resolves correctly on every platform; on Windows the `python3` alias resolves to a Microsoft Store stub that exits without running Python.
+- Restricted automatic model invocation to the same three core workflows on both hosts. The eleven specialized workflows stay installed and directly invocable but are no longer auto-loaded, preserving the existing catalog-overhead boundary.
+- Replaced host-specific `$skill` invocation syntax in every skill body with host-neutral references, and anchored `scripts/` and `<plugin-root>/` path resolution to the installed manifest so both hosts resolve them identically.
+- Derived the declared version from the changelog and added fail-closed drift gates across both manifests, the marketplace entry, and the documented install references.
+- Durable evidence still defaults to the legacy `~/.codex/cognitive-powers` data root on both hosts. This is a naming inconsistency under Claude Code, not a functional one; migrating it would move existing durable state and is deliberately not part of this release.
+- No provider-backed evaluation was run. Claude Code compatibility is validated structurally against the documented plugin schema and by the official `claude plugin validate --strict` check in CI; no live installed-host claim is made.
+
 ## 1.6.0 - 2026-07-26
 
 - Added a canonical fail-closed installed-tree verifier bound to immutable Git tags, Git attribute normalization, host inventory, and the exact three-skill public surface.

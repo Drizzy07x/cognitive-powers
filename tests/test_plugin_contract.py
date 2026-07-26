@@ -10,13 +10,24 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
+def declared_version() -> str:
+    """Return the newest dated changelog release, the single version source."""
+    text = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}\s*$", text, re.MULTILINE
+    )
+    if match is None:
+        raise AssertionError("CHANGELOG.md has no dated release heading")
+    return match.group(1)
+
+
 class PluginContractTests(unittest.TestCase):
     def test_manifest_identity_and_declared_paths(self) -> None:
         manifest_path = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertEqual(manifest["name"], "cognitive-powers")
-        self.assertEqual(manifest["version"].split("+", 1)[0], "1.6.0")
+        self.assertEqual(manifest["version"].split("+", 1)[0], declared_version())
         self.assertEqual(manifest["skills"], "./skills-core/")
         self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
         self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
@@ -37,6 +48,31 @@ class PluginContractTests(unittest.TestCase):
         )
         ignored = (PLUGIN_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         self.assertIn("graphify-out/", ignored)
+
+    def test_documented_tags_match_the_declared_version(self) -> None:
+        expected = f"v{declared_version()}"
+        pattern = re.compile(r"v\d+\.\d+\.\d+")
+        previous = {
+            f"v{version}"
+            for version in re.findall(
+                r"^## (\d+\.\d+\.\d+) - ",
+                (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+        }
+        for relative in ("README.md", "docs/operations.md", "install.ps1"):
+            text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+            for found in pattern.findall(text):
+                # Rollback instructions legitimately name an older release.
+                if found in previous and found != expected:
+                    continue
+                with self.subTest(document=relative, tag=found):
+                    self.assertEqual(
+                        found,
+                        expected,
+                        f"{relative} documents {found} but the declared release "
+                        f"is {expected}",
+                    )
 
     def test_private_marketplace_points_to_plugin_root(self) -> None:
         marketplace_path = PLUGIN_ROOT / ".agents" / "plugins" / "marketplace.json"
@@ -256,7 +292,7 @@ class PluginContractTests(unittest.TestCase):
             '$repository = "Drizzy07x/cognitive-powers"',
             '$pluginId = "cognitive-powers@cognitive-powers"',
             '$pluginName = "cognitive-powers"',
-            '[string]$ReleaseRef = "v1.6.0"',
+            f'[string]$ReleaseRef = "v{declared_version()}"',
             "$releaseRef = $ReleaseRef",
             "$expectedVersion = $releaseRef.Substring(1)",
             "$allowedSources = @(",
@@ -296,7 +332,17 @@ class PluginContractTests(unittest.TestCase):
         self.assertNotIn('"--ref", "main"', installer)
         readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("rollback", readme.lower())
-        self.assertIn("v1.5.2", readme)
+        releases = re.findall(
+            r"^## (\d+\.\d+\.\d+) - ",
+            (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertGreaterEqual(len(releases), 2, "no prior release to roll back to")
+        self.assertIn(
+            f"-ReleaseRef v{releases[1]}",
+            readme,
+            "the documented rollback must name the immediately prior release",
+        )
 
     def test_tag_ci_requires_exact_release_witness(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(

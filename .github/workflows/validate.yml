@@ -36,6 +36,13 @@ jobs:
           python -c "import os; from pathlib import Path; p=(Path('ci')/'codex-${{ matrix.codex }}'/'node_modules'/'.bin').resolve(); Path(os.environ['GITHUB_PATH']).open('a',encoding='utf-8').write(str(p)+'\n')"
       - name: Install hash-locked validation dependencies
         run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Install the Claude Code CLI for plugin validation
+        run: npm install --global --no-audit --no-fund @anthropic-ai/claude-code
+      - name: Validate the Claude Code plugin surface
+        # Unpinned on purpose: this asserts the packaging still satisfies the
+        # current published schema. A failure here is real drift, not flake.
+        # tests/test_claude_plugin_contract.py remains the deterministic gate.
+        run: claude plugin validate . --strict
       - name: Exercise the cross-platform hook lock
         run: python -m unittest tests.test_plugin_hooks.PluginHookTests.test_short_lock_contention_does_not_silently_drop_event tests.test_plugin_hooks.PluginHookTests.test_unlocked_residual_lock_file_does_not_block_event
       - name: Run verify-installed-fixture in a disposable home

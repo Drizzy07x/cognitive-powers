@@ -4,15 +4,21 @@
 
 # Cognitive Powers
 
-Cognitive Powers is a Codex plugin for executing non-trivial work with focused context and evidence-based verification.
+Cognitive Powers is a Codex and Claude Code plugin for executing non-trivial work with focused context and evidence-based verification.
+
+One source tree packages both hosts. Codex loads `.codex-plugin/plugin.json` and
+`skills-core/`; Claude Code loads `.claude-plugin/plugin.json` and `skills/`.
+Both expose the same three core workflows and the same eleven specialized ones.
+Only the invocation prefix differs: Codex uses `$name`, Claude Code uses
+`/name`. See [Install in Claude Code](#install-in-claude-code).
 
 ## Quickstart: three flows
 
 Use the smallest flow that fits the work:
 
-1. **Focused solve** — ask Codex to use `$solve-efficiently` for a bounded implementation, diagnosis, or research task. It selects only the context and checks justified by the request, and its conservative controller activates host-native agents only after bounded discovery proves that independent work justifies the coordination cost.
-2. **Durable execution** — ask Codex to use `$execute-durably` when work spans several steps, agents, or compactions. Criteria, command exits, source fingerprints, and independent verification remain external to the target repository.
-3. **Delivery verification** — ask Codex to use `$verify-delivery` with the original claim and relevant checkout. It reports Contract and Quality separately and does not turn missing or stale evidence into success.
+1. **Focused solve** — invoke `$solve-efficiently` (`/solve-efficiently` in Claude Code) for a bounded implementation, diagnosis, or research task. It selects only the context and checks justified by the request, and its conservative controller activates host-native agents only after bounded discovery proves that independent work justifies the coordination cost.
+2. **Durable execution** — invoke `$execute-durably` (`/execute-durably`) when work spans several steps, agents, or compactions. Criteria, command exits, source fingerprints, and independent verification remain external to the target repository.
+3. **Delivery verification** — invoke `$verify-delivery` (`/verify-delivery`) with the original claim and relevant checkout. It reports Contract and Quality separately and does not turn missing or stale evidence into success.
 
 These are prompt-level plugin flows; they do not install optional providers or authorize publication, live browser actions, or desktop input.
 
@@ -20,9 +26,9 @@ These are prompt-level plugin flows; they do not install optional providers or a
 
 | Need | Skill | Use it when |
 |---|---|---|
-| Bounded implementation, diagnosis, or source-backed decision | `$solve-efficiently` | The work can be narrowed to a coherent source-and-test boundary. |
-| Resumable multi-step execution with durable evidence | `$execute-durably` | Work may span agents, turns, or compactions and needs external receipts. |
-| Independent audit of an existing completion claim | `$verify-delivery` | Implementation has stopped and the claim must be checked against current evidence. |
+| Bounded implementation, diagnosis, or source-backed decision | `$solve-efficiently` / `/solve-efficiently` | The work can be narrowed to a coherent source-and-test boundary. |
+| Resumable multi-step execution with durable evidence | `$execute-durably` / `/execute-durably` | Work may span agents, turns, or compactions and needs external receipts. |
+| Independent audit of an existing completion claim | `$verify-delivery` / `/verify-delivery` | Implementation has stopped and the claim must be checked against current evidence. |
 
 For updates, lock recovery, state-schema inspection, validation receipts, and
 the local-usage-counter abstention, use the
@@ -62,7 +68,7 @@ assignment's exact declared check. A write that legitimately changes nothing
 uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
 and a successful required check; an empty `completed` write is rejected.
 
-Codex initially sees only these three core entries. The other eleven specialized workflows remain installed and are loaded from the core router only when the task directly matches them. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
+Each host initially sees only these three core entries. The other eleven specialized workflows remain installed and are reached on demand: Codex loads them from the core router when the task directly matches, and Claude Code marks them `disable-model-invocation` so they are never auto-loaded but stay directly invocable as `/name`. This keeps explicit durable and audit boundaries while avoiding unconditional catalog overhead on focused work.
 
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
@@ -133,21 +139,21 @@ Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers
 
 ## Install from the private GitHub repository
 
-The commands in this section are release-facing. Before an exact `v1.6.0` tag
+The commands in this section are release-facing. Before an exact `v1.7.0` tag
 exists, immutable tag preflight intentionally fails without changing the profile.
 
 The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.6.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.6.0` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.6.0` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.7.0` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.7.0` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
 
-To roll back immutably to 1.5.2, run the audited 1.6.0 installer with the prior tag. The same recovery transaction protects the currently installed release:
+To roll back immutably to 1.6.0, run the audited 1.7.0 installer with the prior tag. The same recovery transaction protects the currently installed release:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.6.0' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.5.2
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.0' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.6.0
 ```
 
 ## Update the local development installation
@@ -161,6 +167,61 @@ codex plugin list --json
 ```
 
 The installed entry must report the same version as `.codex-plugin/plugin.json`, and `codex plugin list --json` must show exactly one installed and enabled entry named `cognitive-powers`. Running the private GitHub installer later removes the local-development entry before installing the private release.
+
+## Install in Claude Code
+
+The same tree is also a Claude Code plugin. Nothing is shared at runtime between
+the two hosts: Codex reads `.codex-plugin/plugin.json` and `skills-core/`, while
+Claude Code reads `.claude-plugin/plugin.json` and `skills/`. Both are validated
+from one source and a drift gate keeps their versions identical.
+
+Add the marketplace and install from a local checkout:
+
+```text
+/plugin marketplace add <path-to-checkout>
+/plugin install cognitive-powers@cognitive-powers
+```
+
+Alternatively, place the checkout at `~/.claude/skills/cognitive-powers/`. Any
+directory under a skills directory that carries `.claude-plugin/plugin.json`
+loads as `cognitive-powers@skills-dir` on the next session with no marketplace
+and no install step.
+
+Claude Code prompts once for **Python 3 executable** at enable time. This value
+is required and has no default because no interpreter name resolves correctly on
+every platform. On Windows, `python3` resolves to the Microsoft Store alias in
+`WindowsApps`, which exits without running Python; point the setting at the real
+`python.exe` instead. Confirm the choice before entering it:
+
+```powershell
+& <path-to-python> --version
+```
+
+Hooks are invoked in exec form, so this path is passed as an argument vector and
+is never expanded by a shell.
+
+Claude automatically loads only `solve-efficiently`, `execute-durably`, and
+`verify-delivery`, matching the Codex core router. The eleven specialized
+workflows stay installed and are invoked directly as `/audit-capabilities`,
+`/map-project`, `/verify-web-behavior`, and so on. They are not auto-loaded, so
+they add no unconditional catalog overhead.
+
+Verify an explicitly authorized installed copy against the immutable tag:
+
+```powershell
+& $python scripts/verify_installed.py --source-root . `
+  --installed-root <isolated-installed-root> --tag v1.7.0 --host claude-code
+```
+
+The `claude-code` host verifies tagged content and packaging only. It never
+reads the host's installation registry and reports `hostInventoryVerified` as
+false, so it is not a complete installed-host verification. Structural
+packaging is additionally checked by `claude plugin validate . --strict` in CI
+and by `tests/test_claude_plugin_contract.py` offline.
+
+Durable evidence still defaults to `~/.codex/cognitive-powers` on both hosts.
+The name is historical; the location is shared deliberately so a machine running
+both hosts keeps one durable state. Override it with `COGNITIVE_POWERS_DATA`.
 
 ## Doctor
 
@@ -184,7 +245,7 @@ inventory, and the three-skill public surface:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <isolated-installed-root> --tag v1.6.0
+  --installed-root <isolated-installed-root> --tag v1.7.0
 ```
 
 Exit codes distinguish identity (`10`), content (`11`), inventory (`12`), and

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -15,6 +16,7 @@ EXIT_INVENTORY = 12
 EXIT_HOST = 13
 ALLOWED_EXTRAS = {".codex-marketplace-install.json"}
 EXPECTED_SKILLS = ["execute-durably", "solve-efficiently", "verify-delivery"]
+SUPPORTED_HOSTS = ("codex", "claude-code")
 EXPECTED_REPOSITORY_SOURCES = {
     "Drizzy07x/cognitive-powers",
     "https://github.com/Drizzy07x/cognitive-powers",
@@ -112,9 +114,74 @@ def _json_command(run: Run, argv: list[str]) -> Any:
         ) from error
 
 
+def _model_invocable_skills(installed_root: Path) -> list[str]:
+    """Return installed skills Claude Code may load automatically."""
+    automatic: list[str] = []
+    for skill in sorted((installed_root / "skills").glob("*/SKILL.md")):
+        try:
+            lines = skill.read_text(encoding="utf-8").split("\n")
+        except OSError:
+            continue
+        if not lines or lines[0].strip() != "---":
+            continue
+        disabled = False
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            match = re.match(r"^disable-model-invocation:\s*(\S+)\s*$", line)
+            if match and match.group(1) == "true":
+                disabled = True
+                break
+        if not disabled:
+            automatic.append(skill.parent.name)
+    return automatic
+
+
+def _claude_surface(installed_root: Path, version: str) -> dict[str, Any]:
+    """Verify the Claude Code packaging of an installed tree."""
+    try:
+        manifest = json.loads(
+            (installed_root / ".claude-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        return {
+            "matched": False,
+            "host": "claude-code",
+            "error": str(error),
+            "exposedSkills": [],
+            "internalWorkflows": [],
+        }
+    installed_skills = sorted(
+        path.parent.name for path in (installed_root / "skills").glob("*/SKILL.md")
+    )
+    automatic = _model_invocable_skills(installed_root)
+    return {
+        "matched": (
+            manifest.get("name") == "cognitive-powers"
+            and manifest.get("version") == version
+            and manifest.get("hooks") == "./hooks/hooks.claude.json"
+            and "skills" not in manifest
+            and automatic == EXPECTED_SKILLS
+            and len(installed_skills) == 14
+        ),
+        "host": "claude-code",
+        "exposedSkills": automatic,
+        "internalWorkflows": installed_skills,
+    }
+
+
 def verify_installation(
-    source_root: Path, installed_root: Path, tag: str, *, run: Run = _run
+    source_root: Path,
+    installed_root: Path,
+    tag: str,
+    *,
+    run: Run = _run,
+    host: str = "codex",
 ) -> tuple[dict[str, Any], int]:
+    if host not in SUPPORTED_HOSTS:
+        raise ValueError(f"unsupported host: {host}")
     source_root = source_root.resolve()
     installed_root = installed_root.resolve()
     try:
@@ -147,6 +214,43 @@ def verify_installation(
         "unexpectedExtras": unexpected_extras,
     }
 
+    version = tag.removeprefix("v")
+
+    if host == "claude-code":
+        surface = _claude_surface(installed_root, version)
+        if not content["matched"]:
+            category, code = "content", EXIT_CONTENT
+        elif not surface["matched"]:
+            category, code = "inventory", EXIT_INVENTORY
+        else:
+            category, code = None, 0
+        report = {
+            "schemaVersion": 1,
+            "product": "cognitive-powers",
+            "host": host,
+            "tag": tag,
+            "commit": commit,
+            "version": version,
+            "installedRoot": str(installed_root),
+            "matched": code == 0,
+            "failureCategory": category,
+            "content": content,
+            "surface": surface,
+            # Content and packaging are verified from the tag. The host's own
+            # installation registry is not read, so this is never a complete
+            # installed-host verification.
+            "hostInventoryVerified": False,
+            "inventory": {
+                "attempted": False,
+                "verified": False,
+                "reason": (
+                    "installed-host inventory is not implemented for claude-code"
+                ),
+            },
+            "readOnly": True,
+        }
+        return report, code
+
     try:
         manifest = json.loads(
             (installed_root / ".codex-plugin" / "plugin.json").read_text(
@@ -164,7 +268,6 @@ def verify_installation(
     internal = sorted(
         path.parent.name for path in (installed_root / "skills").glob("*/SKILL.md")
     )
-    version = tag.removeprefix("v")
     surface_matched = (
         manifest.get("name") == "cognitive-powers"
         and manifest.get("version") == version
@@ -173,6 +276,7 @@ def verify_installation(
     )
     surface = {
         "matched": surface_matched,
+        "host": host,
         "exposedSkills": exposed,
         "internalWorkflows": internal,
     }
@@ -284,6 +388,7 @@ def verify_installation(
     report = {
         "schemaVersion": 1,
         "product": "cognitive-powers",
+        "host": host,
         "tag": tag,
         "commit": commit,
         "version": version,
@@ -292,6 +397,7 @@ def verify_installation(
         "failureCategory": category,
         "content": content,
         "surface": surface,
+        "hostInventoryVerified": True,
         "inventory": inventory,
         "readOnly": True,
     }
@@ -305,8 +411,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--installed-root", type=Path, required=True)
     parser.add_argument("--tag", required=True)
+    parser.add_argument(
+        "--host",
+        choices=SUPPORTED_HOSTS,
+        default="codex",
+        help=(
+            "host packaging to verify. claude-code verifies tagged content and "
+            "packaging only; it never reads the host installation registry."
+        ),
+    )
     args = parser.parse_args(argv)
-    report, code = verify_installation(args.source_root, args.installed_root, args.tag)
+    report, code = verify_installation(
+        args.source_root, args.installed_root, args.tag, host=args.host
+    )
     print(json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
     return code
 

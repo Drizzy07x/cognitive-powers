@@ -1,6 +1,7 @@
 ---
 name: diagnose-systematically
 description: Diagnose unclear, intermittent, or recurring defects with reproduction, falsifiable hypotheses, instrumentation, and regression evidence. Use when the cause is unknown.
+disable-model-invocation: true
 ---
 
 # Diagnose Systematically
@@ -13,9 +14,9 @@ Read the relevant project guidance, callers, tests, logs, and exact reported sym
 
 Do not form a root-cause conclusion until the signal has reproduced the reported failure. If no viable signal can be built, report what was attempted and request the smallest missing artifact or environment access.
 
-For a browser-visible symptom in a project with an existing Playwright setup, invoke `$verify-web-behavior` to build or run the smallest user-visible reproduction and retain failure evidence.
+For a browser-visible symptom in a project with an existing Playwright setup, invoke `verify-web-behavior` to build or run the smallest user-visible reproduction and retain failure evidence.
 
-When the required path is unknown or an external interface has drifted, invoke `$explore-web-adaptively` only to discover the flow, then return to Playwright for the symptom-specific signal.
+When the required path is unknown or an external interface has drifted, invoke `explore-web-adaptively` only to discover the flow, then return to Playwright for the symptom-specific signal.
 
 ## 2. Reproduce and minimize
 
@@ -29,7 +30,7 @@ Write up to five credible falsifiable hypotheses; never add filler to reach a qu
 
 Keep one investigator for a focused defect. After the symptom is reproduced, read [investigation-lanes.md](references/investigation-lanes.md) when several components or plausible seams remain, the regression window is uncertain, or intermittency creates independent probes. Run the cheapest available discriminating probe before delegating. Parallel lanes remain read-only; the main agent owns synthesis and any authorized fix.
 
-After the symptom-specific signal is red, use `$solve-efficiently`'s semantic-navigation workflow when a fresh CodeGraph index can expose the call path or consumers around that boundary. Do not let graph exploration replace reproduction.
+After the symptom-specific signal is red, use `solve-efficiently`'s semantic-navigation workflow when a fresh CodeGraph index can expose the call path or consumers around that boundary. Do not let graph exploration replace reproduction.
 
 Tag temporary instrumentation with one unique marker so it can be removed deterministically. For performance regressions, capture a timing or profiler baseline before changing code.
 

@@ -1,0 +1,24 @@
+{
+  "name": "cognitive-powers",
+  "owner": {
+    "name": "DrizzyPC"
+  },
+  "plugins": [
+    {
+      "name": "cognitive-powers",
+      "source": "./",
+      "description": "Focused execution with durable evidence and independent verification.",
+      "version": "1.7.0",
+      "author": {
+        "name": "DrizzyPC"
+      },
+      "category": "Productivity",
+      "keywords": [
+        "workflow",
+        "context-efficiency",
+        "durable-execution",
+        "verification"
+      ]
+    }
+  ]
+}

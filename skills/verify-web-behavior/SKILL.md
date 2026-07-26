@@ -1,6 +1,7 @@
 ---
 name: verify-web-behavior
 description: Verify known browser behavior or regressions with existing Playwright tests and machine-readable evidence. Use for web UI defects, end-to-end flows, accessibility, flakiness, or visual changes.
+disable-model-invocation: true
 ---
 
 # Verify Web Behavior
@@ -15,11 +16,11 @@ Read [evidence-contract.md](references/evidence-contract.md) before capturing or
 
 ## 2. Select the smallest useful test
 
-Prefer an existing test at the public user-visible seam. If CodeGraph is fresh, use `$solve-efficiently` to identify candidate callers and tests, then inspect the candidates. Select browsers by risk: start with the affected project; add another engine or viewport only when compatibility is part of the claim.
+Prefer an existing test at the public user-visible seam. If CodeGraph is fresh, use `solve-efficiently` to identify candidate callers and tests, then inspect the candidates. Select browsers by risk: start with the affected project; add another engine or viewport only when compatibility is part of the claim.
 
-If the interface is unfamiliar or layout drift prevents a stable reproduction, use `$explore-web-adaptively` to produce a navigation-only handoff. Inspect and replace its fail-closed placeholder before treating it as a Playwright test.
+If the interface is unfamiliar or layout drift prevents a stable reproduction, use `explore-web-adaptively` to produce a navigation-only handoff. Inspect and replace its fail-closed placeholder before treating it as a Playwright test.
 
-When the requested outcome includes visual direction, redesign fidelity, responsive composition, or screenshot-backed review, invoke `$design-intentionally` first. Capture current mobile and desktop renders outside the repository, but keep visual review separate from behavioral assertions.
+When the requested outcome includes visual direction, redesign fidelity, responsive composition, or screenshot-backed review, invoke `design-intentionally` first. Capture current mobile and desktop renders outside the repository, but keep visual review separate from behavioral assertions.
 
 For a defect, make the smallest symptom-specific Playwright test fail before editing source. Use role, label, text, or test-id locators and auto-retrying web assertions. Avoid fixed sleeps and implementation-only assertions.
 
@@ -27,7 +28,7 @@ For a defect, make the smallest symptom-specific Playwright test fail before edi
 
 Run `scripts/browser_evidence.py --root <repo> --json run` with explicit test selectors when possible. The adapter writes JSON results and Playwright artifacts outside the target repository, hashes them, and returns failure when no real test passed or Playwright reports an unexpected result.
 
-For a durable regression cycle, wrap the exact adapter command with `$execute-durably` `run-red` and `run-green`. Keep command, selector, browser project, and grep unchanged between phases.
+For a durable regression cycle, wrap the exact adapter command with `execute-durably` `run-red` and `run-green`. Keep command, selector, browser project, and grep unchanged between phases.
 
 ## 4. Diagnose from the trace
 
@@ -35,7 +36,7 @@ Use assertion errors, steps, attachments, network activity, and the retained tra
 
 ## 5. Verify independently
 
-Re-run the original unminimized flow and the smallest affected suite. Record a successful normalized receipt with `$execute-durably record-web` when durable completion requires it. Keep contract and quality verdicts separate through `$verify-delivery`.
+Re-run the original unminimized flow and the smallest affected suite. Record a successful normalized receipt with `execute-durably record-web` when durable completion requires it. Keep contract and quality verdicts separate through `verify-delivery`.
 
 Report the tested browser projects, exact selectors, pass/fail/flaky counts, trace availability, source state, and anything not exercised. Never claim cross-browser, visual, accessibility, console-error, or persistence coverage unless corresponding assertions actually ran.
 

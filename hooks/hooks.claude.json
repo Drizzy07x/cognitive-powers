@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python_executable}",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/selective_hooks.py",
+              "post-tool-use"
+            ]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python_executable}",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/selective_hooks.py",
+              "stop"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -26,6 +26,7 @@ LOCK_TIMEOUT_SECONDS = 5.0
 SUPPORTED_TOOLS = {
     "apply_patch",
     "edit",
+    "notebookedit",
     "write",
     "bash",
     "shell_command",
@@ -63,7 +64,11 @@ def _inside(path: Path, parent: Path) -> bool:
 
 def _roots(data_override: str | None = None) -> tuple[Path, Path] | None:
     plugin_root = (
-        Path(os.environ.get("PLUGIN_ROOT", Path(__file__).resolve().parents[1]))
+        Path(
+            os.environ.get("PLUGIN_ROOT")
+            or os.environ.get("CLAUDE_PLUGIN_ROOT")
+            or Path(__file__).resolve().parents[1]
+        )
         .expanduser()
         .resolve()
     )
@@ -71,6 +76,7 @@ def _roots(data_override: str | None = None) -> tuple[Path, Path] | None:
         data_override
         or os.environ.get("COGNITIVE_POWERS_DATA")
         or os.environ.get("PLUGIN_DATA")
+        or os.environ.get("CLAUDE_PLUGIN_DATA")
     )
     data_root = (
         Path(configured).expanduser().resolve()
