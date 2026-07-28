@@ -210,6 +210,26 @@ class ValidateAllTests(unittest.TestCase):
         # ...and the refusal names what it found instead of failing silently.
         self.assertIn("expected 108 compatibility receipts, found", step_slice)
 
+    def test_receipts_record_skipped_tests(self) -> None:
+        # A skipped test is an assertion that did not run; without the list a
+        # Windows cell without symlink rights reports "compatible" while the
+        # symlink tests never executed, indistinguishable from full coverage.
+        stderr = (
+            b"test_a (tests.x.T.test_a) ... skipped 'symlinks unavailable'\n"
+            b"test_b (tests.x.T.test_b) ... ok\n"
+        )
+        skipped = validator._skipped_tests(stderr)
+        self.assertEqual(
+            skipped,
+            [
+                {
+                    "test": "test_a (tests.x.T.test_a)",
+                    "reason": "symlinks unavailable",
+                }
+            ],
+        )
+        self.assertEqual(validator._skipped_tests(b"all ok\n"), [])
+
     def test_release_evidence_artifact_is_flat(self) -> None:
         # upload-artifact preserves each path relative to the least common
         # ancestor of all of them, and the publisher lists assets at a depth of

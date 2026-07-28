@@ -155,6 +155,62 @@ def main() -> int:
         if not all(invariants):
             print(encoded)
             return 1
+
+        # A real Codex marketplace root carries no host metadata file; that
+        # shape must verify through the checkout revision. This fixture used
+        # to model only the metadata-present branch, so the branch every real
+        # installation takes was the one CI never exercised.
+        (installed / ".codex-marketplace-install.json").unlink()
+        subprocess.run(
+            ["git", "clone", "--quiet", str(source), str(installed) + "-checkout"],
+            check=True,
+            capture_output=True,
+        )
+        checkout = Path(str(installed) + "-checkout")
+        subprocess.run(
+            ["git", "-C", str(checkout), "checkout", "--quiet", commit],
+            check=True,
+            capture_output=True,
+        )
+
+        def fake_codex_checkout(argv: list[str]) -> subprocess.CompletedProcess[str]:
+            if argv == ["codex", "plugin", "marketplace", "list", "--json"]:
+                payload = {
+                    "marketplaces": [
+                        {
+                            "name": "cognitive-powers",
+                            "root": str(checkout),
+                            "marketplaceSource": {
+                                "source": "https://github.com/Drizzy07x/cognitive-powers.git"
+                            },
+                        }
+                    ]
+                }
+                return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+            return fake_codex(argv)
+
+        try:
+            for name in previous:
+                os.environ[name] = str(isolated_home)
+            metadata_absent, absent_code = verifier.verify_installation(
+                source, checkout, TAG, run=fake_codex_checkout
+            )
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        if not (
+            absent_code == 0
+            and metadata_absent.get("matched") is True
+            and metadata_absent.get("inventory", {}).get("installMetadataPresent")
+            is False
+            and metadata_absent.get("inventory", {}).get("revisionPinnedToCommit")
+            is True
+        ):
+            print(json.dumps(metadata_absent, sort_keys=True))
+            return 1
         print(
             json.dumps(
                 {

@@ -174,7 +174,11 @@ class InstallTransactionTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            # pwsh cold start plus per-call .cmd shims can eat several seconds
+            # on a loaded Windows runner; 30s was the tightest wall-clock
+            # budget in the suite and its failure mode carries no installer
+            # output at all.
+            timeout=120,
         )
 
     def installer_environment(self) -> dict[str, str]:

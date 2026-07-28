@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -232,10 +233,26 @@ def run_command(
         "stderrSha256": _sha256_bytes(stderr),
         "stdoutTail": stdout.decode("utf-8", errors="replace")[-TAIL_LIMIT:],
         "stderrTail": stderr.decode("utf-8", errors="replace")[-TAIL_LIMIT:],
+        # A skipped test is an assertion that did not run: a Windows cell
+        # without symlink rights can report "compatible" while the symlink
+        # tests never executed. Recording the skips makes that visible in the
+        # receipt instead of indistinguishable from full coverage.
+        "skippedTests": _skipped_tests(stderr),
     }
     if error is not None:
         record["error"] = error
     return record
+
+
+_SKIP_PATTERN = re.compile(r"^(\S+ \([^)]*\)) \.\.\. skipped '(.*)'$", re.MULTILINE)
+
+
+def _skipped_tests(stderr: bytes) -> list[dict[str, str]]:
+    text = stderr.decode("utf-8", errors="replace")
+    return [
+        {"test": match.group(1), "reason": match.group(2)}
+        for match in _SKIP_PATTERN.finditer(text)
+    ]
 
 
 def _live_commands(values: Sequence[str]) -> tuple[ValidationCommand, ...]:
