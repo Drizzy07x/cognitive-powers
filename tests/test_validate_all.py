@@ -208,6 +208,27 @@ class ValidateAllTests(unittest.TestCase):
             step_slice.index('test "${#receipts[@]}" -eq 108'),
         )
 
+    def test_release_evidence_artifact_is_flat(self) -> None:
+        # upload-artifact preserves each path relative to the least common
+        # ancestor of all of them, and the publisher lists assets at a depth of
+        # one and attaches them with a flat glob. A path outside release-final
+        # therefore buries every other asset one directory down and the exact
+        # asset allowlist can never match.
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        step = workflow.index("name: release-evidence-${{ github.ref_name }}")
+        following = workflow.index("if-no-files-found: error", step)
+        paths = [
+            line.strip()
+            for line in workflow[step:following].splitlines()
+            if line.strip().startswith("${{ runner.temp }}")
+        ]
+        self.assertEqual(len(paths), 7)
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(path.startswith("${{ runner.temp }}/release-final/"))
+
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
