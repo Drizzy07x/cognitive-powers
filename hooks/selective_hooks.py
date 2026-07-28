@@ -338,7 +338,11 @@ def _receipt_is_current(
             and receipt.get("evidenceType") == evidence_payload["type"]
             and receipt.get("executor") == executor
         )
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    except (OSError, KeyError, TypeError, ValueError, RuntimeError):
+        # RuntimeError covers WorkStateError: the durable-evidence check calls
+        # into work_state, whose domain error is a RuntimeError, and letting it
+        # escape here made the whole stop gate vanish through main's blanket
+        # handler instead of refusing this one receipt.
         return False
 
 
@@ -563,7 +567,7 @@ def record_validation(
                 data_root,
                 Path(events[-1]["cwd"]).resolve(),
             )
-        except ValueError as error:
+        except (ValueError, RuntimeError) as error:
             print(str(error), file=sys.stderr)
             return 2
         receipt = {
@@ -609,9 +613,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "record-validation":
-        return record_validation(
-            args.session_id, args.evidence, args.validator, args.data_root
-        )
+        # The stop gate names this command as the remediation path, so its
+        # failures must stay readable refusals. It reports errors and exits
+        # nonzero on purpose, unlike the two observability events below, which
+        # must never block the host.
+        try:
+            return record_validation(
+                args.session_id, args.evidence, args.validator, args.data_root
+            )
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}", file=sys.stderr)
+            return 2
     try:
         payload = _read_payload()
         if payload is not None:

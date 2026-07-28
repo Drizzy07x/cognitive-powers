@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib.util
+import io
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -544,6 +547,84 @@ class PluginHookTests(unittest.TestCase):
         for event in events:
             self.assertEqual(event["previousEventHash"], previous)
             previous = event["eventHash"]
+
+
+class HookErrorContainmentTests(unittest.TestCase):
+    """Work-state domain errors must be contained, not escape the hook.
+
+    WorkStateError is a RuntimeError, and the receipt check calls into
+    work_state. An escaping error made stop() vanish through main's blanket
+    handler with no message at all, and record-validation -- dispatched before
+    that handler -- died with a raw traceback on the exact remediation path
+    the stop warning names.
+    """
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary.name)
+        spec = importlib.util.spec_from_file_location(
+            "selective_hooks_under_test", SCRIPT
+        )
+        assert spec is not None and spec.loader is not None
+        self.hooks = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hooks)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_receipt_check_refuses_on_a_work_state_error(self) -> None:
+        evidence = self.base / "evidence.json"
+        evidence.write_text('{"schema_version": 1}\n', encoding="utf-8")
+        receipt = self.base / "receipt.json"
+        receipt.write_text(
+            json.dumps({"evidencePath": str(evidence)}), encoding="utf-8"
+        )
+
+        def raising(*_args: object, **_kwargs: object):
+            raise RuntimeError("durable data root must be outside the workspace")
+
+        original = self.hooks._validated_durable_evidence
+        self.hooks._validated_durable_evidence = raising
+        try:
+            current = self.hooks._receipt_is_current(
+                receipt,
+                "session",
+                "hash",
+                self.base / "plugin",
+                self.base / "data",
+                self.base,
+            )
+        finally:
+            self.hooks._validated_durable_evidence = original
+        self.assertFalse(current)
+
+    def test_record_validation_failure_is_a_domain_error_not_a_traceback(
+        self,
+    ) -> None:
+        def raising(*_args: object, **_kwargs: object) -> int:
+            raise RuntimeError("ledger has no events from which to derive")
+
+        original = self.hooks.record_validation
+        self.hooks.record_validation = raising
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                code = self.hooks.main(
+                    [
+                        "record-validation",
+                        "--session-id",
+                        "session",
+                        "--evidence",
+                        str(self.base / "missing.json"),
+                        "--validator",
+                        "reviewer",
+                    ]
+                )
+        finally:
+            self.hooks.record_validation = original
+        self.assertEqual(code, 2)
+        self.assertIn("RuntimeError: ledger has no events", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":
