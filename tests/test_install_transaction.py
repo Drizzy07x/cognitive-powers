@@ -249,6 +249,59 @@ class InstallTransactionTests(unittest.TestCase):
                     )
                 )
 
+    def local_application_data(self) -> Path:
+        # install.ps1 locates recovery marketplaces through GetFolderPath,
+        # which under run_installer's profile overrides resolves beneath the
+        # redirected home: %USERPROFILE%\AppData\Local on Windows and
+        # $HOME/.local/share on POSIX. Model exactly that, so the test never
+        # touches the real profile.
+        if os.name == "nt":
+            return self.base / "home" / "AppData" / "Local"
+        return self.base / "home" / ".local" / "share"
+
+    def test_preflight_accepts_the_previous_rollback_marketplace(self) -> None:
+        # A failed transaction restores from a recovery marketplace under
+        # LocalApplicationData and preserves it. That state is the installer's
+        # own product, so the next run must proceed and re-point it at the new
+        # immutable SHA instead of refusing the recovery it created.
+        recovery = (
+            self.local_application_data()
+            / "cognitive-powers"
+            / "rollback-3f2b6c1a-9d4e-4f88-b1c2-7a5d9e0f1234"
+            / "marketplace"
+        )
+        (recovery / ".agents" / "plugins").mkdir(parents=True, exist_ok=True)
+        (recovery / ".codex-plugin").mkdir(parents=True, exist_ok=True)
+        (recovery / ".agents" / "plugins" / "marketplace.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        (recovery / ".codex-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "1.5.2"}), encoding="utf-8"
+        )
+        self.state(
+            installed=[self.plugin()],
+            marketplaces=[
+                {
+                    "name": "cognitive-powers",
+                    "root": str(recovery),
+                    "marketplaceSource": {"source": str(recovery)},
+                }
+            ],
+        )
+
+        result = self.run_installer()
+
+        state = self.read_state()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(
+            any(
+                args[:4]
+                == ["plugin", "marketplace", "add", "Drizzy07x/cognitive-powers"]
+                for args in state["log"]
+            ),
+            f"the recovery marketplace was never re-pointed: {state['log']}",
+        )
+
     def test_orphan_private_plugin_fails_before_removals(self) -> None:
         self.state(installed=[self.plugin()])
         result = self.run_installer()

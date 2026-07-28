@@ -313,6 +313,8 @@ class PluginContractTests(unittest.TestCase):
             "$rollbackMarketplace",
             "$allowedPreviousPluginIds",
             "$configuredSourceIsPinnedRepository",
+            "$configuredSourceIsRecoveryMarketplace",
+            "'^rollback-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
             "$unknownDuplicates",
             "$personalMarketplace",
             "$provisionalMatches",

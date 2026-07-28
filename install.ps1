@@ -129,9 +129,38 @@ if ($configured.Count -eq 1) {
         -not [string]::IsNullOrWhiteSpace($configuredSource) -and
         $configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+|[0-9a-f]{40})$"
     )
+    # A failed transaction restores the previous installation from a recovery
+    # marketplace under LocalApplicationData and preserves it. That state is
+    # this installer's own product, so a rerun must recognize it and proceed --
+    # re-pointing the marketplace at the new immutable SHA -- instead of
+    # refusing the very recovery it created. Recognition is deliberately
+    # narrow: the exact directory shape the transaction writes, nothing else.
+    $recoveryParent = Join-Path ([Environment]::GetFolderPath("LocalApplicationData", "Create")) "cognitive-powers"
+    $configuredSourceIsRecoveryMarketplace = $false
+    if (
+        -not [string]::IsNullOrWhiteSpace($configuredSource) -and
+        $configuredSource -notmatch '://' -and
+        [IO.Path]::IsPathRooted([string]$configuredSource)
+    ) {
+        $fullSource = [IO.Path]::GetFullPath([string]$configuredSource)
+        $sourceLeaf = Split-Path -Path $fullSource -Leaf
+        $rollbackDirectory = Split-Path -Path $fullSource -Parent
+        $rollbackLeaf = if ($rollbackDirectory) { Split-Path -Path $rollbackDirectory -Leaf } else { "" }
+        $rollbackParent = if ($rollbackDirectory) { Split-Path -Path $rollbackDirectory -Parent } else { "" }
+        $configuredSourceIsRecoveryMarketplace = (
+            $sourceLeaf -eq "marketplace" -and
+            $rollbackLeaf -match '^rollback-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' -and
+            $rollbackParent -eq [IO.Path]::GetFullPath($recoveryParent) -and
+            (Test-Path -LiteralPath (Join-Path $fullSource ".agents/plugins/marketplace.json") -PathType Leaf)
+        )
+    }
     if (
         [string]::IsNullOrWhiteSpace($configuredSource) -or
-        ($allowedSources -notcontains $configuredSource -and -not $configuredSourceIsPinnedRepository)
+        (
+            $allowedSources -notcontains $configuredSource -and
+            -not $configuredSourceIsPinnedRepository -and
+            -not $configuredSourceIsRecoveryMarketplace
+        )
     ) {
         throw "Marketplace '$marketplace' already points to '$configuredSource', not '$repository'."
     }
@@ -328,7 +357,7 @@ catch {
 
     if ($rollbackPrepared -and $mutationStarted -and -not $restoredFromRemote) { $preserveRollback = $true }
     $rollbackMessage = if ($rollbackSucceeded -and $preserveRollback) {
-        "The previous installation was restored from recovery marketplace '$rollbackMarketplace'; keep that directory for manual recovery until a remote immutable marketplace is re-established."
+        "The previous installation was restored from recovery marketplace '$rollbackMarketplace'; keep that directory until a remote immutable marketplace is re-established. Re-running this installer recognizes that recovery marketplace and resumes the upgrade from it."
     }
     elseif ($rollbackSucceeded) { "The previous installation was restored." }
     elseif ($rollbackPrepared) { "Automatic rollback was incomplete. Recovery marketplace preserved at '$rollbackMarketplace'." }
