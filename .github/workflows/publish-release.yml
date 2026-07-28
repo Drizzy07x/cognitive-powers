@@ -115,6 +115,15 @@ jobs:
           python scripts/validate_compatibility_matrix.py --matrix "$ASSETS/compatibility-matrix.json" --contract compatibility-contract.json
           (cd "$ASSETS" && sha256sum --check -- "./$archive.sha256")
           gh attestation verify "$ASSETS/$archive" --repo "$GITHUB_REPOSITORY"
+      - name: Take the release notes from the changelog
+        # The changelog is where this release is already explained. Generated
+        # notes restate commit subjects instead, naming each change without its
+        # cause or its blast radius, which is the part a reader deciding whether
+        # to upgrade needs. Deriving them also fails the publish when the
+        # changelog has no section for the tag being published.
+        run: >-
+          python scripts/release_identity.py
+          --output "${{ runner.temp }}/release-notes.md"
       - name: Create immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,4 +131,4 @@ jobs:
           gh release create "${{ inputs.tag }}" "${{ runner.temp }}/release-assets"/*
           --verify-tag
           --title "Cognitive Powers ${{ inputs.tag }}"
-          --generate-notes
+          --notes-file "${{ runner.temp }}/release-notes.md"

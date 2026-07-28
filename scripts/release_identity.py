@@ -14,13 +14,19 @@ executed standalone from a staged package.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
+from typing import Sequence
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_RELATIVE = Path(".codex-plugin") / "plugin.json"
+CHANGELOG_RELATIVE = Path("CHANGELOG.md")
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
+HEADING_PATTERN = re.compile(
+    r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}\s*$", re.MULTILINE
+)
 ARCHIVE_PREFIX = "cognitive-powers-"
 
 
@@ -59,3 +65,56 @@ def archive_name(version: str) -> str:
     if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
         raise ReleaseIdentityError(f"malformed release version: {version!r}")
     return f"{ARCHIVE_PREFIX}{version}.tar"
+
+
+def release_notes(version: str, root: Path | None = None) -> str:
+    """Return the changelog section that describes one release.
+
+    A published release has to say what changed, and the changelog is where
+    that is already written. Notes generated from commit subjects restate the
+    branch history instead: they name each change without its cause, its blast
+    radius, or why it was not caught earlier, which is the part a reader
+    deciding whether to upgrade actually needs.
+    """
+    if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
+        raise ReleaseIdentityError(f"malformed release version: {version!r}")
+    path = (root or PLUGIN_ROOT) / CHANGELOG_RELATIVE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise ReleaseIdentityError(f"cannot read changelog: {path}") from error
+    headings = list(HEADING_PATTERN.finditer(text))
+    for index, heading in enumerate(headings):
+        if heading.group(1) != version:
+            continue
+        following = headings[index + 1].start() if index + 1 < len(headings) else None
+        body = text[heading.end() : following].strip("\n")
+        if not body.strip():
+            raise ReleaseIdentityError(f"changelog section is empty: {version}")
+        return body + "\n"
+    raise ReleaseIdentityError(f"changelog has no section for {version}: {path}")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Write one release's changelog notes")
+    parser.add_argument(
+        "--version", default=None, help="defaults to the declared plugin version"
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        version = args.version or plugin_version()
+        notes = release_notes(version)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        # Newline-pinned for the same reason the release manifest is: nothing
+        # downstream should differ by the platform that produced it.
+        args.output.write_text(notes, encoding="utf-8", newline="\n")
+    except (OSError, ReleaseIdentityError) as error:
+        print(json.dumps({"error": str(error)}))
+        return 2
+    print(json.dumps({"output": str(args.output), "version": version}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

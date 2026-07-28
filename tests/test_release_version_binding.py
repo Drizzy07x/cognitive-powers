@@ -76,6 +76,51 @@ class ReleaseVersionBindingTests(unittest.TestCase):
             [version],
         )
 
+    def test_release_notes_come_from_the_changelog_section(self) -> None:
+        version = changelog_version()
+        notes = self.identity.release_notes(version)
+        self.assertTrue(notes.strip(), "the published notes would be empty")
+        self.assertTrue(notes.endswith("\n"))
+        # The section must stop at the next release, or the notes would carry
+        # every earlier release with them.
+        self.assertNotIn("\n## ", notes)
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(notes.strip(), changelog)
+
+    def test_release_notes_refuse_a_version_the_changelog_does_not_describe(
+        self,
+    ) -> None:
+        for version in ("99.99.99", "not-a-version"):
+            with self.subTest(version=version):
+                with self.assertRaises(self.identity.ReleaseIdentityError):
+                    self.identity.release_notes(version)
+
+    def test_release_notes_are_written_with_pinned_newlines(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "notes.md"
+            code = self.identity.main(["--output", str(output)])
+            self.assertEqual(code, 0)
+            written = output.read_bytes()
+        self.assertNotIn(b"\r\n", written)
+        self.assertEqual(
+            written.decode("utf-8"),
+            self.identity.release_notes(changelog_version()),
+        )
+
+    def test_publication_publishes_the_changelog_rather_than_commit_subjects(
+        self,
+    ) -> None:
+        publication = (ROOT / ".github/workflows/publish-release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--notes-file", publication)
+        self.assertNotIn("--generate-notes", publication)
+        self.assertIn("scripts/release_identity.py", publication)
+        self.assertLess(
+            publication.index("scripts/release_identity.py"),
+            publication.index("gh release create"),
+        )
+
     def test_release_gates_carry_no_hardcoded_release_identity(self) -> None:
         for relative in GUARDED:
             text = (ROOT / relative).read_text(encoding="utf-8")
