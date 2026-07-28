@@ -189,6 +189,7 @@ class PluginContractTests(unittest.TestCase):
             "scripts/orchestration_policy.py",
             "scripts/run_extension_benchmarks.py",
             "scripts/run_skill_routing_benchmarks.py",
+            "scripts/skill_routing.py",
             "scripts/run_memory_benchmarks.py",
             "scripts/external_catalog.py",
             "scripts/integration_adapters.py",

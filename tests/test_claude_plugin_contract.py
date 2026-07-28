@@ -135,7 +135,26 @@ class ClaudeHookTests(unittest.TestCase):
         self.hooks = load(CLAUDE_HOOKS)["hooks"]
 
     def test_declares_only_supported_events(self) -> None:
-        self.assertEqual(set(self.hooks), {"SessionStart", "PostToolUse", "Stop"})
+        self.assertEqual(
+            set(self.hooks),
+            {"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"},
+        )
+
+    def test_prompt_submit_is_bounded_and_carries_no_matcher(self) -> None:
+        entry = self.hooks["UserPromptSubmit"][0]
+        self.assertNotIn(
+            "matcher", entry, "Claude Code silently ignores a matcher on this event"
+        )
+        hook = entry["hooks"][0]
+        self.assertEqual(hook["args"][0], "${CLAUDE_PLUGIN_ROOT}/hooks/skill_router.py")
+        self.assertIsInstance(
+            hook.get("timeout"),
+            int,
+            "the router runs on every prompt, so it must not hold the turn open",
+        )
+        # UserPromptSubmit already lowers the host default to 30s; ranking a
+        # dozen descriptions must stay far below that to be worth the latency.
+        self.assertLessEqual(hook["timeout"], 30)
 
     def test_session_start_is_bounded_and_advisory(self) -> None:
         entry = self.hooks["SessionStart"][0]
@@ -161,7 +180,10 @@ class ClaudeHookTests(unittest.TestCase):
             for entry in group
             for hook in entry["hooks"]
         }
-        self.assertEqual(scripts, {"selective_hooks.py", "semantic_index.py"})
+        self.assertEqual(
+            scripts,
+            {"selective_hooks.py", "semantic_index.py", "skill_router.py"},
+        )
 
     def test_post_tool_use_matches_claude_file_tools(self) -> None:
         matcher = self.hooks["PostToolUse"][0]["matcher"]
@@ -174,7 +196,7 @@ class ClaudeHookTests(unittest.TestCase):
             for entry in group
             for hook in entry["hooks"]
         ]
-        self.assertEqual(len(entries), 3)
+        self.assertEqual(len(entries), 4)
         for hook in entries:
             self.assertEqual(hook["type"], "command")
             # Shell-form commands reject ${user_config.*}; exec form is required.
@@ -203,6 +225,7 @@ class ClaudeHookTests(unittest.TestCase):
             {
                 "selective_hooks.py": {"post-tool-use", "stop"},
                 "semantic_index.py": {"session-start"},
+                "skill_router.py": {"user-prompt-submit"},
             },
         )
         for name, modes in declared.items():
