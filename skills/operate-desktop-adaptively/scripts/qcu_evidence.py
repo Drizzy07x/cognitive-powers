@@ -308,6 +308,16 @@ def _default_data_root() -> Path:
     return (Path.home() / ".codex" / "cognitive-powers").resolve()
 
 
+def _project_key(root: Path) -> str:
+    # Identical derivation to browser and skyvern evidence: the resolved
+    # spelling, casefolded on Windows, so all three partition one workspace
+    # under one key.
+    canonical = str(root)
+    if os.name == "nt":
+        canonical = canonical.casefold()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:20]
+
+
 def normalize(
     root: str | Path,
     transcript: str | Path,
@@ -322,7 +332,10 @@ def normalize(
         output_root = Path(artifact_dir).expanduser().resolve()
     else:
         run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
-        output_root = _default_data_root() / "qcu" / run_id
+        # Partition by project the way browser and skyvern evidence already
+        # do; one shared pool made per-project retention and cleanup
+        # impossible to express.
+        output_root = _default_data_root() / "qcu" / _project_key(project_root) / run_id
     if _is_within(output_root, project_root):
         raise QcuEvidenceError(
             f"artifact directory must be outside the workspace: {output_root}"

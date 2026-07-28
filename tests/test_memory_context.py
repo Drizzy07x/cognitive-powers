@@ -78,6 +78,19 @@ class MemoryTests(unittest.TestCase):
         self.assertTrue(undone["undone"])
         self.assertFalse((home / "memory.json").exists())
 
+    def test_first_writes_to_fresh_stores_keep_distinct_undo_receipts(self):
+        # With no snapshot to name the receipt after, every first write used
+        # one fixed "empty" name, so each such write destroyed the previous
+        # one's undo record.
+        first = mod.write_native(self.root / "a.json", self.rec(), project_scope="p")
+        second = mod.write_native(self.root / "b.json", self.rec(), project_scope="p")
+        self.assertNotEqual(first["receipt_path"], second["receipt_path"])
+        self.assertTrue(Path(first["receipt_path"]).is_file())
+        self.assertTrue(Path(second["receipt_path"]).is_file())
+        self.assertTrue(
+            mod.undo_native(self.root / "a.json", Path(first["receipt_path"]))["undone"]
+        )
+
     def test_supersession_applies_before_query_filtering(self):
         store = self.root / "m.json"
         old = self.rec("old")

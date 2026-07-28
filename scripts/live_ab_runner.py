@@ -198,6 +198,8 @@ def _plugin_list(codex: str, home: Path) -> list[dict[str, Any]]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=environment,
     )
     if completed.returncode != 0:

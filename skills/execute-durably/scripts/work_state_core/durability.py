@@ -320,7 +320,21 @@ def _atomic_write_text(path: Path, content: str) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        # On Windows, replacing a file a concurrent reader (the Stop hook
+        # reads state.json without the session lock) holds open raises
+        # PermissionError. The read window is milliseconds; retry briefly
+        # rather than turning an observability race into a traceback.
+        if os.name == "nt":
+            for delay in (0.01, 0.05, 0.25):
+                try:
+                    os.replace(temporary, path)
+                    break
+                except PermissionError:
+                    time.sleep(delay)
+            else:
+                os.replace(temporary, path)
+        else:
+            os.replace(temporary, path)
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()

@@ -330,7 +330,9 @@ def select_library_candidate(
         )
         ranked.append((score, candidate, matched_option))
     if not ranked:
-        raise Context7LookupError("Context7 candidates did not contain valid library IDs")
+        raise Context7LookupError(
+            "Context7 candidates did not contain valid library IDs"
+        )
     _, selected, option = max(ranked, key=lambda value: value[0])
     base_id = str(selected.get("id") or selected.get("libraryId"))
     selected_id = base_id

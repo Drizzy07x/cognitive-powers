@@ -57,6 +57,8 @@ def _git_identity(root: Path) -> dict[str, str]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     status = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
@@ -64,6 +66,8 @@ def _git_identity(root: Path) -> dict[str, str]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if sha.returncode or status.returncode:
         raise HomePreparationError("plugin source must be a Git checkout")
@@ -165,6 +169,8 @@ def _login_status(codex: str, home: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=environment,
         )
     except OSError as error:

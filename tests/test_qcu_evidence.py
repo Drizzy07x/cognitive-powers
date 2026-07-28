@@ -140,6 +140,22 @@ class QcuEvidenceTests(unittest.TestCase):
         copied = Path(receipt["artifactRoot"]) / receipt["artifacts"][0]["path"]
         self.assertEqual(receipt["artifacts"][0]["sha256"], qcu._sha256_file(copied))
 
+    def test_default_artifacts_are_partitioned_by_project(self) -> None:
+        # browser and skyvern evidence already interpose the project key;
+        # one shared qcu pool made per-project retention impossible.
+        import os
+        from unittest import mock
+
+        transcript = self.write_transcript(valid_transcript())
+        data_root = self.base / "qcu-data"
+        with mock.patch.dict(os.environ, {"COGNITIVE_POWERS_DATA": str(data_root)}):
+            receipt, exit_code = qcu.normalize(self.workspace, transcript)
+        self.assertEqual(exit_code, 0)
+        artifact_root = Path(receipt["artifactRoot"])
+        expected_key = qcu._project_key(qcu.resolve_root(self.workspace))
+        self.assertEqual(artifact_root.parent.parent.name, "qcu")
+        self.assertEqual(artifact_root.parent.name, expected_key)
+
     def test_rejects_busy_input(self) -> None:
         payload = valid_transcript()
         payload["commands"][2]["result"]["response"]["status"] = "busy_no_queue"

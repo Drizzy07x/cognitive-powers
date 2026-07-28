@@ -122,12 +122,17 @@ def _snapshot(store: Path, kind: str):
 
 def _finish(receipt, store):
     receipt["after_sha256"] = _file_sha(store)
-    path = Path(
-        str(
-            receipt["snapshot"]
-            or (store.parent / ".memory-context-snapshots" / "empty")
-        )
-    ).with_suffix(".receipt.json")
+    if receipt["snapshot"]:
+        base = Path(str(receipt["snapshot"]))
+    else:
+        # First write to a store that did not exist yet: there is no snapshot
+        # to name the receipt after, and a fixed "empty" name made every such
+        # write overwrite the previous one's undo record. Mint the same
+        # timestamped identity a snapshot would have carried.
+        token = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        base = store.parent / ".memory-context-snapshots" / f"{store.name}.{token}"
+        base.parent.mkdir(parents=True, exist_ok=True)
+    path = base.with_suffix(".receipt.json")
     path.write_text(json.dumps(receipt, indent=2), encoding="utf-8", newline="\n")
     receipt["receipt_path"] = str(path.resolve())
     return receipt

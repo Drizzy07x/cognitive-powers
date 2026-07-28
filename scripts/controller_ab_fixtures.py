@@ -675,6 +675,8 @@ def build_batch_config(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     lines = identity.stdout.splitlines()
     if identity.returncode != 0 or len(lines) != 2:
@@ -693,6 +695,8 @@ def build_batch_config(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if status.returncode != 0:
         raise CorpusError("cannot read confirmatory source Git status")
@@ -751,6 +755,8 @@ def _run_git(root: Path, *arguments: str, env: dict[str, str] | None = None) -> 
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
     )
     if completed.returncode != 0:

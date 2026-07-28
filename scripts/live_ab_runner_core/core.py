@@ -780,6 +780,8 @@ def git_identity(root: Path, *, required: bool = True) -> dict[str, Any] | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     lines = completed.stdout.splitlines()
     if completed.returncode != 0 or len(lines) != 2:
@@ -794,6 +796,8 @@ def git_identity(root: Path, *, required: bool = True) -> dict[str, Any] | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if status.returncode != 0:
         raise LiveEvaluationError("cannot read fixture Git status")
@@ -949,6 +953,8 @@ def codex_host_identity(codex: str) -> dict[str, Any]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     version = (completed.stdout or completed.stderr).strip()
     if completed.returncode != 0 or not version:
@@ -958,6 +964,8 @@ def codex_host_identity(codex: str) -> dict[str, Any]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     feature_states: dict[str, dict[str, Any]] = {}
     for line in features_completed.stdout.splitlines():
