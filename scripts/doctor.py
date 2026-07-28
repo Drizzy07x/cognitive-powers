@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -650,7 +651,90 @@ def _installation_checks(staged: Path) -> list[dict[str, Any]]:
         if detail:
             check["detail"] = detail
         checks.append(check)
+    checks.append(_codex_hook_interpreter_check(staged))
     return checks
+
+
+def _codex_hook_interpreter_check(staged: Path) -> dict[str, Any]:
+    """Execute the exact interpreter spelling the Codex hook manifest uses.
+
+    The Codex host carries no user-config expansion the way the Claude
+    manifest does, so hooks/hooks.json names python3 (POSIX) or the py
+    launcher (Windows) directly. Both are hard prerequisites: on Windows the
+    Store alias resolves and then exits without running Python, so a
+    resolution-only probe proves nothing -- the interpreter has to run, which
+    is the same lesson the installer preflight already learned.
+    """
+    name = "codex-hook-interpreter"
+    try:
+        manifest = json.loads(
+            (staged / "hooks" / "hooks.json").read_text(encoding="utf-8")
+        )
+        commands = [
+            hook
+            for entries in manifest.get("hooks", {}).values()
+            for entry in entries
+            for hook in entry.get("hooks", [])
+            if isinstance(hook, dict) and hook.get("type") == "command"
+        ]
+    except (OSError, ValueError, json.JSONDecodeError, AttributeError) as error:
+        return {
+            "name": name,
+            "passed": False,
+            "detail": f"cannot read the hook manifest: {error}",
+        }
+    if not commands:
+        return {
+            "name": name,
+            "passed": True,
+            "detail": "the staged manifest declares no command hooks to probe",
+        }
+    try:
+        entry = commands[0]
+        spelled = entry["commandWindows"] if os.name == "nt" else entry["command"]
+        interpreter = shlex.split(spelled, posix=os.name != "nt")[0]
+    except (KeyError, IndexError, ValueError) as error:
+        return {
+            "name": name,
+            "passed": False,
+            "detail": f"cannot read the hook interpreter spelling: {error}",
+        }
+    argv = (
+        [interpreter, "-3", "-c", "import sys; sys.exit(0)"]
+        if interpreter == "py"
+        else [interpreter, "-c", "import sys; sys.exit(0)"]
+    )
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return {
+            "name": name,
+            "passed": False,
+            "detail": (
+                f"the Codex hook interpreter {interpreter!r} does not run: {error}. "
+                "Install Python 3.11+ so this spelling resolves, or Codex hooks "
+                "will silently never fire."
+            ),
+        }
+    if completed.returncode != 0:
+        return {
+            "name": name,
+            "passed": False,
+            "detail": (
+                f"{interpreter!r} resolves but exits {completed.returncode}; on "
+                "Windows the Microsoft Store alias is such a stub. Install "
+                "Python 3.11+ or disable the alias, then re-run the doctor."
+            ),
+        }
+    return {"name": name, "passed": True}
 
 
 def validate_release_installation(

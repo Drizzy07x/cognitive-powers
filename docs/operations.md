@@ -67,6 +67,17 @@ on every platform: on Windows `python3` resolves to a Microsoft Store alias that
 exits without running Python. Verify the configured path with
 `<path> --version` before entering it.
 
+The Codex host has no equivalent user-config expansion, so `hooks/hooks.json`
+names the interpreter directly: `python3` on POSIX and the `py` launcher on
+Windows. Both are hard prerequisites there -- if the spelling does not run,
+every Codex hook silently never fires. `doctor.py --validate-installation`
+executes that exact spelling as the `codex-hook-interpreter` check and names
+the Microsoft Store stub explicitly when it is the culprit. Both hosts now
+register the same four events (`SessionStart`, `UserPromptSubmit`,
+`PostToolUse`, `Stop`); shell-driven edits (`sed -i`, heredocs) are
+deliberately not matched by the edit-provenance hook on either host, so an
+edit made that way carries no provenance record.
+
 Durable evidence defaults to `~/.codex/cognitive-powers` on both hosts. The name
 is historical; the shared location is deliberate so one machine running both
 hosts keeps a single durable state. Override it with `COGNITIVE_POWERS_DATA`.

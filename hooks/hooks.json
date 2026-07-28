@@ -1,5 +1,29 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/semantic_index.py\" session-start",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\semantic_index.py\" session-start",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/skill_router.py\" user-prompt-submit",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\skill_router.py\" user-prompt-submit",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "apply_patch|Edit|Write",
