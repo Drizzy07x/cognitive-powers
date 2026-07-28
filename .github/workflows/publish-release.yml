@@ -80,7 +80,17 @@ jobs:
             reproducibility-report.json
           )
           mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
-          test "${actual[*]}" = "${expected[*]}"
+          # A bare test here refuses the release without saying what it found,
+          # which is indistinguishable from every other silent failure in this
+          # step. The allowlist stays exact; only the diagnosis is added.
+          if [ "${actual[*]}" != "${expected[*]}" ]; then
+            echo "downloaded asset set does not match the allowlist" >&2
+            printf 'actual:   %s\n' "${actual[@]:-<none>}" >&2
+            printf 'expected: %s\n' "${expected[@]}" >&2
+            echo "--- tree under assets ---" >&2
+            find assets -maxdepth 3 >&2
+            exit 1
+          fi
           commit=$(git rev-parse HEAD)
           python - "$TAG" "$commit" "$archive" <<'PY'
           import json, pathlib, sys
