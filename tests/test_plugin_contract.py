@@ -548,6 +548,18 @@ class PluginContractTests(unittest.TestCase):
         # unconditionally aborts there and the rollback path is never reached.
         self.assertIn('if `"%1`"==`"-c`" exit /b 0', lifecycle)
         self.assertIn('if [ `"`$1`" = `"-c`" ]; then exit 0; fi', lifecycle)
+        # The unicode-space scenario must be derived from what the run
+        # observed, never declared: the literal `passed = $true` made twelve
+        # matrix rows assert a scenario nothing had checked.
+        self.assertIn("$profileHasUnicode", lifecycle)
+        self.assertIn(r"'[^\x00-\x7F]'", lifecycle)
+        self.assertIn("The unicode-space scenario was not exercised", lifecycle)
+        self.assertIn("passed = $unicodeExercised", lifecycle)
+        self.assertNotRegex(
+            lifecycle,
+            r'"unicode-space-path" = \[ordered\]@\{ passed = \$true',
+            "the unicode-space verdict must not be a literal",
+        )
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [

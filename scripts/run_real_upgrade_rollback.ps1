@@ -56,7 +56,7 @@ function Invoke-CanonicalVerifier {
     return (($report -join "`n") | ConvertFrom-Json)
 }
 
-Use-IsolatedProfile "Cognitive Powers ü upgrade" | Out-Null
+$upgradeProfile = Use-IsolatedProfile "Cognitive Powers ü upgrade"
 & $installer -ReleaseRef "v1.5.2"
 & $installer -ReleaseRef $ReleaseRef
 $upgradeRoot = Get-MarketplaceRoot
@@ -115,6 +115,31 @@ if (-not $rollbackReport.matched -or $rollbackReport.commit -ne $previousCommit)
     throw "Rollback did not restore the exact previous immutable release."
 }
 
+# The unicode-space claim is only evidence if this run actually exercised it:
+# the profile the upgrade transaction ran under must carry a non-ASCII
+# character and a space, and the verified marketplace must live beneath it.
+# The previous literal `passed = $true` made twelve matrix rows assert a
+# scenario nothing had observed.
+$profileLeaf = Split-Path -Path $upgradeProfile -Leaf
+$profileHasUnicode = $profileLeaf -match '[^\x00-\x7F]'
+$profileHasSpace = $profileLeaf -match ' '
+$upgradeRootFull = [IO.Path]::GetFullPath([string]$upgradeRoot)
+$profileFull = [IO.Path]::GetFullPath([string]$upgradeProfile)
+$marketplaceUnderProfile = $upgradeRootFull.StartsWith(
+    $profileFull, [System.StringComparison]::OrdinalIgnoreCase
+)
+$unicodeExercised = (
+    $profileHasUnicode -and
+    $profileHasSpace -and
+    $marketplaceUnderProfile -and
+    $upgradeReport.matched -eq $true
+)
+if (-not $unicodeExercised) {
+    throw ("The unicode-space scenario was not exercised: profile '$profileLeaf' " +
+        "(unicode=$profileHasUnicode space=$profileHasSpace) marketplace under " +
+        "profile=$marketplaceUnderProfile verified=$($upgradeReport.matched).")
+}
+
 $evidence = [ordered]@{
     schemaVersion = 1
     product = "cognitive-powers"
@@ -123,7 +148,13 @@ $evidence = [ordered]@{
     scenarios = [ordered]@{
         "upgrade-v1.5.2" = [ordered]@{ passed = $true; finalTag = $ReleaseRef; finalCommit = $candidateCommit }
         rollback = [ordered]@{ passed = $true; finalTag = "v1.5.2"; finalCommit = $previousCommit }
-        "unicode-space-path" = [ordered]@{ passed = $true; finalTag = $ReleaseRef; finalCommit = $candidateCommit }
+        "unicode-space-path" = [ordered]@{
+            passed = $unicodeExercised
+            finalTag = $ReleaseRef
+            finalCommit = $candidateCommit
+            profileLeaf = $profileLeaf
+            marketplaceUnderProfile = $marketplaceUnderProfile
+        }
     }
 }
 $evidencePath = Join-Path $output "upgrade-rollback-evidence.json"
