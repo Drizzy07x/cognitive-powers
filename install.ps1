@@ -184,7 +184,12 @@ if ($personalPrevious.Count -ne 0) {
     }
 }
 
-$rollbackBase = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "cognitive-powers"
+# On Unix GetFolderPath verifies the directory and returns an empty string when
+# it is missing, and a profile that has never been written to has no
+# ~/.local/share yet. Create materializes it and returns the path, which is
+# where the rollback copy has to live anyway; without it Join-Path refuses the
+# empty string and the installer dies before it can prepare any recovery.
+$rollbackBase = Join-Path ([Environment]::GetFolderPath("LocalApplicationData", "Create")) "cognitive-powers"
 $rollbackRoot = Join-Path $rollbackBase "rollback-$([guid]::NewGuid())"
 $rollbackMarketplace = Join-Path $rollbackRoot "marketplace"
 $rollbackPrepared = $false

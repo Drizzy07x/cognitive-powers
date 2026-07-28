@@ -16,6 +16,24 @@ FAKE = ROOT / "tests" / "fixtures" / "fake_codex_cli.py"
 FAKE_GH = ROOT / "tests" / "fixtures" / "fake_gh_cli.py"
 
 
+class InstallerProfileLocationTests(unittest.TestCase):
+    """Locating the rollback copy must not depend on a folder Unix may lack.
+
+    GetFolderPath verifies the directory on Unix and returns an empty string
+    when it is missing, and a profile that has never been written to has no
+    ~/.local/share. Join-Path then refuses the empty string, so the installer
+    died before it could prepare any recovery -- which is what every Unix cell
+    hit once the disposable Codex home let it get that far.
+    """
+
+    def test_local_application_data_is_created_rather_than_verified(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn(
+            '[Environment]::GetFolderPath("LocalApplicationData", "Create")', source
+        )
+        self.assertNotIn('GetFolderPath("LocalApplicationData")', source)
+
+
 # The installer is a PowerShell 7 script. CI runners ship pwsh, so its absence
 # was reported as ten broken tests rather than an unexercised suite; a machine
 # without it must say so once, and say what it did not cover.
