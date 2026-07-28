@@ -51,19 +51,51 @@ class InstallTransactionTests(unittest.TestCase):
         self.personal_root.mkdir()
         self.state_path = self.base / "state.json"
         python = Path(sys.executable)
-        (self.bin / "codex.cmd").write_text(
-            f'@"{python}" "{FAKE}" %*\r\n', encoding="utf-8"
+        # Resolved before the shim exists, so it names the runner's real Git.
+        self.real_git = shutil.which("git") or "git"
+        self.shim(
+            "codex",
+            windows=f'@"{python}" "{FAKE}" %*\r\n',
+            posix=f'#!/bin/sh\nexec "{python}" "{FAKE}" "$@"\n',
         )
-        (self.bin / "gh.cmd").write_text(
-            f'@"{python}" "{FAKE_GH}" %*\r\n', encoding="utf-8"
+        self.shim(
+            "gh",
+            windows=f'@"{python}" "{FAKE_GH}" %*\r\n',
+            posix=f'#!/bin/sh\nexec "{python}" "{FAKE_GH}" "$@"\n',
         )
-        (self.bin / "git.cmd").write_text(
-            f'@if "%1"=="-C" echo {"b" * 40}\r\n@if "%1"=="-C" exit /b 0\r\n@git.exe %*\r\n',
-            encoding="utf-8",
+        self.shim(
+            "git",
+            windows=(
+                f'@if "%1"=="-C" echo {"b" * 40}\r\n'
+                '@if "%1"=="-C" exit /b 0\r\n'
+                "@git.exe %*\r\n"
+            ),
+            posix=(
+                "#!/bin/sh\n"
+                f'if [ "$1" = "-C" ]; then echo {"b" * 40}; exit 0; fi\n'
+                f'exec "{self.real_git}" "$@"\n'
+            ),
         )
         # The transaction harness exercises rollback and ordering.  The canonical
         # verifier has its own real-Git fixture tests, so isolate this boundary.
-        (self.bin / "python.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+        self.shim("python", windows="@exit /b 0\r\n", posix="#!/bin/sh\nexit 0\n")
+
+    def shim(self, name: str, *, windows: str, posix: str) -> None:
+        """Write one fake CLI that really shadows the real one on this platform.
+
+        A ``.cmd`` file is inert outside Windows: PATH lookup skips it, the
+        runner's own binary answers instead, and the installer is then measured
+        against real Git and an unauthenticated GitHub CLI rather than against
+        the fixture. That does not weaken the assertions, it detaches them from
+        their subject, so every claim about what the transaction changed fails
+        for a reason that has nothing to do with the transaction.
+        """
+        if os.name == "nt":
+            (self.bin / f"{name}.cmd").write_text(windows, encoding="utf-8")
+            return
+        path = self.bin / name
+        path.write_text(posix, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -106,12 +138,16 @@ class InstallTransactionTests(unittest.TestCase):
         self, *, gh_exit=0, python_exit=None
     ) -> subprocess.CompletedProcess[str]:
         if gh_exit:
-            (self.bin / "gh.cmd").write_text(
-                f"@exit /b {gh_exit}\r\n", encoding="utf-8"
+            self.shim(
+                "gh",
+                windows=f"@exit /b {gh_exit}\r\n",
+                posix=f"#!/bin/sh\nexit {gh_exit}\n",
             )
         if python_exit is not None:
-            (self.bin / "python.cmd").write_text(
-                f"@exit /b {python_exit}\r\n", encoding="utf-8"
+            self.shim(
+                "python",
+                windows=f"@exit /b {python_exit}\r\n",
+                posix=f"#!/bin/sh\nexit {python_exit}\n",
             )
         env = os.environ.copy()
         env.update(
@@ -136,6 +172,25 @@ class InstallTransactionTests(unittest.TestCase):
     def read_state(self) -> dict:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
 
+    def test_every_fake_cli_actually_shadows_the_real_one(self) -> None:
+        """Assertions about the transaction only mean something if PATH obeys.
+
+        Windows-only ``.cmd`` shims left this suite measuring the runner's own
+        Git and an unauthenticated GitHub CLI on Linux and macOS, where the
+        installer aborts at its first real call and no assertion about the
+        transaction can hold. Resolve each command the way the installer will.
+        """
+        search = str(self.bin) + os.pathsep + os.environ["PATH"]
+        for name in ("codex", "gh", "git", "python"):
+            resolved = shutil.which(name, path=search)
+            with self.subTest(command=name):
+                self.assertIsNotNone(resolved, f"{name} resolves to nothing")
+                self.assertEqual(
+                    Path(resolved).parent,
+                    self.bin,
+                    f"{name} resolves to {resolved}, outside the fixture",
+                )
+
     def test_tag_preflight_fails_before_profile_query_or_mutation(self) -> None:
         self.state()
         result = self.run_installer(gh_exit=7)
@@ -147,7 +202,8 @@ class InstallTransactionTests(unittest.TestCase):
         # returns: the name resolves, so a resolution-only check passes it
         # through and the interpreter is not missed until the final verifier,
         # after the profile has been mutated. 3 is a real interpreter below the
-        # supported minimum.
+        # supported minimum. POSIX masks an exit code to 8 bits, so 9009 arrives
+        # as 49 there; only its being non-zero is load-bearing.
         for python_exit in (9009, 3):
             with self.subTest(python_exit=python_exit):
                 self.state()
