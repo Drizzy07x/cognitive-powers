@@ -268,5 +268,52 @@ class WorkStateStorageTests(unittest.TestCase):
         self.assertFalse(json.loads(collected.stdout)["applied"])
 
 
+class SessionDirectoryStabilityTests(unittest.TestCase):
+    """One workspace maps to one durable store, however its root is spelled.
+
+    project_key digests the root, so before session_directory canonicalized
+    its arguments a caller-spelled root (dot segments, 8.3 short names,
+    /var vs /private/var) landed the same workspace in a second store and the
+    session's ledger read back empty.
+    """
+
+    def test_session_directory_is_stable_across_root_spellings(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw).resolve()
+            workspace = base / "workspace"
+            workspace.mkdir()
+            data_root = base / "durable-data"
+            spellings = (
+                workspace,
+                base / "workspace" / ".." / "workspace",
+                base / "." / "workspace",
+            )
+            directories = {
+                work_state.session_directory(spelling, data_root, "session")
+                for spelling in spellings
+            }
+        self.assertEqual(
+            len(directories),
+            1,
+            "one workspace resolved to more than one durable store: "
+            f"{sorted(str(item) for item in directories)}",
+        )
+
+    def test_symlinked_data_root_inside_the_workspace_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw).resolve()
+            workspace = base / "workspace"
+            (workspace / "data").mkdir(parents=True)
+            link = base / "outside-looking-link"
+            try:
+                link.symlink_to(workspace / "data", target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks are unavailable: {error}")
+            with self.assertRaisesRegex(
+                work_state.WorkStateError, "outside the workspace"
+            ):
+                work_state.session_directory(workspace, link, "session")
+
+
 if __name__ == "__main__":
     unittest.main()
