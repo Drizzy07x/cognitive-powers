@@ -6,6 +6,7 @@
 - Moved the description ranker out of the routing benchmark into `scripts/skill_routing.py`, so the hook and the benchmark score a prompt with exactly the same code. A hook carrying its own copy of that logic could have satisfied every checked-in routing case while ranking something else at runtime, which is the one failure the benchmark exists to rule out.
 
 - Fixed shared tree enumeration handing back paths the caller cannot relate to its own root. `iter_tree_files`, `enumerate_manifest_files`, and `git_tracked_files` resolve the root so a symlinked component cannot steer the walk, then yielded that resolved spelling, while every consumer computes `relative_to(root)` against the root it passed. macOS resolves `/var` onto `/private/var` and Windows expands 8.3 names such as `RUNNER~1`, so source identity, the release witness, the doctor, and the A/B runner all raised `ValueError` on both platforms — 26 tests errored there while Linux, where the two spellings coincide, stayed green and hid it. Results are now presented under the caller's own absolute spelling.
+- Fixed durable session state landing in a different store depending on how the workspace root was written. The project key digests the root and `session_directory` accepted it unresolved, so a CLI call, which resolves, and a direct call, which did not, disagreed about the same workspace and the session's ledger read back empty. Both paths are canonicalized there now, which also stops a symlinked data root from slipping past the check that keeps it outside the workspace.
 
 ## 1.7.0 - 2026-07-26
 

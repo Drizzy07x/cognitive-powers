@@ -224,6 +224,14 @@ def _legacy_identifier(value: str) -> str:
 
 
 def session_directory(root: Path, data_root: Path, session_id: str) -> Path:
+    # The project key is a digest of the root, so the caller's spelling decides
+    # where durable state lives. macOS resolves "/var" onto "/private/var" and
+    # Windows expands 8.3 names, which silently splits one workspace into two
+    # stores and makes an existing session unreachable. Canonicalizing here
+    # keeps every entry point -- CLI, hook, or direct call -- on one location,
+    # and stops a symlinked data root from escaping the containment check below.
+    root = root.expanduser().resolve()
+    data_root = data_root.expanduser().resolve()
     if _is_within(data_root, root):
         raise WorkStateError(
             f"durable data root must be outside the workspace: {data_root}"
