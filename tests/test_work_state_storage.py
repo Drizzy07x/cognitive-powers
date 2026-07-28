@@ -445,6 +445,10 @@ class LedgerUnicodeSeparatorTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # Force the legacy Windows console codepage so the CI condition is
+        # the condition everywhere: the tool must survive it, not the locale.
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "cp1252"
         return subprocess.run(
             [
                 sys.executable,
@@ -459,6 +463,8 @@ class LedgerUnicodeSeparatorTests(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
+            env=environment,
         )
 
     def test_init_survives_unicode_line_separators_in_free_text(self) -> None:

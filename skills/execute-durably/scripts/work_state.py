@@ -3208,6 +3208,12 @@ def format_human(payload: dict[str, object]) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Every payload prints with ensure_ascii=False, and Windows consoles
+    # default to a legacy codepage: one U+2028 in an objective crashed the
+    # very print that was reporting it. Pin the streams instead of the text.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = build_parser()
     args = parser.parse_args(argv)
     handlers = {

@@ -611,6 +611,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Hook output is UTF-8 JSON for the host, not console text: on a legacy
+    # Windows codepage an ensure_ascii=False payload crashed the print itself.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     if args.command == "record-validation":
         # The stop gate names this command as the remediation path, so its
