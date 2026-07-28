@@ -19,12 +19,14 @@ if ($LASTEXITCODE -ne 0 -or $candidateCommit -notmatch '^[0-9a-f]{40}$') {
 
 function Use-IsolatedProfile {
     param([Parameter(Mandatory)][string]$Name)
-    $profile = Join-Path $output $Name
-    New-Item -ItemType Directory -Force -Path $profile | Out-Null
-    $env:CODEX_HOME = Join-Path $profile ".codex"
-    $env:HOME = $profile
-    $env:USERPROFILE = $profile
-    return $profile
+    $codexProfile = Join-Path $output $Name
+    $env:CODEX_HOME = Join-Path $codexProfile ".codex"
+    $env:HOME = $codexProfile
+    $env:USERPROFILE = $codexProfile
+    # Codex refuses to load a configuration when CODEX_HOME names a path that
+    # does not exist, so the isolated home must exist before any codex command.
+    New-Item -ItemType Directory -Force -Path $env:CODEX_HOME | Out-Null
+    return $codexProfile
 }
 
 function Get-MarketplaceRoot {

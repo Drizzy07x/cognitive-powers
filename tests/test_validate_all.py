@@ -168,6 +168,15 @@ class ValidateAllTests(unittest.TestCase):
         self.assertLess(
             install_slice.index("$env:USERPROFILE"), install_slice.index("codex plugin")
         )
+        # Codex refuses to load a configuration when CODEX_HOME names a path
+        # that does not exist, so naming the disposable home is not enough: it
+        # has to exist before the installer runs any codex command.
+        self.assertLess(
+            install_slice.index(
+                "New-Item -ItemType Directory -Force -Path $env:CODEX_HOME"
+            ),
+            install_slice.index("./install.ps1"),
+        )
 
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(

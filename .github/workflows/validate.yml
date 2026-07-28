@@ -60,11 +60,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $profile = Join-Path "${{ runner.temp }}" "codex-profile"
-          New-Item -ItemType Directory -Force -Path $profile | Out-Null
-          $env:CODEX_HOME = Join-Path $profile ".codex"
-          $env:HOME = $profile
-          $env:USERPROFILE = $profile
+          $codexProfile = Join-Path "${{ runner.temp }}" "codex-profile"
+          $env:CODEX_HOME = Join-Path $codexProfile ".codex"
+          $env:HOME = $codexProfile
+          $env:USERPROFILE = $codexProfile
+          # Codex refuses to load a configuration when CODEX_HOME names a path
+          # that does not exist, so a disposable home has to be materialized
+          # rather than only named before the installer runs any codex command.
+          New-Item -ItemType Directory -Force -Path $env:CODEX_HOME | Out-Null
           ./install.ps1 -ReleaseRef "${{ github.ref_name }}"
           $marketplaceState = codex plugin marketplace list --json | ConvertFrom-Json
           $entry = @($marketplaceState.marketplaces | Where-Object { $_.name -eq "cognitive-powers" })
