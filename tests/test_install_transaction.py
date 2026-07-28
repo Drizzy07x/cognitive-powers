@@ -167,6 +167,17 @@ class InstallTransactionTests(unittest.TestCase):
                 windows=f"@exit /b {python_exit}\r\n",
                 posix=f"#!/bin/sh\nexit {python_exit}\n",
             )
+        env = self.installer_environment()
+        return subprocess.run(
+            ["pwsh", "-NoProfile", "-File", str(INSTALLER), "-ReleaseRef", "v1.6.0"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+
+    def installer_environment(self) -> dict[str, str]:
         env = os.environ.copy()
         env.update(
             {
@@ -178,14 +189,7 @@ class InstallTransactionTests(unittest.TestCase):
                 "CODEX_HOME": str(self.base / "codex-home"),
             }
         )
-        return subprocess.run(
-            ["pwsh", "-NoProfile", "-File", str(INSTALLER), "-ReleaseRef", "v1.6.0"],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
+        return env
 
     def read_state(self) -> dict:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -250,14 +254,24 @@ class InstallTransactionTests(unittest.TestCase):
                 )
 
     def local_application_data(self) -> Path:
-        # install.ps1 locates recovery marketplaces through GetFolderPath,
-        # which under run_installer's profile overrides resolves beneath the
-        # redirected home: %USERPROFILE%\AppData\Local on Windows and
-        # $HOME/.local/share on POSIX. Model exactly that, so the test never
-        # touches the real profile.
-        if os.name == "nt":
-            return self.base / "home" / "AppData" / "Local"
-        return self.base / "home" / ".local" / "share"
+        # install.ps1 locates recovery marketplaces through GetFolderPath.
+        # Where that lands differs by platform and .NET version, and modeling
+        # it here guessed wrong twice -- so ask the same pwsh, under the same
+        # profile overrides run_installer uses, and let the platform answer.
+        completed = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-Command",
+                '[Environment]::GetFolderPath("LocalApplicationData", "Create")',
+            ],
+            env=self.installer_environment(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        return Path(completed.stdout.strip())
 
     def test_preflight_accepts_the_previous_rollback_marketplace(self) -> None:
         # A failed transaction restores from a recovery marketplace under
