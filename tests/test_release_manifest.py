@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess
 import tempfile
@@ -55,6 +57,37 @@ class ReleaseManifestTests(unittest.TestCase):
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "release"], cwd=root, check=True)
         subprocess.run(["git", "tag", "v1.6.0"], cwd=root, check=True)
+
+    def test_written_manifest_bytes_do_not_depend_on_the_platform(self) -> None:
+        # The aggregate gate compares manifests as raw bytes across the twelve
+        # cells. Text mode translates "\n" to "\r\n" on Windows, so four cells
+        # described the same release in different bytes and reproducibility
+        # could never hold. Comparing build_manifest results cannot see it:
+        # the translation happens where main() writes the file.
+        module = load()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            self.fixture(root)
+            output = Path(temporary) / "release.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = module.main(
+                    [
+                        "--root",
+                        str(root),
+                        "--tag",
+                        "v1.6.0",
+                        "--archive",
+                        str(Path(temporary) / "release.tar"),
+                        "--output",
+                        str(output),
+                    ]
+                )
+            self.assertEqual(code, 0)
+            raw = output.read_bytes()
+        self.assertNotIn(b"\r\n", raw)
+        self.assertTrue(raw.endswith(b"\n"))
+        self.assertEqual(json.loads(raw)["tag"], "v1.6.0")
 
     def test_same_tag_builds_byte_identical_archive_and_manifest(self) -> None:
         module = load()

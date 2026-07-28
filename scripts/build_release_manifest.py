@@ -159,8 +159,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         manifest = build_manifest(args.root, args.tag, args.archive)
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        # The aggregate gate compares manifests as raw bytes across the twelve
+        # cells. Text mode translates "\n" to "\r\n" on Windows, so four
+        # manifests describing exactly the same release differed from the other
+        # eight by 2349 bytes and the reproducibility check could never pass.
         args.output.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
         )
     except (OSError, ManifestError) as error:
         print(json.dumps({"error": str(error)}))
