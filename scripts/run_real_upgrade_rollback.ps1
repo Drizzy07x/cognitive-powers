@@ -3,7 +3,12 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^v\d+\.\d+\.\d+$')]
     [string]$ReleaseRef,
     [Parameter(Mandatory)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    # The commit the installed candidate must land on. Defaults to this
+    # checkout's HEAD, which is correct on a tag run; a dry run installs a
+    # standing published tag instead, whose commit is not this HEAD.
+    [ValidatePattern('^[0-9a-f]{40}$')]
+    [string]$ExpectedCommit
 )
 
 Set-StrictMode -Version Latest
@@ -12,9 +17,14 @@ $root = Split-Path -Parent $PSScriptRoot
 $installer = Join-Path $root "install.ps1"
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-$candidateCommit = (& git -C $root rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $candidateCommit -notmatch '^[0-9a-f]{40}$') {
-    throw "Unable to resolve the candidate commit."
+if ($ExpectedCommit) {
+    $candidateCommit = $ExpectedCommit
+}
+else {
+    $candidateCommit = (& git -C $root rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $candidateCommit -notmatch '^[0-9a-f]{40}$') {
+        throw "Unable to resolve the candidate commit."
+    }
 }
 
 function Use-IsolatedProfile {

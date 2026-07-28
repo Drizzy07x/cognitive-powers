@@ -154,7 +154,7 @@ class ValidateAllTests(unittest.TestCase):
             with self.subTest(command=release_command):
                 self.assertNotIn(release_command, workflow)
         install_step = workflow.index(
-            "- name: Install and verify the exact tag in a disposable Codex home"
+            "- name: Install and verify the release ref in a disposable Codex home"
         )
         release_step = workflow.index("- name: Build release manifest (first pass)")
         install_slice = workflow[install_step:release_step]
@@ -209,6 +209,35 @@ class ValidateAllTests(unittest.TestCase):
         )
         # ...and the refusal names what it found instead of failing silently.
         self.assertIn("expected 108 compatibility receipts, found", step_slice)
+
+    def test_release_path_is_exercised_without_a_tag(self) -> None:
+        # Nine of the thirteen 1.7.1-era defects lived in steps only a tag
+        # push ran. The reproducibility gates now run on every push against a
+        # runner-local tag, and the install/upgrade/rollback path runs nightly
+        # and on demand against the standing published tag.
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("release_dry_run:", workflow)
+        self.assertIn("schedule:", workflow)
+        self.assertIn('git tag -f "$tag"', workflow)
+        self.assertIn("vars.DRY_RUN_RELEASE_REF", workflow)
+        self.assertIn("-ExpectedCommit $expected", workflow)
+        self.assertIn("Require the exact publishable asset shape", workflow)
+        # The manifest reproducibility steps carry no tag gate any more.
+        first_pass = workflow.index("Build release manifest (first pass)")
+        compare = workflow.index("name: compare-release-builds")
+        self.assertNotIn(
+            "if: startsWith(github.ref, 'refs/tags/')",
+            workflow[first_pass:compare],
+        )
+        # The commit-bound steps stay tag-only by design.
+        receipts_step = workflow.index("Produce evidence-bound compatibility receipts")
+        upload_step = workflow.index("Preserve validation receipt")
+        self.assertIn(
+            "startsWith(github.ref, 'refs/tags/')",
+            workflow[receipts_step:upload_step],
+        )
 
     def test_receipts_record_skipped_tests(self) -> None:
         # A skipped test is an assertion that did not run; without the list a
