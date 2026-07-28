@@ -49,6 +49,27 @@ class Context7LookupTests(unittest.TestCase):
 
             shutil.rmtree(self.cache)
 
+    def test_naive_cache_expiry_is_coerced_not_a_typeerror(self) -> None:
+        # A hand-edited or foreign cache entry can carry a naive stamp, and
+        # comparing it with the aware clock raised TypeError -- outside
+        # main()'s except tuple, so the lookup died with a traceback.
+        parsed = context7._parse_expiry("2999-01-01T00:00:00")
+        self.assertIsNotNone(parsed)
+        self.assertIsNotNone(parsed.tzinfo)
+        self.assertTrue(parsed > context7.utc_now())
+        self.assertIsNone(context7._parse_expiry("not-a-date"))
+        self.assertIsNone(context7._parse_expiry(None))
+
+    def test_error_class_does_not_shadow_the_builtin(self) -> None:
+        # Naming it LookupError silently removed KeyError and IndexError --
+        # builtin LookupError subclasses -- from main()'s except tuple.
+        self.assertFalse(
+            hasattr(context7, "LookupError")
+            and getattr(context7, "LookupError") is not LookupError
+        )
+        self.assertTrue(issubclass(context7.Context7LookupError, RuntimeError))
+        self.assertFalse(issubclass(KeyError, context7.Context7LookupError))
+
     def test_detects_locked_javascript_and_dotnet_versions(self) -> None:
         (self.root / "package.json").write_text(
             json.dumps({"dependencies": {"react": "^19.0.0"}}), encoding="utf-8"

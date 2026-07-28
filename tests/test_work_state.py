@@ -1857,6 +1857,45 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
             status_payload["criteria"][0]["evidence_error"],
         )
 
+    def test_naive_expiry_is_a_work_state_error_not_a_traceback(self) -> None:
+        # A naive stamp has no comparable instant; the aware comparison raised
+        # TypeError, which main() does not catch, so a fabricated or foreign
+        # receipt crashed the tool instead of being refused.
+        self.initialize()
+        context = self.workspace / "naive.json"
+        payload = {
+            "schema_version": 1,
+            "type": "external_context",
+            "provider": "context7",
+            "library": "react",
+            "selected_library": {"id": "/facebook/react"},
+            "query": "hooks",
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": "2999-01-01T00:00:00",
+            "provider_response_sha256": "b" * 64,
+            "snippets": [{"kind": "info", "content": "docs"}],
+        }
+        context.write_text(json.dumps(payload), encoding="utf-8")
+
+        recorded = self.cli(
+            "record-context",
+            "--session",
+            "demo",
+            "--criterion",
+            "c1",
+            "--executor",
+            "researcher",
+            "--artifact",
+            str(context),
+            "--summary",
+            "naive expiry",
+            "--json",
+        )
+
+        self.assertNotEqual(recorded.returncode, 0)
+        self.assertNotIn("Traceback", recorded.stderr)
+        self.assertIn("timezone", recorded.stdout + recorded.stderr)
+
     def test_record_context_rejects_already_expired_payload(self) -> None:
         self.initialize()
         context = self.workspace / "expired.json"

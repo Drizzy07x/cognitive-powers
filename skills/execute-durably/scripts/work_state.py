@@ -877,6 +877,14 @@ def validate_receipt(
                 raise WorkStateError(
                     "external context receipt has invalid expiry"
                 ) from error
+            # A naive expiry has no comparable instant: comparing it against
+            # an aware now raised TypeError, which is not a WorkStateError, so
+            # a fabricated or foreign receipt crashed the tool instead of
+            # being refused.
+            if expires_at.tzinfo is None:
+                raise WorkStateError(
+                    "external context receipt expiry must carry a timezone"
+                )
             if expires_at <= datetime.now(timezone.utc):
                 raise EvidenceStaleError(
                     f"criterion {criterion['id']} external context has expired"
@@ -2542,6 +2550,8 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
         )
     except ValueError as error:
         raise WorkStateError("external context expiry is invalid") from error
+    if expires_at.tzinfo is None:
+        raise WorkStateError("external context expiry must carry a timezone")
     if expires_at <= datetime.now(timezone.utc):
         raise WorkStateError("external context is already expired")
     summary = args.summary.strip()

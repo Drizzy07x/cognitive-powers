@@ -48,8 +48,13 @@ MANIFEST_NAMES = frozenset(
 )
 
 
-class LookupError(RuntimeError):
-    """Raised when current documentation cannot be retrieved or normalized."""
+class Context7LookupError(RuntimeError):
+    """Raised when current documentation cannot be retrieved or normalized.
+
+    Deliberately not named LookupError: shadowing the builtin made main()'s
+    except tuple silently stop covering KeyError and IndexError, which are
+    builtin LookupError subclasses.
+    """
 
 
 def utc_now() -> datetime:
@@ -276,7 +281,7 @@ def select_library_candidate(
     candidates: Sequence[dict[str, Any]], library: str, version: str | None
 ) -> dict[str, Any]:
     if not candidates:
-        raise LookupError(f"Context7 returned no candidates for {library}")
+        raise Context7LookupError(f"Context7 returned no candidates for {library}")
     target_name = normalize_name(library)
     target_version = normalize_version(version)
     ranked: list[tuple[float, dict[str, Any], str | None]] = []
@@ -325,7 +330,7 @@ def select_library_candidate(
         )
         ranked.append((score, candidate, matched_option))
     if not ranked:
-        raise LookupError("Context7 candidates did not contain valid library IDs")
+        raise Context7LookupError("Context7 candidates did not contain valid library IDs")
     _, selected, option = max(ranked, key=lambda value: value[0])
     base_id = str(selected.get("id") or selected.get("libraryId"))
     selected_id = base_id
@@ -467,9 +472,16 @@ def _parse_expiry(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    # A hand-edited or foreign cache entry may carry a naive stamp, and
+    # comparing that against the aware clock raised TypeError -- an exception
+    # outside main()'s except tuple. The writer pins UTC, so naive reads as
+    # UTC rather than crashing the lookup.
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def find_cli() -> list[str]:
@@ -482,7 +494,7 @@ def find_cli() -> list[str]:
     pnpm = shutil.which("pnpm") or shutil.which("pnpm.cmd")
     if pnpm:
         return [pnpm, "dlx", "ctx7@latest"]
-    raise LookupError(
+    raise Context7LookupError(
         "Context7 MCP was not used and no ctx7, npx, or pnpm CLI is available"
     )
 
@@ -503,13 +515,13 @@ def run_cli(arguments: Sequence[str], timeout: float = 45.0) -> object:
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()[-2000:]
-        raise LookupError(
+        raise Context7LookupError(
             f"Context7 CLI failed with exit code {completed.returncode}: {detail}"
         )
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as error:
-        raise LookupError("Context7 CLI did not return JSON") from error
+        raise Context7LookupError("Context7 CLI did not return JSON") from error
 
 
 def lookup(
@@ -526,9 +538,9 @@ def lookup(
     docs_results: object | None = None,
 ) -> dict[str, Any]:
     if not library.strip() or not query.strip():
-        raise LookupError("library and query must not be empty")
+        raise Context7LookupError("library and query must not be empty")
     if max_chars < 1_000:
-        raise LookupError("max-chars must be at least 1000")
+        raise Context7LookupError("max-chars must be at least 1000")
     dependencies = discover_dependencies(root)
     local = find_dependency(dependencies, library)
     requested_version = normalize_version(version) or (
@@ -659,7 +671,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = Path(args.root).expanduser().resolve()
     try:
         if not root.is_dir():
-            raise LookupError(f"root is not a directory: {root}")
+            raise Context7LookupError(f"root is not a directory: {root}")
         if args.command == "dependencies":
             payload: object = {
                 "schema_version": SCHEMA_VERSION,
@@ -692,7 +704,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     except (
-        LookupError,
+        Context7LookupError,
         OSError,
         subprocess.TimeoutExpired,
         json.JSONDecodeError,
