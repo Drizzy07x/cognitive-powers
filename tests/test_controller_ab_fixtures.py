@@ -324,6 +324,12 @@ class ControllerABFixtureTests(unittest.TestCase):
             self.assertTrue(
                 all(task_id.startswith("cpfx-") for task_id in config["tasks"])
             )
+            # Evaluator commands must name the generating interpreter: "py -3"
+            # is the Windows-only launcher and raised FileNotFoundError on
+            # every POSIX cell, and a bare "python" is a Store stub on Windows.
+            for task in config["tasks"].values():
+                self.assertEqual(task["hidden_check"][0], sys.executable)
+                self.assertEqual(task["quality_check"][0], sys.executable)
             definition_by_id = {item["fixture_id"]: item for item in definitions}
             read_only = next(
                 item

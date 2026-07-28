@@ -650,15 +650,18 @@ def build_batch_config(
         allowed = definition["allowed_paths"] or ["__read_only_no_changes__"]
         tasks[definition["fixture_id"]] = {
             "fixture": str((materialized_root / definition["actor_path"]).resolve()),
+            # The generating interpreter is the one interpreter known to exist
+            # wherever this configuration is consumed in the same run. "py -3"
+            # is the Windows-only launcher and raised FileNotFoundError on
+            # every POSIX cell, while the bare "python" used elsewhere is a
+            # Store stub on Windows: no literal name works on all three.
             "hidden_check": [
-                "py",
-                "-3",
+                sys.executable,
                 str((evaluator / "hidden_check.py").resolve()),
                 "{fixture}",
             ],
             "quality_check": [
-                "py",
-                "-3",
+                sys.executable,
                 str((evaluator / "quality_check.py").resolve()),
                 "{fixture}",
                 "{message}",
