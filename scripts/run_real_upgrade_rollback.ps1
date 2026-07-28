@@ -73,12 +73,25 @@ $previousCommit = (& git -C $previousRoot rev-parse HEAD).Trim()
 $realPath = $env:PATH
 $wrapper = Join-Path $output "failing-python"
 New-Item -ItemType Directory -Force -Path $wrapper | Out-Null
+# The fault under test is a verifier that fails after the profile has been
+# mutated, so that rollback has something to undo. An interpreter that fails
+# unconditionally no longer reaches it: preflight runs "python -c" first and
+# aborts before any mutation, which is exactly what it was added to do. The
+# shim therefore answers the preflight probe and fails only the verifier call.
 if ($IsWindows) {
-    [IO.File]::WriteAllText((Join-Path $wrapper "python.cmd"), "@echo off`r`nexit /b 91`r`n", [Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText(
+        (Join-Path $wrapper "python.cmd"),
+        "@echo off`r`nif `"%1`"==`"-c`" exit /b 0`r`nexit /b 91`r`n",
+        [Text.Encoding]::ASCII
+    )
 }
 else {
     $shim = Join-Path $wrapper "python"
-    [IO.File]::WriteAllText($shim, "#!/bin/sh`nexit 91`n", [Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText(
+        $shim,
+        "#!/bin/sh`nif [ `"`$1`" = `"-c`" ]; then exit 0; fi`nexit 91`n",
+        [Text.Encoding]::ASCII
+    )
     & chmod +x $shim
     if ($LASTEXITCODE -ne 0) { throw "Unable to prepare verifier fault shim." }
 }

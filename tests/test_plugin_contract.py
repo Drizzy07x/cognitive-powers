@@ -456,6 +456,12 @@ class PluginContractTests(unittest.TestCase):
         self.assertNotIn(
             'Join-Path $MarketplaceRoot "scripts/verify_installed.py"', lifecycle
         )
+        # The injected fault has to be a verifier that fails after the profile
+        # was mutated, so rollback has something to undo. Preflight runs
+        # "python -c" before any mutation, so an interpreter that fails
+        # unconditionally aborts there and the rollback path is never reached.
+        self.assertIn('if `"%1`"==`"-c`" exit /b 0', lifecycle)
+        self.assertIn('if [ `"`$1`" = `"-c`" ]; then exit 0; fi', lifecycle)
 
     def test_windows_docs_do_not_invoke_unresolved_python_alias(self) -> None:
         documented_entrypoints = [
