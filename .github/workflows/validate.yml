@@ -284,6 +284,16 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
+      - name: Create the local-only release tag on untagged refs
+        # This job checks out independently, and the aggregated witness
+        # requires HEAD to be tagged exactly v<declared> -- the same
+        # runner-local, never-pushed tag the offline job creates.
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python -c "import json;print(json.load(open('.codex-plugin/plugin.json',encoding='utf-8'))['version'].split('+')[0])")
+          git tag -f "v$version"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: validation-*
