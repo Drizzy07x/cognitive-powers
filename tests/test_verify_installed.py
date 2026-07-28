@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,43 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class HostCommandResolutionTests(unittest.TestCase):
+    """The host CLI is an npm install, so on Windows it is codex.cmd.
+
+    CreateProcess only ever appends .exe to a name without an extension, so
+    handing it a bare "codex" reported an installed and working host as
+    unexecutable. Resolution has to go through PATHEXT before the command is
+    spawned.
+    """
+
+    def test_run_executes_a_shim_that_a_bare_name_would_not_find(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            if os.name == "nt":
+                script = directory / "cp-fake-host.cmd"
+                script.write_text("@echo {}\r\n", encoding="utf-8")
+            else:
+                script = directory / "cp-fake-host"
+                script.write_text(
+                    "#!/bin/sh\necho '{}'\n", encoding="utf-8", newline="\n"
+                )
+                script.chmod(0o755)
+            search = str(directory) + os.pathsep + os.environ["PATH"]
+            with mock.patch.dict(os.environ, {"PATH": search}):
+                completed = module._run(["cp-fake-host"])
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "{}")
+
+    def test_unresolvable_command_is_reported_as_an_unexecutable_host(self) -> None:
+        module = load_module()
+        with mock.patch.object(module.shutil, "which", return_value=None):
+            with self.assertRaises(OSError):
+                module._run(["cp-absent-host"])
+            with self.assertRaisesRegex(RuntimeError, "cannot execute host CLI"):
+                module._json_command(module._run, ["cp-absent-host"])
 
 
 class VerifyInstalledTests(unittest.TestCase):

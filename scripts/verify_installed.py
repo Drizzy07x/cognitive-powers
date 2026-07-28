@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -48,8 +49,17 @@ Run = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    # A bare name goes to CreateProcess on Windows, which only ever appends
+    # .exe. The Codex CLI is installed by npm, so its entry point there is
+    # codex.cmd, and the host check failed with WinError 2 on a host that was
+    # installed and working. shutil.which honours PATHEXT; the resulting
+    # FileNotFoundError is an OSError, which callers already report as an
+    # unexecutable host CLI rather than as a missing installation.
+    executable = shutil.which(argv[0])
+    if executable is None:
+        raise FileNotFoundError(f"{argv[0]} is not on PATH")
     return subprocess.run(
-        argv,
+        [executable, *argv[1:]],
         capture_output=True,
         text=True,
         encoding="utf-8",
