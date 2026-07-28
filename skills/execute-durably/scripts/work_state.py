@@ -10,6 +10,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -1286,6 +1287,22 @@ def _finish_attempt(
         )
 
 
+def _resolve_command(command: list[str]) -> tuple[list[str], str | None]:
+    """Resolve argv[0] the way the operator's shell would have.
+
+    CreateProcess only ever appends .exe to a bare name, so handing "npm" or
+    "npx" straight to subprocess raised FileNotFoundError on Windows -- an
+    infrastructure miss that was then recorded as a genuinely failed
+    criterion. shutil.which honours PATHEXT and keeps explicit paths; a name
+    that resolves to nothing is a launch failure, reported as such instead of
+    being spawned into a guaranteed exception.
+    """
+    executable = shutil.which(command[0])
+    if executable is None:
+        return command, f"command is not executable on this host: {command[0]}"
+    return [executable, *command[1:]], None
+
+
 def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
@@ -1298,23 +1315,28 @@ def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     if not command:
         raise WorkStateError("run requires a command after --")
     attempt = _begin_attempt(session_dir, criterion_id, executor, "execution_started")
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        stdout = completed.stdout
-        stderr = completed.stderr
-        exit_code = completed.returncode
-    except OSError as error:
+    resolved, launch_error = _resolve_command(command)
+    if launch_error is None:
+        try:
+            completed = subprocess.run(
+                resolved,
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            stdout = completed.stdout
+            stderr = completed.stderr
+            exit_code = completed.returncode
+        except OSError as error:
+            launch_error = str(error)
+    if launch_error is not None:
         stdout = ""
-        stderr = str(error)
+        stderr = launch_error
         exit_code = 127
+    launched = launch_error is None
     fingerprint = source_fingerprint(root, data_root)
     receipt_relative = _receipt_relative_path(criterion_id, attempt)
     receipt = {
@@ -1325,6 +1347,7 @@ def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         "attempt": attempt,
         "at": utc_now(),
         "command": command,
+        "launched": launched,
         "exit_code": exit_code,
         "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
         "stderr_sha256": hashlib.sha256(stderr.encode("utf-8")).hexdigest(),
@@ -1334,6 +1357,9 @@ def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     }
     _atomic_write_json(session_dir / receipt_relative, receipt)
     claimed = exit_code == 0
+    # A command that never started proves nothing about the criterion either
+    # way; the attempt still fails closed, but under its own event name so the
+    # ledger distinguishes an infrastructure miss from a red result.
     _finish_attempt(
         session_dir,
         criterion_id,
@@ -1341,7 +1367,9 @@ def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
         attempt,
         receipt_relative,
         "claimed" if claimed else "failed",
-        "evidence_claimed" if claimed else "execution_failed",
+        "evidence_claimed"
+        if claimed
+        else ("execution_failed" if launched else "execution_unlaunchable"),
     )
     if not args.json:
         if stdout:
@@ -1359,9 +1387,12 @@ def run_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
 
 
 def _execute_command(command: list[str], root: Path) -> tuple[str, str, int, bool]:
+    resolved, launch_error = _resolve_command(command)
+    if launch_error is not None:
+        return "", launch_error, 127, False
     try:
         completed = subprocess.run(
-            command,
+            resolved,
             cwd=root,
             check=False,
             capture_output=True,

@@ -315,6 +315,113 @@ class SessionDirectoryStabilityTests(unittest.TestCase):
                 work_state.session_directory(workspace, link, "session")
 
 
+class CommandResolutionTests(unittest.TestCase):
+    """run must resolve argv[0] as a shell would, and separate launch failures.
+
+    CreateProcess only appends .exe to a bare name, so "npm" and every other
+    .cmd shim raised FileNotFoundError on Windows and the receipt recorded a
+    failed criterion for a command that never started.
+    """
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary_directory.name)
+        self.workspace = self.base / "workspace"
+        self.data_root = self.base / "durable-data"
+        self.workspace.mkdir()
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def shim(self, name: str) -> None:
+        if os.name == "nt":
+            (self.bin / f"{name}.cmd").write_text(
+                "@echo shim ran\r\n@exit /b 0\r\n", encoding="utf-8"
+            )
+            return
+        path = self.bin / name
+        path.write_text("#!/bin/sh\necho shim ran\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["PATH"] = str(self.bin) + os.pathsep + environment["PATH"]
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--root",
+                str(self.workspace),
+                "--data-root",
+                str(self.data_root),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=environment,
+        )
+
+    def initialize(self) -> None:
+        completed = self.cli(
+            "init",
+            "--session",
+            "resolution",
+            "--objective",
+            "Resolve commands portably",
+            "--criterion",
+            "The command receipt is honest",
+            "--json",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+    def test_a_cmd_shim_resolves_and_claims(self) -> None:
+        self.initialize()
+        self.shim("cp-fake-build-tool")
+        completed = self.cli(
+            "run",
+            "--session",
+            "resolution",
+            "--criterion",
+            "c1",
+            "--executor",
+            "builder",
+            "--json",
+            "--",
+            "cp-fake-build-tool",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["status"], "claimed")
+        receipt = json.loads(Path(payload["receipt"]).read_text(encoding="utf-8"))
+        self.assertTrue(receipt["launched"])
+        self.assertEqual(receipt["exit_code"], 0)
+
+    def test_an_unstartable_command_is_marked_unlaunched(self) -> None:
+        self.initialize()
+        completed = self.cli(
+            "run",
+            "--session",
+            "resolution",
+            "--criterion",
+            "c1",
+            "--executor",
+            "builder",
+            "--json",
+            "--",
+            "cp-absent-build-tool",
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["status"], "failed")
+        receipt = json.loads(Path(payload["receipt"]).read_text(encoding="utf-8"))
+        self.assertFalse(receipt["launched"])
+        self.assertIn("not executable on this host", receipt["stderr_tail"])
+
+
 class LedgerUnicodeSeparatorTests(unittest.TestCase):
     """One physical ledger line is one record, whatever text a record carries.
 
