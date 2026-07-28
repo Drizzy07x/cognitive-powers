@@ -681,9 +681,19 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
         return []
     events: list[dict[str, Any]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        content = path.read_text(encoding="utf-8")
     except OSError as error:
         raise WorkStateError(f"ledger is unreadable: {path}: {error}") from error
+    # One physical line is one record. read_text has already folded every
+    # platform newline to "\n"; splitlines() additionally breaks on U+2028,
+    # U+2029, and U+0085, which json.dumps(ensure_ascii=False) leaves raw
+    # inside a record, so one event containing one of those separators became
+    # two malformed lines and the session was unreadable from init onward.
+    # Only the final terminator is dropped: an interior blank line is still
+    # corruption and must keep failing as such.
+    lines = content.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
     parsed: list[dict[str, Any]] = []
     for line_number, line in enumerate(lines, 1):
         try:

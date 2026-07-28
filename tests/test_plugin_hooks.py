@@ -339,6 +339,30 @@ class PluginHookTests(unittest.TestCase):
         warning = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
         self.assertIn("no current", json.loads(warning.stdout)["systemMessage"])
 
+    def test_unicode_line_separator_in_an_event_stays_one_record(self) -> None:
+        # json.dumps(ensure_ascii=False) leaves U+2028/U+2029/U+0085 raw, and
+        # splitlines() breaks on all three, so one recorded value carrying one
+        # of them poisoned the ledger and every later event was dropped.
+        session = "sess\u2028ion\u2029with\u0085separators"
+        first = self.payload()
+        first["sessionId"] = session
+        second = self.payload("Write")
+        second["sessionId"] = session
+        second["turnId"] = "turn-2"
+        second["toolInput"] = {"file_path": "src/other.py"}
+
+        self.assertEqual(self.run_hook("post-tool-use", first).returncode, 0)
+        self.assertEqual(self.run_hook("post-tool-use", second).returncode, 0)
+
+        key = hashlib.sha256(session.encode("utf-8")).hexdigest()[:32]
+        ledger = self.data / "hooks" / "events" / f"{key}.jsonl"
+        raw = ledger.read_text(encoding="utf-8")
+        events = [json.loads(line) for line in raw.split("\n") if line]
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1]["previousEventHash"], events[0]["eventHash"])
+        stop = self.run_hook("stop", {"sessionId": session})
+        self.assertNotIn("ledger line", stop.stdout)
+
     def test_tampered_ledger_is_detected_and_never_silently_accepted(self) -> None:
         self.run_hook("post-tool-use", self.payload())
         event = json.loads(self.ledger().read_text(encoding="utf-8"))

@@ -243,9 +243,16 @@ def _read_ledger(path: Path) -> tuple[list[dict[str, Any]], str | None]:
     events: list[dict[str, Any]] = []
     previous: str | None = None
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return [], "ledger cannot be read"
+    # One physical line is one record: splitlines() also breaks on U+2028,
+    # U+2029, and U+0085, which json.dumps(ensure_ascii=False) leaves raw, so
+    # one edited path carrying one of those separators poisoned the ledger,
+    # dropped every later event, and left the stop gate warning forever.
+    lines = content.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
     for index, line in enumerate(lines, start=1):
         try:
             event = json.loads(line)

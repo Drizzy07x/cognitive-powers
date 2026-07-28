@@ -315,5 +315,91 @@ class SessionDirectoryStabilityTests(unittest.TestCase):
                 work_state.session_directory(workspace, link, "session")
 
 
+class LedgerUnicodeSeparatorTests(unittest.TestCase):
+    """One physical ledger line is one record, whatever text a record carries.
+
+    json.dumps(ensure_ascii=False) leaves U+2028, U+2029, and U+0085 raw
+    inside a record, and str.splitlines() breaks on all three, so a single
+    pasted separator turned one event into two malformed lines and left the
+    session permanently unreadable -- starting at init itself, which re-reads
+    the ledger it has just written.
+    """
+
+    SEPARATED = "plan\u2028the\u2029next\u0085steps"
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary_directory.name)
+        self.workspace = self.base / "workspace"
+        self.data_root = self.base / "durable-data"
+        self.workspace.mkdir()
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--root",
+                str(self.workspace),
+                "--data-root",
+                str(self.data_root),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    def test_init_survives_unicode_line_separators_in_free_text(self) -> None:
+        initialized = self.cli(
+            "init",
+            "--session",
+            "separated",
+            "--objective",
+            self.SEPARATED,
+            "--criterion",
+            f"criterion {self.SEPARATED}",
+            "--json",
+        )
+        self.assertEqual(
+            initialized.returncode, 0, initialized.stdout + initialized.stderr
+        )
+        session_dir = Path(json.loads(initialized.stdout)["session_dir"])
+
+        status = self.cli("status", "--session", "separated", "--json")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        self.assertEqual(json.loads(status.stdout)["objective"], self.SEPARATED)
+
+        events = work_state._read_ledger_events(session_dir)
+        raw = (session_dir / "ledger.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(len(events), raw.count("\n"))
+
+    def test_interior_blank_ledger_lines_are_still_malformed(self) -> None:
+        initialized = self.cli(
+            "init",
+            "--session",
+            "strict",
+            "--objective",
+            "keep interior corruption visible",
+            "--criterion",
+            "the reader stays strict",
+            "--json",
+        )
+        self.assertEqual(
+            initialized.returncode, 0, initialized.stdout + initialized.stderr
+        )
+        session_dir = Path(json.loads(initialized.stdout)["session_dir"])
+        ledger = session_dir / "ledger.jsonl"
+        with ledger.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write("\n")
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "malformed"):
+            work_state._read_ledger_events(session_dir)
+
+
 if __name__ == "__main__":
     unittest.main()
