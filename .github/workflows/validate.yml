@@ -231,7 +231,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t receipts < <(find "${{ runner.temp }}/matrix-evidence" -name 'compatibility-*.json' -type f | sort)
+          # Each cell also uploads compatibility-scenario-evidence.json, which
+          # matches this glob but is the input the receipts were derived from,
+          # not a receipt. Counting it made the twelve cells look like 120.
+          mapfile -t receipts < <(find "${{ runner.temp }}/matrix-evidence" -name 'compatibility-*.json' -type f ! -name 'compatibility-scenario-evidence.json' | sort)
           test "${#receipts[@]}" -eq 108
           mapfile -t verified < <(python - "${receipts[@]}" <<'PY'
           import json, os, sys

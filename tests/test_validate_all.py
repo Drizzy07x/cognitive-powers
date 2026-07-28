@@ -192,6 +192,22 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("shutil.which('codex')", step_slice)
         self.assertNotIn("subprocess.run(['codex'", step_slice)
 
+    def test_aggregation_counts_receipts_not_their_scenario_evidence(self) -> None:
+        # Every cell uploads compatibility-scenario-evidence.json alongside its
+        # nine receipts, and it matches the same glob. Counting it turned the
+        # twelve expected cells into 120 files against an expected 108.
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        step = workflow.index("- name: Aggregate receipts from the twelve")
+        following = workflow.index("- name: ", step + 1)
+        step_slice = workflow[step:following]
+        self.assertIn("! -name 'compatibility-scenario-evidence.json'", step_slice)
+        self.assertLess(
+            step_slice.index("! -name 'compatibility-scenario-evidence.json'"),
+            step_slice.index('test "${#receipts[@]}" -eq 108'),
+        )
+
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
