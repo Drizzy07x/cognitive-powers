@@ -313,7 +313,9 @@ def create_evidence(
     }
     receipt_path = output / "cognitive-design-receipt.json"
     receipt_path.write_text(
-        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     receipt["receipt"] = str(receipt_path)
     return receipt, 0 if passed else 1

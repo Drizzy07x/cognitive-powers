@@ -231,10 +231,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             args.json_output.parent.mkdir(parents=True, exist_ok=True)
             args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
+            # Both targets are tracked files. Text mode writes CRLF on Windows,
+            # which git status hides (gitattributes normalizes on commit) and
+            # --check cannot see (universal-newline read); only the witness's
+            # byte digest ever noticed, far from the cause.
             args.json_output.write_text(
-                json.dumps(matrix, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                json.dumps(matrix, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
             )
-            args.markdown_output.write_text(markdown(matrix), encoding="utf-8")
+            args.markdown_output.write_text(
+                markdown(matrix), encoding="utf-8", newline="\n"
+            )
     except (OSError, json.JSONDecodeError, CompatibilityError) as error:
         print(json.dumps({"error": str(error)}))
         return 2

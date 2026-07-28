@@ -360,7 +360,9 @@ def normalize(
         ],
     }
     receipt_path.write_text(
-        json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(receipt, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     receipt["receipt"] = str(receipt_path)
     return receipt, 0

@@ -96,8 +96,12 @@ def _artifact_directory(workspace: Path, explicit: str | Path | None) -> Path:
 
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Receipt bytes are what their sha256 describes; newline translation would
+    # make the same evidence hash differently per platform.
     path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
 
 

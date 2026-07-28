@@ -128,7 +128,7 @@ def _finish(receipt, store):
             or (store.parent / ".memory-context-snapshots" / "empty")
         )
     ).with_suffix(".receipt.json")
-    path.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(receipt, indent=2), encoding="utf-8", newline="\n")
     receipt["receipt_path"] = str(path.resolve())
     return receipt
 
@@ -137,7 +137,7 @@ def _atomic_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as h:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as h:
             json.dump(payload, h, indent=2, ensure_ascii=False)
         os.replace(tmp, path)
     finally:

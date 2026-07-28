@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,31 @@ class CompatibilityMatrixTests(unittest.TestCase):
         self.assertTrue(module.outputs_match(contract, [], matrix, documentation))
         matrix["rows"][0]["status"] = "compatible"
         self.assertFalse(module.outputs_match(contract, [], matrix, documentation))
+
+    def test_generated_artifacts_are_written_in_lf_bytes(self) -> None:
+        # Both outputs are tracked files. Text mode wrote CRLF on Windows,
+        # invisible to git status (gitattributes normalizes on commit) and to
+        # --check (universal-newline read); only the release witness's byte
+        # digest ever saw it, far from the cause.
+        module = load(name="compatibility_bytes")
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            code = module.main(
+                [
+                    "--contract",
+                    str(ROOT / "compatibility-contract.json"),
+                    "--json-output",
+                    str(parent / "matrix.json"),
+                    "--markdown-output",
+                    str(parent / "matrix.md"),
+                ]
+            )
+            self.assertEqual(code, 0)
+            json_raw = (parent / "matrix.json").read_bytes()
+            markdown_raw = (parent / "matrix.md").read_bytes()
+        self.assertNotIn(b"\r\n", json_raw)
+        self.assertNotIn(b"\r\n", markdown_raw)
+        self.assertTrue(json_raw.endswith(b"\n"))
 
     def test_matrix_is_generated_from_receipts_and_missing_combinations_are_unknown(
         self,
