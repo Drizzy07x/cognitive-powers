@@ -266,6 +266,36 @@ class ReleaseWitnessTests(unittest.TestCase):
             with self.assertRaisesRegex(witness.WitnessError, "executable"):
                 witness.create_witness(root, [receipt])
 
+    def test_interpreter_is_recognised_in_either_platform_spelling(self) -> None:
+        # Receipts are written on twelve machines and aggregated on one, so the
+        # interpreter path in a receipt is spelled for the platform that wrote
+        # it. Taking the basename with the reader's own flavour made every
+        # Windows receipt unreadable on the Linux aggregator, which rejected a
+        # release whose twelve cells had all passed.
+        spellings = [
+            r"C:\hostedtoolcache\windows\Python\3.11.9\x64\python.exe",
+            "/opt/hostedtoolcache/Python/3.13.14/x64/bin/python3.13",
+            "/usr/bin/python3",
+        ]
+        for spelling in spellings:
+            with self.subTest(executable=spelling):
+                self.assertTrue(witness._is_python_executable(spelling))
+        self.assertFalse(witness._is_python_executable(r"C:\tools\not-python.exe"))
+        self.assertFalse(witness._is_python_executable("/usr/bin/not-python"))
+
+    def test_create_accepts_a_receipt_written_on_another_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = make_repository(parent)
+            value = passing_receipt(root)
+            foreign = r"C:\hostedtoolcache\windows\Python\3.11.9\x64\python.exe"
+            for command in value["commands"]:
+                command["command"][0] = foreign
+            receipt = parent / "validation.json"
+            receipt.write_text(json.dumps(value), encoding="utf-8")
+            created = witness.create_witness(root, [receipt])
+        self.assertTrue(created)
+
     def test_cli_arguments_remain_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)

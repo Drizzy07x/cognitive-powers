@@ -10,7 +10,7 @@ import math
 import os
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable, Sequence
 
 try:
@@ -357,7 +357,13 @@ def _is_utc_timestamp(value: Any) -> bool:
 def _is_python_executable(value: Any) -> bool:
     if not isinstance(value, str) or not value:
         return False
-    name = Path(value).name.lower()
+    # The receipt being read was written on another machine, so the path in it
+    # is spelled for that platform. Path here is the host's flavour, and on
+    # POSIX a backslash is an ordinary character, so every Windows receipt
+    # aggregated on Linux yielded the whole string as its "name" and was
+    # rejected. PureWindowsPath accepts both separators, which is what taking
+    # the basename of a foreign path requires.
+    name = PureWindowsPath(value).name.lower()
     if name.endswith(".exe"):
         name = name[:-4]
     if not name.startswith("python"):
