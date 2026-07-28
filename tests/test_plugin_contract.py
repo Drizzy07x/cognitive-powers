@@ -506,6 +506,19 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("types: [published]", post_release)
         self.assertIn("schedule:", post_release)
         self.assertIn("releaseReady", post_release)
+        automation = (
+            PLUGIN_ROOT / ".github" / "workflows" / "auto-publish.yml"
+        ).read_text(encoding="utf-8")
+        # The bridge is braked by a repository variable, refuses non-release
+        # tags, is idempotent against an existing release, and only ever
+        # dispatches the publisher, which re-verifies every claim itself.
+        self.assertIn("vars.AUTO_PUBLISH == 'true'", automation)
+        self.assertIn("workflow_run", automation)
+        self.assertIn("^v[0-9]+\\.[0-9]+\\.[0-9]+$", automation)
+        self.assertIn("already exists; nothing to publish", automation)
+        self.assertIn("gh workflow run publish-release.yml", automation)
+        self.assertNotRegex(automation, r"actions/[a-z-]+@v[0-9]+")
+
         publication = (
             PLUGIN_ROOT / ".github" / "workflows" / "publish-release.yml"
         ).read_text(encoding="utf-8")

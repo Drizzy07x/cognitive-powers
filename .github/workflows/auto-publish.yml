@@ -1,0 +1,48 @@
+name: Auto-publish validated release
+
+# Bridges a green tag validation to the publisher without the manual
+# tag/run_id copy step. Braked by the AUTO_PUBLISH repository variable so a
+# tag can still be held: anything but the literal string "true" keeps this
+# workflow inert. The publisher re-verifies everything this workflow could
+# claim -- tag/commit/run binding, asset identity, provenance -- and refuses
+# an existing release, so the worst this automation can do is dispatch a job
+# that refuses.
+"on":
+  workflow_run:
+    workflows: [Validate]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-publisher:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      vars.AUTO_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the publisher for the validated tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "head branch '$TAG' is not a release tag; nothing to publish"
+            exit 0
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists; nothing to publish"
+            exit 0
+          fi
+          echo "dispatching publish-release.yml for $TAG from validation run $RUN_ID"
+          gh workflow run publish-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            -f "tag=$TAG" \
+            -f "run_id=$RUN_ID"
