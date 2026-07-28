@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Move every release-version carrier to the version the changelog declares.
+
+A bump touches eight files, and the 1.6.0/1.7.0 era proved what one missed
+carrier costs: two versions were described but never tagged, gates pinned the
+wrong identity, and the README documented a rollback to a tag that does not
+exist. This script makes the changelog the single starting point -- the bump
+refuses to run until the new section is written -- and rewrites every carrier
+from it, deriving the documented rollback target from the newest actually
+published release.
+
+The upgrade-origin constants (the v1.5.2 the lifecycle harness upgrades from)
+are deliberately not carriers: they name a scenario origin the compatibility
+contract declares, and they change only when that contract does.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+HEADING_PATTERN = re.compile(
+    r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE
+)
+# The lookbehind keeps scenario identifiers such as "upgrade-v1.5.2" out of
+# reach: they name an origin release on purpose, exactly as the release
+# binding tests treat them.
+TAG_PATTERN = re.compile(r"(?<![A-Za-z0-9-])v\d+\.\d+\.\d+")
+
+
+class BumpError(ValueError):
+    """Raised when the version carriers cannot be moved coherently."""
+
+
+def _read(root: Path, relative: str) -> str:
+    try:
+        return (root / relative).read_text(encoding="utf-8")
+    except OSError as error:
+        raise BumpError(f"cannot read {relative}: {error}") from error
+
+
+def _write(root: Path, relative: str, content: str) -> None:
+    (root / relative).write_text(content, encoding="utf-8", newline="\n")
+
+
+def changelog_version(root: Path) -> str:
+    match = HEADING_PATTERN.search(_read(root, "CHANGELOG.md"))
+    if match is None:
+        raise BumpError("CHANGELOG.md has no dated release heading")
+    return match.group(1)
+
+
+def changelog_section_body(root: Path, version: str) -> str:
+    text = _read(root, "CHANGELOG.md")
+    headings = list(HEADING_PATTERN.finditer(text))
+    for index, heading in enumerate(headings):
+        if heading.group(1) != version:
+            continue
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+        return text[heading.end() : end].strip()
+    raise BumpError(f"CHANGELOG.md has no section for {version}")
+
+
+def published_releases(root: Path) -> list[str]:
+    payload = json.loads(_read(root, "docs/releases.json"))
+    releases = payload.get("published")
+    if not isinstance(releases, list) or not releases:
+        raise BumpError("docs/releases.json lists no published releases")
+    return [str(item) for item in releases]
+
+
+def rollback_target(root: Path, version: str) -> str:
+    new = tuple(int(part) for part in version.split("."))
+    for tag in published_releases(root):
+        parts = tuple(int(part) for part in tag[1:].split("."))
+        if parts < new:
+            return tag
+    raise BumpError(f"no published release below {version} to roll back to")
+
+
+def _replace_json_version(root: Path, relative: str, version: str) -> bool:
+    text = _read(root, relative)
+    updated, count = re.subn(
+        r'("version"\s*:\s*")\d+\.\d+\.\d+(")',
+        rf"\g<1>{version}\g<2>",
+        text,
+        count=1,
+    )
+    if count != 1:
+        raise BumpError(f"{relative} carries no version field")
+    changed = updated != text
+    if changed:
+        _write(root, relative, updated)
+    return changed
+
+
+def _apply(root: Path, version: str) -> list[str]:
+    rollback = rollback_target(root, version)
+    changed: list[str] = []
+
+    for relative in (
+        ".codex-plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+        ".claude-plugin/marketplace.json",
+    ):
+        if _replace_json_version(root, relative, version):
+            changed.append(relative)
+
+    installer = _read(root, "install.ps1")
+    updated, count = re.subn(
+        r'(\[string\]\$ReleaseRef = ")v\d+\.\d+\.\d+(")',
+        rf"\g<1>v{version}\g<2>",
+        installer,
+        count=1,
+    )
+    if count != 1:
+        raise BumpError("install.ps1 carries no default release ref")
+    if updated != installer:
+        _write(root, "install.ps1", updated)
+        changed.append("install.ps1")
+
+    sentinel = "\0cp-rollback-target\0"
+    for relative in ("README.md", "docs/operations.md"):
+        text = _read(root, relative)
+        # The rollback command names the newest published release; every other
+        # bare release tag in the document names the release being declared.
+        # The same literal can play both roles across a bump, so the rollback
+        # phrase is protected positionally rather than by value.
+        updated = re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", sentinel, text)
+        updated = TAG_PATTERN.sub(f"v{version}", updated)
+        updated = updated.replace(sentinel, f"-ReleaseRef {rollback}")
+        if updated != text:
+            _write(root, relative, updated)
+            changed.append(relative)
+    return changed
+
+
+def check(root: Path) -> dict[str, object]:
+    version = changelog_version(root)
+    body = changelog_section_body(root, version)
+    if not body:
+        raise BumpError(f"CHANGELOG section for {version} is empty")
+    problems: list[str] = []
+    for relative in (
+        ".codex-plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+    ):
+        declared = json.loads(_read(root, relative)).get("version", "")
+        if str(declared).split("+", 1)[0] != version:
+            problems.append(f"{relative} declares {declared!r}, changelog {version}")
+    marketplace = json.loads(_read(root, ".claude-plugin/marketplace.json"))
+    entries = [
+        str(entry.get("version", "")).split("+", 1)[0]
+        for entry in marketplace.get("plugins", [])
+    ]
+    if entries != [version]:
+        problems.append(f"marketplace.json declares {entries}, changelog {version}")
+    installer = _read(root, "install.ps1")
+    if f'[string]$ReleaseRef = "v{version}"' not in installer:
+        problems.append("install.ps1 default release ref is stale")
+    rollback = rollback_target(root, version)
+    readme = _read(root, "README.md")
+    if f"-ReleaseRef {rollback}" not in readme:
+        problems.append(f"README rollback target is not {rollback}")
+    if problems:
+        raise BumpError("; ".join(problems))
+    return {"version": version, "rollback": rollback, "aligned": True}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="target version; defaults to the newest changelog heading",
+    )
+    parser.add_argument("--root", type=Path, default=PLUGIN_ROOT)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify every carrier matches the changelog without writing",
+    )
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
+    try:
+        if args.check:
+            if args.version is not None:
+                raise BumpError("--check takes no version argument")
+            payload = check(root)
+            print(json.dumps(payload, sort_keys=True))
+            return 0
+        version = args.version
+        if version is None:
+            raise BumpError("a target version is required unless --check is given")
+        if not VERSION_PATTERN.fullmatch(version):
+            raise BumpError(f"malformed version: {version!r}")
+        declared = changelog_version(root)
+        if declared != version:
+            raise BumpError(
+                f"write the CHANGELOG section first: its newest heading is "
+                f"{declared}, not {version}"
+            )
+        if not changelog_section_body(root, version):
+            raise BumpError(f"CHANGELOG section for {version} is empty")
+        changed = _apply(root, version)
+        check(root)
+        print(
+            json.dumps(
+                {
+                    "version": version,
+                    "rollback": rollback_target(root, version),
+                    "changed": changed,
+                },
+                sort_keys=True,
+            )
+        )
+        # docs/releases.json is deliberately not a carrier here: the new tag
+        # does not exist yet, and the file records only published releases.
+        # It gains this release in the post-publication step of the checklist.
+        return 0
+    except BumpError as error:
+        print(json.dumps({"error": str(error)}))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
