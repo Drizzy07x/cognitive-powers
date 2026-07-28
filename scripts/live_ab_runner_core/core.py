@@ -923,11 +923,23 @@ def command_identity(argv: Sequence[str]) -> dict[str, Any]:
     }
 
 
-def codex_host_identity(codex: str) -> dict[str, Any]:
-    """Freeze the executable and host capabilities used by both experiment arms."""
+def resolve_codex_executable(codex: str) -> str:
+    """Resolve the Codex CLI once, before any subprocess receives the name.
+
+    The CLI is an npm shim, so on Windows it is codex.cmd, and CreateProcess
+    only ever appends .exe to a bare name: handing "codex" straight to
+    subprocess raised WinError 2 on a host where the CLI works. shutil.which
+    honours PATHEXT; an explicit path survives unchanged.
+    """
     executable = Path(shutil.which(codex) or codex).expanduser().resolve()
     if not executable.is_file():
         raise LiveEvaluationError(f"Codex executable is unavailable: {codex}")
+    return str(executable)
+
+
+def codex_host_identity(codex: str) -> dict[str, Any]:
+    """Freeze the executable and host capabilities used by both experiment arms."""
+    executable = Path(resolve_codex_executable(codex))
     completed = subprocess.run(
         [str(executable), "--version"],
         check=False,

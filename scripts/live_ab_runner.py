@@ -110,6 +110,7 @@ def _load_live_runner_core():
 _CORE = _load_live_runner_core()
 shutil = _CORE.shutil
 LiveEvaluationError = _CORE.LiveEvaluationError
+resolve_codex_executable = _CORE.resolve_codex_executable
 rollout_snapshot = _CORE.rollout_snapshot
 _rollout_rows = _CORE._rollout_rows
 _final_rollout_usage = _CORE._final_rollout_usage
@@ -193,7 +194,7 @@ def _plugin_list(codex: str, home: Path) -> list[dict[str, Any]]:
     environment = dict(os.environ)
     environment["CODEX_HOME"] = str(home)
     completed = subprocess.run(
-        [codex, "plugin", "list", "--json"],
+        [resolve_codex_executable(codex), "plugin", "list", "--json"],
         check=False,
         capture_output=True,
         text=True,
@@ -443,7 +444,7 @@ def build_codex_command(
     bypass_sandbox: bool,
 ) -> list[str]:
     command = [
-        codex,
+        resolve_codex_executable(codex),
         "exec",
         "--json",
         "--color",

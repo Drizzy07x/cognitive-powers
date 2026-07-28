@@ -16,6 +16,7 @@ from live_ab_runner import (
     INSTALLED_SURFACE_DIRECTORIES,
     INSTALLED_SURFACE_FILES,
     codex_host_identity,
+    resolve_codex_executable,
     source_sha256,
     tree_hashes,
     validate_arm_plugins,
@@ -148,15 +149,28 @@ def _copy_plugin(
 
 
 def _login_status(codex: str, home: Path) -> str:
+    # Resolve the shim before spawning and fold every launch failure into the
+    # domain error: a bare "codex" reached CreateProcess on Windows, which only
+    # appends .exe, so the operator saw a raw WinError 2 traceback instead of a
+    # preparation diagnostic.
+    try:
+        executable = resolve_codex_executable(codex)
+    except ValueError as error:
+        raise HomePreparationError(str(error)) from error
     environment = dict(os.environ)
     environment["CODEX_HOME"] = str(home)
-    completed = subprocess.run(
-        [codex, "login", "status"],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
+    try:
+        completed = subprocess.run(
+            [executable, "login", "status"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+    except OSError as error:
+        raise HomePreparationError(
+            f"cannot execute the Codex CLI for {home}: {error}"
+        ) from error
     status = (completed.stdout + completed.stderr).strip()
     if completed.returncode != 0 or "Logged in using ChatGPT" not in status:
         raise HomePreparationError(f"ChatGPT authentication unavailable in {home}")

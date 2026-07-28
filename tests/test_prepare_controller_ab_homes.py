@@ -151,8 +151,28 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
         completed = mock.Mock(
             returncode=0, stdout="Logged in using API key\n", stderr=""
         )
-        with mock.patch.object(homes.subprocess, "run", return_value=completed):
+        with (
+            mock.patch.object(homes, "resolve_codex_executable", return_value="codex"),
+            mock.patch.object(homes.subprocess, "run", return_value=completed),
+        ):
             with self.assertRaisesRegex(homes.HomePreparationError, "ChatGPT"):
+                homes._login_status("codex", Path("home"))
+
+    def test_missing_codex_cli_is_a_home_preparation_error(self) -> None:
+        # A bare name reached CreateProcess, which only appends .exe, so a
+        # missing or npm-shimmed CLI surfaced as a raw WinError 2 traceback
+        # instead of a preparation diagnostic.
+        with self.assertRaisesRegex(homes.HomePreparationError, "cp-absent-codex-cli"):
+            homes._login_status("cp-absent-codex-cli", Path("home"))
+
+    def test_unlaunchable_codex_cli_is_a_home_preparation_error(self) -> None:
+        with (
+            mock.patch.object(homes, "resolve_codex_executable", return_value="codex"),
+            mock.patch.object(homes.subprocess, "run", side_effect=OSError("blocked")),
+        ):
+            with self.assertRaisesRegex(
+                homes.HomePreparationError, "cannot execute the Codex CLI"
+            ):
                 homes._login_status("codex", Path("home"))
 
     def test_prepared_homes_validate_against_explicit_plugin_source(self) -> None:

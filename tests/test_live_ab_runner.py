@@ -1827,17 +1827,54 @@ class LiveAbRunnerTests(unittest.TestCase):
         self.assertIsNone(decision["agent_execution_receipt"]["controller_compliant"])
 
     def test_codex_command_is_persistent_and_enables_multi_agent(self) -> None:
-        command = runner.build_codex_command(
-            codex="codex",
-            fixture=Path("fixture"),
-            message=Path("message.txt"),
-            prompt="work",
-            model="gpt-test",
-            reasoning_effort="medium",
-            bypass_sandbox=False,
-        )
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / (
+                "codex.cmd" if runner.os.name == "nt" else "codex"
+            )
+            executable.write_text("", encoding="utf-8")
+            command = runner.build_codex_command(
+                codex=str(executable),
+                fixture=Path("fixture"),
+                message=Path("message.txt"),
+                prompt="work",
+                model="gpt-test",
+                reasoning_effort="medium",
+                bypass_sandbox=False,
+            )
         self.assertNotIn("--ephemeral", command)
         self.assertIn("features.multi_agent=true", command)
+
+    def test_codex_command_resolves_the_shim_before_it_is_spawned(self) -> None:
+        # The CLI is an npm shim, so on Windows it is codex.cmd, and
+        # CreateProcess only appends .exe to a bare name: an unresolved argv[0]
+        # raised WinError 2 on a host where the CLI works.
+        with tempfile.TemporaryDirectory() as temporary:
+            shim = Path(temporary) / (
+                "cp-fake-codex.cmd" if runner.os.name == "nt" else "cp-fake-codex"
+            )
+            shim.write_text("", encoding="utf-8")
+            if runner.os.name != "nt":
+                shim.chmod(0o755)
+            search = (
+                str(Path(temporary)) + runner.os.pathsep + runner.os.environ["PATH"]
+            )
+            with mock.patch.dict(runner.os.environ, {"PATH": search}):
+                command = runner.build_codex_command(
+                    codex="cp-fake-codex",
+                    fixture=Path("fixture"),
+                    message=Path("message.txt"),
+                    prompt="work",
+                    model="gpt-test",
+                    reasoning_effort="medium",
+                    bypass_sandbox=False,
+                )
+        self.assertTrue(Path(command[0]).is_absolute(), command[0])
+        self.assertTrue(Path(command[0]).name.startswith("cp-fake-codex"))
+
+    def test_unresolvable_codex_is_a_domain_error(self) -> None:
+        with mock.patch.object(runner.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(runner.LiveEvaluationError, "cp-absent-codex"):
+                runner.resolve_codex_executable("cp-absent-codex")
 
     def test_host_identity_freezes_binary_version_and_effective_features(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
