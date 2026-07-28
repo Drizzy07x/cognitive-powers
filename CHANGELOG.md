@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed the post-publication verification never running. `verify-release` listens for `release: published`, and a release created with `GITHUB_TOKEN` raises no event, so the trigger could observe a human-created release but never this project's own publisher — it looked like a closed loop and was not one. The publisher now dispatches the verifier explicitly as its last step, which does work with that token. Observed on the 1.7.2 publication, which verified only because it was dispatched by hand.
+
 - Added `eli5`, a workflow for explaining a paper, research result, or dense technical artifact in plain language. It keeps the six-section shape the source skill defined, and adds what this plugin requires of any explanation: establish the source before explaining it, never reconstruct a paper's findings from recollection, and separate what the source demonstrates from what people infer. Paper retrieval follows the existing optional-provider pattern — a declared tool is used and named, its absence is stated rather than papered over, and nothing is installed.
 - Fixed `use-current-docs` matching "bump the version to 2.0.1" at 0.274 against the router's 0.27 threshold, a near-miss that had been passing by 0.0003 and that any change to the description corpus would tip. Its listing now says "dependency release the repository actually installs" where it said "version", which drops that prompt to a non-match while every one of its own positives still ranks first — and the borderline one now clears the advisory threshold it used to sit under.
 

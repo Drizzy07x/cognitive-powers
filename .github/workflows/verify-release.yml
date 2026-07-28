@@ -1,6 +1,9 @@
 name: Verify published release
 
 "on":
+  # `release` covers a human-created release. It cannot cover this project's
+  # own publisher: a release created with GITHUB_TOKEN raises no event, so
+  # publish-release.yml dispatches this workflow explicitly as its last step.
   release:
     types: [published]
   schedule:

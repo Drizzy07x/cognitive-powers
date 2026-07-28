@@ -14,7 +14,9 @@ name: Publish validated release
 
 permissions:
   contents: write
-  actions: read
+  # write, not read: the last step dispatches verify-release, because a
+  # release created with GITHUB_TOKEN raises no event that could trigger it.
+  actions: write
   attestations: read
 
 jobs:
@@ -132,3 +134,14 @@ jobs:
           --verify-tag
           --title "Cognitive Powers ${{ inputs.tag }}"
           --notes-file "${{ runner.temp }}/release-notes.md"
+      - name: Verify the release that was just published
+        # A release created with GITHUB_TOKEN does not raise a `release`
+        # event, so verify-release cannot observe its own publisher and its
+        # published trigger only ever fires for a human-created release.
+        # Dispatch it explicitly, which does work with this token.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run verify-release.yml
+          --repo "${{ github.repository }}"
+          -f "tag=${{ inputs.tag }}"

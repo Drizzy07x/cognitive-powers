@@ -524,6 +524,12 @@ class PluginContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("gh release create", publication)
         self.assertIn("gh run download", publication)
+        # A release created with GITHUB_TOKEN raises no event, so the
+        # published trigger can never observe this project's own publisher.
+        # The publisher dispatches the verifier itself, which does work with
+        # that token, and needs actions: write to do it.
+        self.assertIn("gh workflow run verify-release.yml", publication)
+        self.assertIn("actions: write", publication)
         self.assertIn("head_sha", publication)
         self.assertIn("gh attestation verify", publication)
         self.assertNotRegex(publication, r"actions/[a-z-]+@v[0-9]+")
