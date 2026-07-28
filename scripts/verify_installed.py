@@ -369,8 +369,22 @@ def verify_installation(
         install_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         install_metadata = None
+    # What has to be proven is that the installed tree is the release commit.
+    # Its own checkout answers that directly, while the host metadata is only a
+    # record the host chose to leave: Codex does not write it where a
+    # marketplace is rooted, so requiring it rejected installations that are in
+    # fact at the right commit. The revision is therefore the primary evidence
+    # and the metadata is corroboration, which is accepted when absent and
+    # refused when present and disagreeing.
+    try:
+        head = _git(installed_root, "rev-parse", "HEAD")
+        installed_revision = head.stdout.strip() if head.returncode == 0 else None
+    except OSError:
+        installed_revision = None
+    revision_pinned = installed_revision == commit
+    metadata_present = isinstance(install_metadata, dict)
     metadata_pinned = bool(
-        isinstance(install_metadata, dict)
+        metadata_present
         and install_metadata.get("source_type") == "git"
         and install_metadata.get("source") in EXPECTED_REPOSITORY_SOURCES
         and install_metadata.get("ref_name") == commit
@@ -378,7 +392,9 @@ def verify_installation(
         and install_metadata.get("sparse_paths") == []
     )
     source_pinned = (
-        marketplace_source in EXPECTED_REPOSITORY_SOURCES and metadata_pinned
+        marketplace_source in EXPECTED_REPOSITORY_SOURCES
+        and (revision_pinned or metadata_pinned)
+        and (metadata_pinned or not metadata_present)
     )
     inventory_matched = (
         len(configured) == 1
@@ -396,6 +412,9 @@ def verify_installation(
         "marketplaceRoot": str(marketplace_root) if marketplace_root else None,
         "marketplaceRootMatchesInstalledRoot": marketplace_root_matches,
         "sourcePinnedToCommit": source_pinned,
+        "installedRevision": installed_revision,
+        "revisionPinnedToCommit": revision_pinned,
+        "installMetadataPresent": metadata_present,
         "installMetadataPinnedToCommit": metadata_pinned,
         "installMetadataRevision": (
             install_metadata.get("revision")

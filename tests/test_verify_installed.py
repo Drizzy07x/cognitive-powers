@@ -256,6 +256,69 @@ class VerifyInstalledTests(unittest.TestCase):
         self.assertEqual(code, self.module.EXIT_INVENTORY)
         self.assertFalse(report["inventory"]["sourcePinnedToCommit"])
 
+    def checkout_installed(self) -> Path:
+        """A marketplace root as Codex leaves one: a checkout, no host metadata."""
+        target = self.base / "installed-checkout"
+        subprocess.run(
+            ["git", "clone", "-q", str(self.source), str(target)], check=True
+        )
+        subprocess.run(["git", "checkout", "-q", self.commit], cwd=target, check=True)
+        return target
+
+    def runner_rooted_at(self, root: Path):
+        def run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+            completed = self.runner(argv)
+            if argv == ["codex", "plugin", "marketplace", "list", "--json"]:
+                payload = json.loads(completed.stdout)
+                payload["marketplaces"][0]["root"] = str(root)
+                completed.stdout = json.dumps(payload)
+            return completed
+
+        return run
+
+    def test_checkout_at_the_release_commit_needs_no_host_metadata(self) -> None:
+        # Codex does not leave .codex-marketplace-install.json where it roots a
+        # marketplace, so demanding it refused installations that are in fact at
+        # the release commit. The checkout answers that question directly.
+        installed = self.checkout_installed()
+        report, code = self.module.verify_installation(
+            self.source, installed, "v1.6.0", run=self.runner_rooted_at(installed)
+        )
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report["inventory"]["revisionPinnedToCommit"])
+        self.assertTrue(report["inventory"]["sourcePinnedToCommit"])
+        self.assertFalse(report["inventory"]["installMetadataPresent"])
+
+    def test_host_metadata_that_disagrees_refuses_a_matching_checkout(self) -> None:
+        installed = self.checkout_installed()
+        (installed / ".codex-marketplace-install.json").write_text(
+            json.dumps(
+                {
+                    "source_type": "git",
+                    "source": "https://github.com/Drizzy07x/cognitive-powers.git",
+                    "ref_name": self.commit,
+                    "revision": "0" * 40,
+                    "sparse_paths": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        report, code = self.module.verify_installation(
+            self.source, installed, "v1.6.0", run=self.runner_rooted_at(installed)
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertTrue(report["inventory"]["revisionPinnedToCommit"])
+        self.assertFalse(report["inventory"]["sourcePinnedToCommit"])
+
+    def test_neither_a_checkout_nor_host_metadata_fails_closed(self) -> None:
+        (self.installed / ".codex-marketplace-install.json").unlink()
+        report, code = self.module.verify_installation(
+            self.source, self.installed, "v1.6.0", run=self.runner
+        )
+        self.assertEqual(code, self.module.EXIT_INVENTORY)
+        self.assertFalse(report["inventory"]["revisionPinnedToCommit"])
+        self.assertFalse(report["inventory"]["sourcePinnedToCommit"])
+
     def test_marketplace_root_must_equal_the_verified_installed_root(self) -> None:
         other = self.base / "other-marketplace"
         other.mkdir()
