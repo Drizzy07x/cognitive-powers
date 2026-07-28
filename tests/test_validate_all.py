@@ -178,6 +178,20 @@ class ValidateAllTests(unittest.TestCase):
             install_slice.index("./install.ps1"),
         )
 
+    def test_ci_resolves_the_codex_executable_before_running_it(self) -> None:
+        # The lockfile-backed CLI is an npm shim, so on Windows it is codex.cmd.
+        # CreateProcess only appends .exe to a bare name, so handing 'codex' to
+        # subprocess raised WinError 2 on every Windows cell while the pwsh
+        # steps around it ran the same command without trouble.
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        step = workflow.index("- name: Resolve exact Codex CLI version")
+        following = workflow.index("- name: ", step + 1)
+        step_slice = workflow[step:following]
+        self.assertIn("shutil.which('codex')", step_slice)
+        self.assertNotIn("subprocess.run(['codex'", step_slice)
+
     def test_ci_keeps_validation_separate_from_receipt_publication(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"

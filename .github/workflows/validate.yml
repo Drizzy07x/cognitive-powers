@@ -123,8 +123,12 @@ jobs:
       - name: Resolve exact Codex CLI version
         id: codex-version
         if: always() && steps.receipt-report.outcome == 'success'
+        # The lockfile-backed CLI is an npm shim, so on Windows it is codex.cmd.
+        # CreateProcess only ever appends .exe to a bare name, which is why the
+        # six Windows cells raised WinError 2 here; shutil.which honours PATHEXT
+        # and resolves the shim the surrounding pwsh steps already run.
         run: >-
-          python -c "import os,subprocess; from pathlib import Path; r=subprocess.run(['codex','--version'],capture_output=True,text=True,check=True); v=' '.join(r.stdout.split()); assert v; Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8').write('value='+v+'\n')"
+          python -c "import os,shutil,subprocess; from pathlib import Path; exe=shutil.which('codex'); assert exe, 'codex is not on PATH'; r=subprocess.run([exe,'--version'],capture_output=True,text=True,check=True); v=' '.join(r.stdout.split()); assert v; Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8').write('value='+v+'\n')"
       - name: Exercise real upgrade and rollback with the supported Codex host
         if: startsWith(github.ref, 'refs/tags/') && steps.immutable-install.outcome == 'success'
         shell: pwsh
