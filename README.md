@@ -137,12 +137,12 @@ The current tests validate plugin structure, context selection, state transition
 
 Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers continues to work without these integrations. It never installs or initializes them inside a target repository implicitly. QCU is never started merely because its skill loads. Skyvern completion, QCU primitive success, graph-selected tests, screenshots, traces, recordings, and generated candidates remain supporting evidence until a relevant objective-level assertion passes.
 
-## Install from the private GitHub repository
+## Install from the GitHub repository
 
 The commands in this section are release-facing. Before an exact `v1.7.0` tag
 exists, immutable tag preflight intentionally fails without changing the profile.
 
-The repository is private, so GitHub CLI must be installed and authenticated with access to `Drizzy07x/cognitive-powers`. Install or update Cognitive Powers with one PowerShell command:
+The installer resolves the release tag to an immutable commit through GitHub CLI and configures Git credentials with it, so `gh` must be installed and authenticated even though the repository itself is readable without it. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
 & ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
@@ -158,7 +158,7 @@ To roll back immutably to 1.6.0, run the audited 1.7.0 installer with the prior 
 
 ## Update the local development installation
 
-The private and local-development routes are mutually exclusive: only one enabled installation of `cognitive-powers` may exist. To switch to the local checkout after its source version passes validation, remove the private-marketplace installation first:
+The release and local-development routes are mutually exclusive: only one enabled installation of `cognitive-powers` may exist. To switch to the local checkout after its source version passes validation, remove the release-marketplace installation first:
 
 ```powershell
 codex plugin remove cognitive-powers@cognitive-powers --json
@@ -166,7 +166,7 @@ codex plugin add cognitive-powers@personal --json
 codex plugin list --json
 ```
 
-The installed entry must report the same version as `.codex-plugin/plugin.json`, and `codex plugin list --json` must show exactly one installed and enabled entry named `cognitive-powers`. Running the private GitHub installer later removes the local-development entry before installing the private release.
+The installed entry must report the same version as `.codex-plugin/plugin.json`, and `codex plugin list --json` must show exactly one installed and enabled entry named `cognitive-powers`. Running the GitHub installer later removes the local-development entry before installing the tagged release.
 
 ## Install in Claude Code
 
