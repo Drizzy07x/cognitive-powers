@@ -205,8 +205,10 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("! -name 'compatibility-scenario-evidence.json'", step_slice)
         self.assertLess(
             step_slice.index("! -name 'compatibility-scenario-evidence.json'"),
-            step_slice.index('test "${#receipts[@]}" -eq 108'),
+            step_slice.index('[ "${#receipts[@]}" -ne 108 ]'),
         )
+        # ...and the refusal names what it found instead of failing silently.
+        self.assertIn("expected 108 compatibility receipts, found", step_slice)
 
     def test_release_evidence_artifact_is_flat(self) -> None:
         # upload-artifact preserves each path relative to the least common
@@ -217,7 +219,10 @@ class ValidateAllTests(unittest.TestCase):
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
         )
-        step = workflow.index("name: release-evidence-${{ github.ref_name }}")
+        # Constant artifact name: a ref-suffixed name cannot exist for branch
+        # refs (they contain "/") and the publisher binds run and tag itself.
+        self.assertNotIn("release-evidence-${{", workflow)
+        step = workflow.index("name: release-evidence")
         following = workflow.index("if-no-files-found: error", step)
         paths = [
             line.strip()

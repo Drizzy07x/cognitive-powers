@@ -62,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh run download "${{ inputs.run_id }}"
-          --name "release-evidence-${{ inputs.tag }}"
+          --name "release-evidence"
           --dir "${{ runner.temp }}/release-assets"
       - name: Verify asset allowlist, identity, checksum, and provenance
         env:

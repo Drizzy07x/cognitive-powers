@@ -96,13 +96,25 @@ jobs:
           --output "${{ runner.temp }}/release-two.json"
       - name: compare-release-builds
         if: startsWith(github.ref, 'refs/tags/')
-        run: >-
-          python -c "from pathlib import Path; import sys; p=Path(r'${{ runner.temp }}'); sys.exit(0 if (p/'release-one.tar').read_bytes()==(p/'release-two.tar').read_bytes() and (p/'release-one.json').read_bytes()==(p/'release-two.json').read_bytes() else 1)"
-
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ runner.temp }}"
+          # Name what differed: a silent reproducibility failure was one of
+          # the shapes that let nine tag-only defects mask each other.
+          status=0
+          for name in tar json; do
+            if ! cmp "release-one.$name" "release-two.$name"; then
+              echo "release-one.$name and release-two.$name differ between the two builds" >&2
+              ls -l "release-one.$name" "release-two.$name" >&2
+              status=1
+            fi
+          done
+          exit "$status"
       - name: Write release archive checksum
         if: startsWith(github.ref, 'refs/tags/')
         run: >-
-          python -c "from pathlib import Path; import hashlib; p=Path(r'${{ runner.temp }}'); a=p/'release-one.tar'; (p/'release-one.sha256').write_text(hashlib.sha256(a.read_bytes()).hexdigest()+'  release-one.tar\n', encoding='ascii')"
+          python -c "from pathlib import Path; import hashlib; p=Path(r'${{ runner.temp }}'); a=p/'release-one.tar'; (p/'release-one.sha256').write_text(hashlib.sha256(a.read_bytes()).hexdigest()+'  release-one.tar\n', encoding='ascii', newline='\n')"
       - name: Verify exact version-tag release identity
         if: startsWith(github.ref, 'refs/tags/')
         run: >-
@@ -226,7 +238,7 @@ jobs:
           merge-multiple: false
       - name: Require all twelve validation receipts
         run: >-
-          python -c "from pathlib import Path; import sys; p=Path(r'${{ runner.temp }}/matrix-evidence'); receipts=list(p.rglob('validation-*.json')); sys.exit(0 if len(receipts)==12 else 1)"
+          python -c "from pathlib import Path; import sys; p=Path(r'${{ runner.temp }}/matrix-evidence'); receipts=sorted(p.rglob('validation-*.json')); print(f'found {len(receipts)} validation receipts:'); [print(' ', r.name) for r in receipts]; sys.exit(0 if len(receipts)==12 else 1)"
       - name: Aggregate receipts from the twelve successful jobs in this workflow run
         shell: bash
         run: |
@@ -235,7 +247,11 @@ jobs:
           # matches this glob but is the input the receipts were derived from,
           # not a receipt. Counting it made the twelve cells look like 120.
           mapfile -t receipts < <(find "${{ runner.temp }}/matrix-evidence" -name 'compatibility-*.json' -type f ! -name 'compatibility-scenario-evidence.json' | sort)
-          test "${#receipts[@]}" -eq 108
+          if [ "${#receipts[@]}" -ne 108 ]; then
+            echo "expected 108 compatibility receipts, found ${#receipts[@]}:" >&2
+            printf '  %s\n' "${receipts[@]:-<none>}" >&2
+            exit 1
+          fi
           mapfile -t verified < <(python - "${receipts[@]}" <<'PY'
           import json, os, sys
           seen = set()
@@ -243,19 +259,24 @@ jobs:
               receipt = json.load(open(name, encoding="utf-8"))
               identity = receipt.get("identity", {})
               installation = receipt.get("installation", {})
-              assert identity.get("commit") == os.environ["GITHUB_SHA"]
-              assert identity.get("runId") == os.environ["GITHUB_RUN_ID"]
-              assert identity.get("runAttempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
-              assert installation.get("commit") == os.environ["GITHUB_SHA"]
+              assert identity.get("commit") == os.environ["GITHUB_SHA"], (
+                  f"{name}: receipt commit {identity.get('commit')!r} is not this run's {os.environ['GITHUB_SHA']!r}")
+              assert identity.get("runId") == os.environ["GITHUB_RUN_ID"], (
+                  f"{name}: receipt runId {identity.get('runId')!r} is not this run's {os.environ['GITHUB_RUN_ID']!r}")
+              assert identity.get("runAttempt") == int(os.environ["GITHUB_RUN_ATTEMPT"]), (
+                  f"{name}: receipt runAttempt {identity.get('runAttempt')!r} is not attempt {os.environ['GITHUB_RUN_ATTEMPT']!r}")
+              assert installation.get("commit") == os.environ["GITHUB_SHA"], (
+                  f"{name}: installation commit {installation.get('commit')!r} is not this run's head")
               key = (receipt["os"], receipt["python"], receipt["codexCli"], receipt["scenario"])
-              assert key not in seen
+              assert key not in seen, f"{name}: duplicate receipt for cell {key}"
               seen.add(key)
               print(receipt["receiptSha256"])
           cells = {(os_name, python, codex) for os_name, python, codex, _scenario in seen}
-          assert len(cells) == 12
+          assert len(cells) == 12, f"expected 12 matrix cells, receipts describe {len(cells)}: {sorted(cells)}"
           for cell in cells:
               scenarios = {scenario for os_name, python, codex, scenario in seen if (os_name, python, codex) == cell}
-              assert {"clean-install", "upgrade-v1.5.2", "rollback"} <= scenarios
+              missing = {"clean-install", "upgrade-v1.5.2", "rollback"} - scenarios
+              assert not missing, f"cell {cell} is missing lifecycle scenarios: {sorted(missing)}"
           PY
           )
           args=()
@@ -264,9 +285,12 @@ jobs:
           python - "${{ runner.temp }}/compatibility-matrix.json" <<'PY'
           import json, sys
           matrix=json.load(open(sys.argv[1], encoding='utf-8'))
-          assert len(matrix['rows']) == 108
-          assert len({(r['os'],r['python'],r['codexCli'],r['scenario']) for r in matrix['rows']}) == 108
-          assert matrix['summary'] == {'compatible': 108, 'incompatible': 0, 'unknown': 0}
+          rows=len(matrix['rows'])
+          assert rows == 108, f"matrix carries {rows} rows, expected 108"
+          distinct=len({(r['os'],r['python'],r['codexCli'],r['scenario']) for r in matrix['rows']})
+          assert distinct == 108, f"matrix rows collapse to {distinct} distinct cells"
+          summary=matrix['summary']
+          assert summary == {'compatible': 108, 'incompatible': 0, 'unknown': 0}, f"matrix summary is {summary}"
           PY
           python scripts/validate_compatibility_matrix.py --matrix "${{ runner.temp }}/compatibility-matrix.json" --contract compatibility-contract.json
       - name: Verify all twelve release builds and select canonical bytes
@@ -303,7 +327,11 @@ jobs:
           python -c "import shutil; from pathlib import Path; t=Path(r'${{ runner.temp }}'); d=t/'release-final'; [shutil.copy2(t/n, d/n) for n in ('cognitive-powers-release-witness.json','compatibility-matrix.json','compatibility.md')]"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-evidence-${{ github.ref_name }}
+          # Constant name: artifacts are already scoped to one run, the
+          # publisher binds run and tag explicitly, and branch refs contain
+          # "/", which is invalid in artifact names -- the ref-suffixed name
+          # is what kept every branch run from producing release evidence.
+          name: release-evidence
           path: |
             ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}
             ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}.sha256

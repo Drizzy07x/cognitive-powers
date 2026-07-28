@@ -454,7 +454,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("--require-hashes", workflow)
         self.assertIn("merge-multiple: false", workflow)
         self.assertIn("aggregate_release_artifacts.py", workflow)
-        self.assertIn('test "${#receipts[@]}" -eq 108', workflow)
+        self.assertIn('[ "${#receipts[@]}" -ne 108 ]', workflow)
         self.assertIn("'compatible': 108", workflow)
         self.assertIn("$marketplaceState.marketplaces", workflow)
         self.assertIn(
