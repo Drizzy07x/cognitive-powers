@@ -4,6 +4,7 @@ import importlib.util
 import copy
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,15 @@ SPEC = importlib.util.spec_from_file_location("release_witness", MODULE_PATH)
 witness = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(witness)
+
+POLICY_PATH = PLUGIN_ROOT / "scripts" / "storage_policy.py"
+POLICY_SPEC = importlib.util.spec_from_file_location(
+    "storage_policy_for_witness_tests", POLICY_PATH
+)
+storage_policy = importlib.util.module_from_spec(POLICY_SPEC)
+assert POLICY_SPEC.loader is not None
+sys.modules[POLICY_SPEC.name] = storage_policy
+POLICY_SPEC.loader.exec_module(storage_policy)
 
 
 def git(root: Path, *args: str) -> None:
@@ -282,6 +292,44 @@ class ReleaseWitnessTests(unittest.TestCase):
                 self.assertTrue(witness._is_python_executable(spelling))
         self.assertFalse(witness._is_python_executable(r"C:\tools\not-python.exe"))
         self.assertFalse(witness._is_python_executable("/usr/bin/not-python"))
+
+    def test_source_records_use_the_receipt_identity_scheme(self) -> None:
+        # The witness refuses receipts whose algorithm is not the shared
+        # normalized scheme, so its own digest must be computed under that
+        # scheme. Hashing raw bytes agreed with receipts only while no tracked
+        # file sat in the worktree with CRLF content; one such file and twelve
+        # valid receipts were rejected as "absent or stale".
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = parent / "plugin"
+            (root / ".codex-plugin").mkdir(parents=True)
+            (root / ".codex-plugin" / "plugin.json").write_text(
+                json.dumps({"name": "fixture", "version": "1.0.0"}),
+                encoding="utf-8",
+            )
+            (root / "source.txt").write_text("bound source\n", encoding="utf-8")
+            # The worktree spelling of a text file on a CRLF-translating
+            # checkout: raw bytes differ from the committed LF form.
+            (root / "notes.txt").write_bytes(b"first\r\nsecond\r\n")
+            git(root, "init", "-q")
+            git(root, "config", "user.name", "Fixture")
+            git(root, "config", "user.email", "fixture@example.invalid")
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "fixture")
+            git(root, "tag", "v1.0.0")
+
+            identity = storage_policy.source_identity(root)
+            _, witnessed = witness.source_records(root)
+
+            self.assertEqual(witnessed, identity["sha256"])
+
+            value = passing_receipt(root)
+            value["source"]["sha256"] = identity["sha256"]
+            value["source"]["initialSha256"] = identity["sha256"]
+            receipt = parent / "validation.json"
+            receipt.write_text(json.dumps(value), encoding="utf-8")
+            created = witness.create_witness(root, [receipt])
+        self.assertTrue(created)
 
     def test_create_accepts_a_receipt_written_on_another_platform(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

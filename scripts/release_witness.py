@@ -18,6 +18,8 @@ try:
         EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
+        identity_bytes,
+        identity_name,
         iter_tree_files,
     )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
@@ -25,6 +27,8 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
         EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
+        identity_bytes,
+        identity_name,
         iter_tree_files,
     )
 
@@ -163,14 +167,28 @@ def release_tag_identity(root: Path, version: str) -> str:
 
 
 def source_records(root: Path) -> tuple[list[dict[str, Any]], str]:
-    files = [
-        {
-            "path": path.relative_to(root).as_posix(),
-            "sha256": sha256_file(path),
-            "bytes": path.stat().st_size,
-        }
-        for path in iter_release_files(root)
-    ]
+    """Record the source surface under the same identity scheme as receipts.
+
+    The witness refuses any receipt whose identity algorithm is not the shared
+    normalized scheme, so it must compute its own digest under that scheme:
+    names composed to NFC and text content folded to LF. Hashing raw bytes and
+    raw names agreed with the receipts only while the tree happened to contain
+    no CRLF worktree file and no decomposed filename -- one of either, and the
+    witness rejected twelve valid receipts as "absent or stale".
+    """
+    files = []
+    for path in iter_release_files(root):
+        try:
+            content = identity_bytes(path.read_bytes())
+        except OSError as error:
+            raise WitnessError(f"cannot read source file {path}: {error}") from error
+        files.append(
+            {
+                "path": identity_name(path.relative_to(root).as_posix()),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "bytes": path.stat().st_size,
+            }
+        )
     aggregate = hashlib.sha256()
     for item in files:
         aggregate.update(item["path"].encode("utf-8"))
