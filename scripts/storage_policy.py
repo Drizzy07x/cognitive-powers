@@ -159,6 +159,31 @@ def _require_directory(root: Path) -> Path:
     return root
 
 
+def _presented_root(root: Path) -> Path:
+    """Return the caller's own absolute spelling of a tree root."""
+    return Path(os.path.abspath(root))
+
+
+def _presented(
+    presented: Path, resolved: Path, paths: Iterable[Path]
+) -> Iterator[Path]:
+    """Re-express enumerated paths under the root spelling the caller passed.
+
+    Enumeration walks the resolved root so a symlinked component cannot steer
+    it, but the resolved spelling is not the one the caller holds: macOS maps
+    ``/var`` onto ``/private/var`` and Windows expands 8.3 names such as
+    ``RUNNER~1`` to ``runneradmin``. Every consumer relates a result back with
+    ``relative_to(root)``, which raises against a root it never supplied, so
+    exactly the platforms that rewrite the root broke enumeration for all of
+    them.
+    """
+    if presented == resolved:
+        yield from paths
+        return
+    for path in paths:
+        yield presented / path.relative_to(resolved)
+
+
 def _iter_directory_files(root: Path, directory: Path) -> Iterator[Path]:
     try:
         entries = sorted(
@@ -193,8 +218,11 @@ def _iter_directory_files(root: Path, directory: Path) -> Iterator[Path]:
 
 def iter_tree_files(root: Path) -> Iterator[Path]:
     """Yield included regular files in deterministic relative-path order."""
-    root = _require_directory(root)
-    yield from _iter_directory_files(root, root)
+    presented = _presented_root(root)
+    resolved = _require_directory(root)
+    yield from _presented(
+        presented, resolved, _iter_directory_files(resolved, resolved)
+    )
 
 
 def _manifest_relative(value: str | os.PathLike[str]) -> Path:
@@ -216,6 +244,7 @@ def enumerate_manifest_files(
     root: Path, manifest: Sequence[str | os.PathLike[str]]
 ) -> tuple[Path, ...]:
     """Resolve an explicit file/directory manifest under ``root``."""
+    presented = _presented_root(root)
     root = _require_directory(root)
     if not manifest:
         raise StoragePolicyError("fixture manifest must not be empty")
@@ -251,11 +280,14 @@ def enumerate_manifest_files(
         for path in paths:
             item_relative = path.relative_to(root).as_posix()
             selected[item_relative] = path
-    return tuple(selected[key] for key in sorted(selected))
+    return tuple(
+        _presented(presented, root, (selected[key] for key in sorted(selected)))
+    )
 
 
 def git_tracked_files(root: Path) -> tuple[Path, ...]:
     """Return policy-included files tracked by Git, failing closed."""
+    presented = _presented_root(root)
     root = _require_directory(root)
     try:
         completed = subprocess.run(
@@ -289,7 +321,9 @@ def git_tracked_files(root: Path) -> tuple[Path, ...]:
                 f"tracked Git file is unavailable or unsupported: {relative.as_posix()}"
             )
         selected[relative.as_posix()] = path
-    return tuple(selected[key] for key in sorted(selected))
+    return tuple(
+        _presented(presented, root, (selected[key] for key in sorted(selected)))
+    )
 
 
 def _selected_files(

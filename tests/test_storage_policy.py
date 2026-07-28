@@ -185,6 +185,44 @@ class StoragePolicyTests(unittest.TestCase):
             ["a/first.txt", "z/second.txt"],
         )
 
+    def test_enumeration_is_relative_to_the_root_the_caller_passed(self) -> None:
+        # Enumeration resolves the root so a symlinked component cannot steer
+        # it, but every consumer relates results back with relative_to(root).
+        # Yielding the resolved spelling therefore raised on exactly the
+        # platforms that rewrite a root -- macOS ("/var" -> "/private/var") and
+        # Windows (8.3 names such as "RUNNER~1") -- while Linux stayed green.
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            real = base / "real"
+            (real / "src").mkdir(parents=True)
+            (real / "src" / "kept.py").write_text("kept", encoding="utf-8")
+            (real / "top.txt").write_text("top", encoding="utf-8")
+            link = base / "link"
+            try:
+                link.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks are unavailable: {error}")
+            self.assertNotEqual(link.resolve(), link)
+
+            self.assertEqual(
+                [
+                    path.relative_to(link).as_posix()
+                    for path in storage_policy.iter_tree_files(link)
+                ],
+                ["src/kept.py", "top.txt"],
+            )
+            self.assertEqual(
+                [
+                    path.relative_to(link).as_posix()
+                    for path in storage_policy.enumerate_manifest_files(link, ("src",))
+                ],
+                ["src/kept.py"],
+            )
+            self.assertEqual(
+                storage_policy.source_identity(link),
+                storage_policy.source_identity(real),
+            )
+
     def test_graphify_generated_state_never_changes_identity_or_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
