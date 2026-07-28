@@ -62,7 +62,11 @@ def load_skill_descriptions(root: Path) -> dict[str, str]:
             r"^when_to_use:\s*(.+?)\s*$", match.group(1), re.MULTILINE
         )
         if trigger_match is not None:
-            description = f"{description} {trigger_match.group(1).strip(' "\'')}"
+            # Stripped outside the f-string: a backslash inside a replacement
+            # field is a syntax error before Python 3.12, and the support
+            # matrix still declares 3.11.
+            trigger = trigger_match.group(1).strip(" \"'")
+            description = f"{description} {trigger}"
         if name in descriptions:
             raise ValueError(f"duplicate skill name: {name}")
         descriptions[name] = description

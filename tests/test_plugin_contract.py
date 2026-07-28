@@ -344,6 +344,44 @@ class PluginContractTests(unittest.TestCase):
             "the documented rollback must name the immediately prior release",
         )
 
+    def test_lint_target_matches_the_lowest_supported_python(self) -> None:
+        """Bind the linter's parse target to the floor the matrix declares.
+
+        Syntax newer than the floor fails at import on the oldest matrix cell,
+        before any assertion in that file can run, and the author's own
+        interpreter never sees it. A routing benchmark shipped a backslash
+        inside an f-string replacement field, which is a syntax error until
+        3.12, and every 3.11 cell died on it. ``ruff check`` already runs over
+        the whole tree in the validation suite, so configuring its target is
+        what makes that reachable without CI. ``ast.feature_version`` is not an
+        alternative: it does not roll back the 3.12 f-string tokenizer and
+        accepts the very line that broke 3.11.
+        """
+        workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
+            encoding="utf-8"
+        )
+        declared = re.search(r"^\s*python:\s*\[(.+?)\]\s*$", workflow, re.MULTILINE)
+        self.assertIsNotNone(declared, "the workflow declares no python axis")
+        versions = sorted(
+            tuple(int(part) for part in value.strip().strip("\"'").split("."))
+            for value in declared.group(1).split(",")
+        )
+        self.assertTrue(versions, "the python axis is empty")
+        floor = versions[0]
+        self.assertEqual(len(floor), 2, "the python axis must be major.minor")
+
+        configured = re.search(
+            r'^\s*target-version\s*=\s*"py(\d)(\d+)"\s*$',
+            (PLUGIN_ROOT / "ruff.toml").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(configured, "ruff.toml declares no target-version")
+        self.assertEqual(
+            (int(configured.group(1)), int(configured.group(2))),
+            floor,
+            "ruff.toml must parse against the lowest python the matrix declares",
+        )
+
     def test_tag_ci_requires_exact_release_witness(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"

@@ -1,0 +1,6 @@
+# The lowest interpreter the validation matrix declares. Ruff parses against
+# this floor, so syntax that only a newer interpreter accepts is reported here
+# instead of at import time on the oldest matrix cell. Keep it equal to the
+# lowest entry of the python axis in .github/workflows/validate.yml;
+# test_plugin_contract asserts the two agree.
+target-version = "py311"
