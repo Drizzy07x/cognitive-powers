@@ -159,7 +159,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.7.1
+  --installed-root <installed-root> --tag v1.7.2
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
@@ -195,6 +195,30 @@ requires byte-identical archive hashes and identical manifests. The manifest
 fails closed for an additional tag at the release commit or any changed public
 surface. This creates candidate artifacts only; publication, tag creation, and
 release creation require separate authorization.
+
+## Release checklist
+
+Tags are immutable: a tag, once pushed, is never moved or deleted. The plugin
+cache on both hosts is keyed by version, so a moved tag can never invalidate an
+installation -- every correction is a new version. The 1.7.1 tag was moved
+repeatedly before this rule existed, which is exactly how a machine ended up
+running a pre-fix tree that reported the fixed version.
+
+1. Write the new `CHANGELOG.md` section first; the publisher's notes derive
+   from it and refuse an empty section.
+2. `& $python scripts/bump_version.py <X.Y.Z>` moves every carrier and derives
+   the documented rollback target; `--check` runs in the suite from then on.
+3. Full local gate, push, branch CI green, then `git tag vX.Y.Z` and push the
+   tag. The tag run must be green end to end.
+4. Publish: dispatch `publish-release.yml` with the tag and the validation run
+   id, or let the auto-publish bridge do it when `AUTO_PUBLISH` is `true`.
+   `verify-release.yml` fires on publication and re-checks the assets and the
+   release body against the changelog.
+5. Post-publication: add the new tag to `docs/releases.json` (it records only
+   published releases, so it moves after the tag exists), advance the
+   `DRY_RUN_RELEASE_REF` repository variable to the new tag so the nightly dry
+   run exercises it, and update local installations -- a same-version cache is
+   never refreshed in place.
 
 Updating an installed development plugin is a separate, explicitly authorized
 operation. After validation and only when an update is intended:
