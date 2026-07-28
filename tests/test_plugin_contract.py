@@ -442,6 +442,19 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("gh attestation verify", publication)
         self.assertNotRegex(publication, r"actions/[a-z-]+@v[0-9]+")
 
+        # ./assets is part of the checkout and carries the plugin's icons and
+        # logos, so downloading the evidence into it mixed eighteen tracked
+        # images in with the seven release assets, and the exact allowlist was
+        # the only thing keeping that artwork off the release. The evidence has
+        # to land outside the working tree.
+        self.assertTrue(
+            (PLUGIN_ROOT / "assets").is_dir(),
+            "the tracked assets directory this guard is about is gone",
+        )
+        self.assertNotIn("--dir assets", publication)
+        self.assertNotIn(" assets/*", publication)
+        self.assertIn('--dir "${{ runner.temp }}/release-assets"', publication)
+
         gitignore = (PLUGIN_ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("ci/*/node_modules/", gitignore.splitlines())
 

@@ -54,22 +54,27 @@ jobs:
             exit 1
           fi
       - name: Download exact validated release evidence
+        # Not into ./assets: that directory is part of the checkout and holds
+        # the plugin's icons and logos. Downloading there mixed them with the
+        # evidence, and the exact allowlist below is the only thing that kept
+        # the repository's artwork from being attached to the release.
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh run download "${{ inputs.run_id }}"
           --name "release-evidence-${{ inputs.tag }}"
-          --dir assets
+          --dir "${{ runner.temp }}/release-assets"
       - name: Verify asset allowlist, identity, checksum, and provenance
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          ASSETS: ${{ runner.temp }}/release-assets
         shell: bash
         run: |
           set -euo pipefail
           # Already bound to the tagged manifest by the preceding step.
           archive="cognitive-powers-${TAG#v}.tar"
-          mapfile -t actual < <(find assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t actual < <(find "$ASSETS" -maxdepth 1 -type f -printf '%f\n' | sort)
           expected=(
             "$archive"
             "$archive.sha256"
@@ -87,33 +92,34 @@ jobs:
             echo "downloaded asset set does not match the allowlist" >&2
             printf 'actual:   %s\n' "${actual[@]:-<none>}" >&2
             printf 'expected: %s\n' "${expected[@]}" >&2
-            echo "--- tree under assets ---" >&2
-            find assets -maxdepth 3 >&2
+            echo "--- tree under the download directory ---" >&2
+            find "$ASSETS" -maxdepth 3 >&2
             exit 1
           fi
           commit=$(git rev-parse HEAD)
-          python - "$TAG" "$commit" "$archive" <<'PY'
+          python - "$TAG" "$commit" "$archive" "$ASSETS" <<'PY'
           import json, pathlib, sys
-          manifest=json.loads(pathlib.Path('assets/release-manifest.json').read_text(encoding='utf-8'))
+          assets=pathlib.Path(sys.argv[4])
+          manifest=json.loads((assets / 'release-manifest.json').read_text(encoding='utf-8'))
           assert manifest['tag'] == sys.argv[1]
           assert manifest['commit'] == sys.argv[2]
           assert manifest['version'] == sys.argv[1][1:]
-          assert manifest['archive']['sha256'] == pathlib.Path('assets/' + sys.argv[3] + '.sha256').read_text(encoding='ascii').split()[0]
-          report=json.loads(pathlib.Path('assets/reproducibility-report.json').read_text(encoding='utf-8'))
+          assert manifest['archive']['sha256'] == (assets / (sys.argv[3] + '.sha256')).read_text(encoding='ascii').split()[0]
+          report=json.loads((assets / 'reproducibility-report.json').read_text(encoding='utf-8'))
           assert report['version'] == manifest['version']
           assert report['archive'] == sys.argv[3]
-          matrix=json.loads(pathlib.Path('assets/compatibility-matrix.json').read_text(encoding='utf-8'))
+          matrix=json.loads((assets / 'compatibility-matrix.json').read_text(encoding='utf-8'))
           assert len(matrix['rows']) == 108
           assert matrix['summary'] == {'compatible': 108, 'incompatible': 0, 'unknown': 0}
           PY
-          python scripts/validate_compatibility_matrix.py --matrix assets/compatibility-matrix.json --contract compatibility-contract.json
-          (cd assets && sha256sum --check -- "./$archive.sha256")
-          gh attestation verify "assets/$archive" --repo "$GITHUB_REPOSITORY"
+          python scripts/validate_compatibility_matrix.py --matrix "$ASSETS/compatibility-matrix.json" --contract compatibility-contract.json
+          (cd "$ASSETS" && sha256sum --check -- "./$archive.sha256")
+          gh attestation verify "$ASSETS/$archive" --repo "$GITHUB_REPOSITORY"
       - name: Create immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "${{ inputs.tag }}" assets/*
+          gh release create "${{ inputs.tag }}" "${{ runner.temp }}/release-assets"/*
           --verify-tag
           --title "Cognitive Powers ${{ inputs.tag }}"
           --generate-notes
