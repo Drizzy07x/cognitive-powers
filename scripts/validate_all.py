@@ -122,7 +122,7 @@ OFFLINE_COMMANDS: tuple[ValidationCommand, ...] = (
             "--contract",
             "compatibility-contract.json",
             "--json-output",
-            "compatibility-matrix.json",
+            "compatibility-baseline.json",
             "--markdown-output",
             "docs/compatibility.md",
             "--check",

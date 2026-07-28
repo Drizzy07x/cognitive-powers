@@ -175,7 +175,7 @@ validator. The workflow contains no release command or secret dependency.
 Validation and optional receipt artifact publication remain separate.
 
 The compatibility gate regenerates status only from supplied CI receipts and
-compares it to `compatibility-matrix.json` and `docs/compatibility.md`. With no
+compares it to `compatibility-baseline.json` and `docs/compatibility.md`. With no
 receipts, all 108 declared combinations remain `unknown`. Never edit an unknown
 row to compatible manually.
 

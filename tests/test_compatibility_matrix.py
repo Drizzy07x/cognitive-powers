@@ -65,7 +65,7 @@ class CompatibilityMatrixTests(unittest.TestCase):
             (ROOT / "compatibility-contract.json").read_text(encoding="utf-8")
         )
         matrix = json.loads(
-            (ROOT / "compatibility-matrix.json").read_text(encoding="utf-8")
+            (ROOT / "compatibility-baseline.json").read_text(encoding="utf-8")
         )
         documentation = (ROOT / "docs" / "compatibility.md").read_text(encoding="utf-8")
         self.assertTrue(module.outputs_match(contract, [], matrix, documentation))

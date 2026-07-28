@@ -298,7 +298,7 @@ state or performs a destructive schema downgrade.
 commit and binds the archive digest, every tracked file, CI OS/Python axes, and
 the public skills/hooks surface. Tag CI rebuilds twice and compares manifests
 and archive bytes before preserving candidate assets; it does not publish a
-release. `compatibility-matrix.json` and `docs/compatibility.md` are generated
+release. `compatibility-baseline.json` and `docs/compatibility.md` are generated
 only from validated CI receipts. The current matrix contains no receipts, so all
 108 combinations are `unknown`; none is claimed compatible.
 
@@ -441,7 +441,7 @@ The canonical offline surface executed by that entrypoint is listed below and ch
 & $python scripts/integration_evaluation.py --receipts benchmarks/integration_evaluation_cases.json
 & $python skills/execute-durably/scripts/work_state_core/mutation_probe.py --root .
 & $python tests/fixtures/run_verify_installed_fixture.py
-& $python scripts/build_compatibility_matrix.py --contract compatibility-contract.json --json-output compatibility-matrix.json --markdown-output docs/compatibility.md --check
+& $python scripts/build_compatibility_matrix.py --contract compatibility-contract.json --json-output compatibility-baseline.json --markdown-output docs/compatibility.md --check
 & $python scripts/doctor.py --validate-installation --json
 ```
 

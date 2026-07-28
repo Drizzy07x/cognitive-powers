@@ -95,7 +95,7 @@ EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "--contract",
             "compatibility-contract.json",
             "--json-output",
-            "compatibility-matrix.json",
+            "compatibility-baseline.json",
             "--markdown-output",
             "docs/compatibility.md",
             "--check",
