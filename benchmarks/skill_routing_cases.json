@@ -133,6 +133,40 @@
       ]
     },
     {
+      "name": "eli5",
+      "positives": [
+        {
+          "prompt": "ELI5 this paper for someone outside the field",
+          "top_k": 3
+        },
+        {
+          "prompt": "Explain in plain English what this research result actually shows",
+          "top_k": 3
+        },
+        {
+          "prompt": "Strip the jargon out of this dense technical passage",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Design and run a comparative benchmark with pre-registered hypotheses",
+          "owner": "research-systematically"
+        },
+        {
+          "prompt": "Choose how verbose my own completion report should be",
+          "owner": "communicate-efficiently"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "The reader wants the paper explained simply, not a new experiment or a delivery audit",
+          "owner": "eli5",
+          "top_k": 1
+        }
+      ]
+    },
+    {
       "name": "engineer-prompts",
       "positives": [
         {

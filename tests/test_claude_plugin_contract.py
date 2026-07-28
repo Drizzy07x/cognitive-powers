@@ -31,11 +31,14 @@ CODEX_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 CLAUDE_HOOKS = PLUGIN_ROOT / "hooks" / "hooks.claude.json"
 
 CORE_SKILLS = {"solve-efficiently", "execute-durably", "verify-delivery"}
+# The declared Claude surface. verify_installed.CLAUDE_WORKFLOW_COUNT states
+# the same size as a number; this names the members, and the two move together.
 SPECIALIZED_SKILLS = {
     "audit-capabilities",
     "communicate-efficiently",
     "design-intentionally",
     "diagnose-systematically",
+    "eli5",
     "engineer-prompts",
     "explore-web-adaptively",
     "map-project",
@@ -47,6 +50,25 @@ SPECIALIZED_SKILLS = {
 }
 # Claude Code truncates description plus when_to_use in the skill listing.
 LISTING_CAP = 1536
+
+
+class DeclaredSurfaceSizeTests(unittest.TestCase):
+    def test_verifier_count_matches_the_named_surface(self) -> None:
+        """The number and the names are one declaration in two places."""
+        spec = importlib.util.spec_from_file_location(
+            "verify_installed_surface_size",
+            PLUGIN_ROOT / "scripts" / "verify_installed.py",
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            module.CLAUDE_WORKFLOW_COUNT,
+            len(CORE_SKILLS | SPECIALIZED_SKILLS),
+        )
+
+
 HOST_SPECIFIC_INVOCATION = re.compile(r"\$[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
 
 
@@ -482,7 +504,9 @@ class ClaudeVerifyInstalledTests(unittest.TestCase):
             sorted(surface["exposedSkills"]),
             sorted(CORE_SKILLS | SPECIALIZED_SKILLS),
         )
-        self.assertEqual(len(surface["internalWorkflows"]), 15)
+        self.assertEqual(
+            len(surface["internalWorkflows"]), len(CORE_SKILLS | SPECIALIZED_SKILLS)
+        )
 
     def test_surface_fails_closed_on_version_drift(self) -> None:
         surface = self.module._claude_surface(PLUGIN_ROOT, "0.0.0")

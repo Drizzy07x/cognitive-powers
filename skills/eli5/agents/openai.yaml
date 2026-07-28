@@ -1,0 +1,4 @@
+interface:
+  display_name: "ELI5"
+  short_description: "Explain a paper or dense result in plain language"
+  default_prompt: "Use $eli5 to explain this paper in plain language, separating what it shows from what people infer."

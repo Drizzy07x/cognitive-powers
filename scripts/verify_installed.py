@@ -35,6 +35,7 @@ EXIT_INVENTORY = 12
 EXIT_HOST = 13
 ALLOWED_EXTRAS = {".codex-marketplace-install.json"}
 EXPECTED_SKILLS = ["execute-durably", "solve-efficiently", "verify-delivery"]
+CLAUDE_WORKFLOW_COUNT = 16
 SUPPORTED_HOSTS = ("codex", "claude-code")
 EXPECTED_REPOSITORY_SOURCES = {
     "Drizzy07x/cognitive-powers",
@@ -191,7 +192,10 @@ def _claude_surface(installed_root: Path, version: str) -> dict[str, Any]:
             # skills delegate to the specialized ones by name, and Claude Code
             # cannot invoke a skill it was never shown.
             and automatic == installed_skills
-            and len(installed_skills) == 15
+            # Declared surface size: three core workflows plus the
+            # specialized ones. Moves together with SPECIALIZED_SKILLS in
+            # tests/test_claude_plugin_contract.py, which names them.
+            and len(installed_skills) == CLAUDE_WORKFLOW_COUNT
         ),
         "host": "claude-code",
         "exposedSkills": automatic,
