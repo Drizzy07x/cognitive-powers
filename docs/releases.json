@@ -1,0 +1,10 @@
+{
+  "comment": "Published release tags, newest first. The documented rollback target and the bump tooling derive from this file; a release enters it when its tag is pushed and validated. CHANGELOG headings are not a substitute: 1.6.0 and 1.7.0 were described there but never tagged.",
+  "published": [
+    "v1.7.1",
+    "v1.5.2",
+    "v1.5.1",
+    "v1.5.0",
+    "v1.4.2"
+  ]
+}

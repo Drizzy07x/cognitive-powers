@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import struct
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -333,16 +334,68 @@ class PluginContractTests(unittest.TestCase):
         self.assertNotIn('"--ref", "main"', installer)
         readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("rollback", readme.lower())
-        releases = re.findall(
-            r"^## (\d+\.\d+\.\d+) - ",
-            (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
-            re.MULTILINE,
+        # The rollback target must be a release that actually exists as a tag.
+        # CHANGELOG headings are not that: 1.6.0 and 1.7.0 were described there
+        # but never tagged, so deriving "the prior release" from heading order
+        # made this test enforce a documented command that throws immediately.
+        published = json.loads(
+            (PLUGIN_ROOT / "docs" / "releases.json").read_text(encoding="utf-8")
+        )["published"]
+        self.assertTrue(published, "docs/releases.json lists no published release")
+        parsed = []
+        for tag in published:
+            match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+            self.assertIsNotNone(match, f"malformed release tag: {tag}")
+            parsed.append(tuple(int(part) for part in match.groups()))
+        self.assertEqual(
+            parsed,
+            sorted(parsed, reverse=True),
+            "docs/releases.json must list tags newest first",
         )
-        self.assertGreaterEqual(len(releases), 2, "no prior release to roll back to")
+        declared = tuple(int(part) for part in declared_version().split("."))
+        rollback_targets = [
+            tag for tag, version in zip(published, parsed) if version < declared
+        ]
+        self.assertTrue(
+            rollback_targets,
+            "no published release below the declared version to roll back to",
+        )
         self.assertIn(
-            f"-ReleaseRef v{releases[1]}",
+            f"-ReleaseRef {rollback_targets[0]}",
             readme,
-            "the documented rollback must name the immediately prior release",
+            "the documented rollback must name the newest published release "
+            "below the declared version",
+        )
+
+    def test_published_releases_are_real_tags(self) -> None:
+        """docs/releases.json must never drift from the tags that exist.
+
+        Offline and fork-safe: it runs only where a Git checkout with tags is
+        available, and skips cleanly on archives.
+        """
+        if not (PLUGIN_ROOT / ".git").exists():
+            self.skipTest("not a Git checkout")
+        completed = subprocess.run(
+            ["git", "-C", str(PLUGIN_ROOT), "tag", "--list", "v*"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if completed.returncode != 0:
+            self.skipTest("git tags are unavailable")
+        local_tags = {line.strip() for line in completed.stdout.splitlines() if line}
+        if not local_tags:
+            self.skipTest("this clone carries no release tags")
+        published = json.loads(
+            (PLUGIN_ROOT / "docs" / "releases.json").read_text(encoding="utf-8")
+        )["published"]
+        missing = [tag for tag in published if tag not in local_tags]
+        self.assertEqual(
+            missing,
+            [],
+            f"docs/releases.json lists tags this repository does not have: {missing}",
         )
 
     def test_lint_target_matches_the_lowest_supported_python(self) -> None:
