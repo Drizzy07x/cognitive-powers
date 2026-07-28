@@ -34,6 +34,27 @@ function Assert-Command {
     }
 }
 
+function Assert-Python {
+    # Get-Command is satisfied by the Windows "App execution alias" at
+    # WindowsApps\python.exe, which is a stub: it resolves, then exits without
+    # running Python and offers the Microsoft Store instead. Resolving the name
+    # therefore proves nothing. Preflight has to run the interpreter, because
+    # the only other place this script needs it is the canonical verifier at the
+    # very end -- so a stub would be discovered after the profile was mutated,
+    # and reported as a rollback rather than as a missing interpreter.
+    param([Parameter(Mandatory)][string]$Name)
+    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+        throw "Required command '$Name' was not found in PATH."
+    }
+    & $Name "-c" "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 11) else 3)"
+    if ($LASTEXITCODE -eq 3) {
+        throw "Cognitive Powers requires Python 3.11 or newer; '$Name' reports an older version. Install a newer interpreter and verify with '$Name --version'."
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Required command '$Name' resolves but does not run (exit code $LASTEXITCODE). On Windows the Microsoft Store alias at WindowsApps\python.exe is such a stub: install Python 3.11 or newer, or disable the alias under Settings > Apps > Advanced app settings > App execution aliases, then verify with '$Name --version'."
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory)][string]$Command,
@@ -80,7 +101,7 @@ function Read-CodexJsonBestEffort {
 
 Assert-Command "gh"
 Assert-Command "codex"
-Assert-Command "python"
+Assert-Python "python"
 Invoke-Checked "gh" @("auth", "status", "--hostname", "github.com")
 Invoke-Checked "gh" @("auth", "setup-git", "--hostname", "github.com")
 Invoke-Checked "gh" @("api", "repos/$repository/git/ref/tags/$releaseRef", "--silent")

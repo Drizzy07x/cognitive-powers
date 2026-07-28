@@ -5,9 +5,23 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any, Sequence
+
+
+def _load_release_identity():
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load the shared release identity: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
 
 
 class ReceiptError(ValueError):
@@ -57,12 +71,13 @@ def create_receipt(
         raise ReceiptError("CI identity is malformed")
     installation_raw = installation_path.read_bytes()
     installation = json.loads(installation_raw)
+    expected_tag = _RELEASE.release_tag()
     if (
         not isinstance(installation, dict)
         or installation.get("schemaVersion") != 1
         or installation.get("product") != "cognitive-powers"
         or installation.get("commit") != commit
-        or installation.get("tag") != "v1.6.0"
+        or installation.get("tag") != expected_tag
         or installation.get("matched") is not True
         or installation.get("readOnly") is not True
     ):
@@ -84,7 +99,7 @@ def create_receipt(
             or scenario_document.get("schemaVersion") != 1
             or scenario_document.get("product") != "cognitive-powers"
             or scenario_document.get("candidateCommit") != commit
-            or scenario_document.get("candidateTag") != "v1.6.0"
+            or scenario_document.get("candidateTag") != expected_tag
             or not isinstance(outcome, dict)
             or outcome.get("passed") is not True
             or not isinstance(outcome.get("finalTag"), str)

@@ -75,15 +75,30 @@ def _copy(source: Path, output: Path, name: str) -> dict[str, Any]:
     }
 
 
-def png_dimensions(path: Path) -> tuple[int, int]:
+def png_identity(path: Path) -> tuple[int, int, str]:
+    """Return the dimensions and digest of one screenshot, read exactly once.
+
+    Measuring and hashing in two passes over a mutable path can describe two
+    different images: the receipt would then assert a dimension-matched render
+    for bytes nothing checked, and the durable recorder trusts these declared
+    values rather than re-reading the PNG. One handle is one image, whatever
+    replaces the path afterwards.
+    """
+    digest = hashlib.sha256()
     with path.open("rb") as image:
-        if image.read(8) != b"\x89PNG\r\n\x1a\n":
+        header = image.read(24)
+        digest.update(header)
+        if header[:8] != b"\x89PNG\r\n\x1a\n":
             raise EvidenceError(f"viewport screenshot must be PNG: {path}")
-        length = struct.unpack(">I", image.read(4))[0]
-        if image.read(4) != b"IHDR" or length < 8:
+        if len(header) < 24:
             raise EvidenceError(f"viewport screenshot has no valid IHDR: {path}")
-        width, height = struct.unpack(">II", image.read(8))
-    return width, height
+        length = struct.unpack(">I", header[8:12])[0]
+        if header[12:16] != b"IHDR" or length < 8:
+            raise EvidenceError(f"viewport screenshot has no valid IHDR: {path}")
+        width, height = struct.unpack(">II", header[16:24])
+        for chunk in iter(lambda: image.read(65536), b""):
+            digest.update(chunk)
+    return width, height, digest.hexdigest()
 
 
 def create_evidence(
@@ -219,7 +234,7 @@ def create_evidence(
             raise EvidenceError(
                 f"viewport screenshot is missing or empty: {screenshot}"
             )
-        rendered_width, rendered_height = png_dimensions(screenshot)
+        rendered_width, rendered_height, rendered_sha256 = png_identity(screenshot)
         if (rendered_width, rendered_height) != (width, height):
             raise EvidenceError(
                 f"viewport dimensions do not match PNG: declared {width}x{height}, rendered {rendered_width}x{rendered_height}"
@@ -233,7 +248,7 @@ def create_evidence(
                 "height": height,
                 "source": str(screenshot),
                 "copy": str(output / copied_name),
-                "sha256": sha256_file(screenshot),
+                "sha256": rendered_sha256,
             }
         )
     has_mobile = any(item["width"] <= 480 for item in viewports)
@@ -256,10 +271,11 @@ def create_evidence(
         copied["kind"] = "browser-artifact"
         artifacts.append(copied)
     for item in viewports:
-        # The declared dimensions were read from the source before the copy. If
-        # the two differ, the receipt would assert a dimension-matched render
-        # for an image nothing ever checked, and the durable recorder trusts
-        # these declared hashes rather than re-reading the PNG.
+        # png_identity bound the declared dimensions to this digest in one read;
+        # this binds the copy to the same digest. Without it the receipt would
+        # assert a dimension-matched render for an image nothing ever checked,
+        # and the durable recorder trusts these declared hashes rather than
+        # re-reading the PNG.
         if sha256_file(Path(item["copy"])) != item["sha256"]:
             raise EvidenceError(
                 f"viewport screenshot changed while copying: {item['source']}"

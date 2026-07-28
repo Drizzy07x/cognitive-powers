@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import json
 import re
@@ -12,6 +13,19 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+
+
+def _load_release_identity():
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load the shared release identity: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
 
 SCENARIO_TESTS = {
     "corrupt-state": [
@@ -38,7 +52,10 @@ class EvidenceError(ValueError):
 
 
 def build_evidence(real_path: Path, *, commit: str, tag: str) -> dict:
-    if not re.fullmatch(r"[0-9a-f]{40}", commit) or tag != "v1.6.0":
+    # The candidate is whatever this checkout declares itself to be. Naming a
+    # fixed tag here would refuse every later release instead of binding the
+    # scenarios to the one under test.
+    if not re.fullmatch(r"[0-9a-f]{40}", commit) or tag != _RELEASE.release_tag():
         raise EvidenceError("candidate identity is malformed")
     real = json.loads(real_path.read_text(encoding="utf-8"))
     if (

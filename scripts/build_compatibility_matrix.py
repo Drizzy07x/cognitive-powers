@@ -5,10 +5,24 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import itertools
 import json
 from pathlib import Path
 from typing import Any, Sequence
+
+
+def _load_release_identity():
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load the shared release identity: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
 
 
 class CompatibilityError(ValueError):
@@ -23,7 +37,7 @@ def _digest(value: Any) -> bool:
     )
 
 
-def _valid_receipt_candidate(receipt: dict[str, Any]) -> bool:
+def _valid_receipt_candidate(receipt: dict[str, Any], expected_tag: str) -> bool:
     """Validate canonical content without trusting a self-asserted attestation."""
     if receipt.get("schemaVersion") != 2 or not _digest(receipt.get("receiptSha256")):
         return False
@@ -50,7 +64,7 @@ def _valid_receipt_candidate(receipt: dict[str, Any]) -> bool:
         and identity["runAttempt"] >= 1
         and isinstance(installation, dict)
         and installation.get("commit") == identity["commit"]
-        and installation.get("tag") == "v1.6.0"
+        and installation.get("tag") == expected_tag
         and _digest(installation.get("reportSha256"))
         and isinstance(attestation, dict)
         and attestation.get("kind") == "github-actions-validation"
@@ -64,9 +78,12 @@ def build_matrix(
     receipts: list[dict[str, Any]],
     *,
     verified_receipt_digests: set[str] | None = None,
+    expected_tag: str | None = None,
 ) -> dict[str, Any]:
     if contract.get("schemaVersion") != 1:
         raise CompatibilityError("unsupported contract schema")
+    if expected_tag is None:
+        expected_tag = _RELEASE.release_tag()
     axes = contract.get("axes")
     scenarios = contract.get("scenarios")
     if (
@@ -93,7 +110,7 @@ def build_matrix(
     for receipt in receipts:
         if (
             not isinstance(receipt, dict)
-            or not _valid_receipt_candidate(receipt)
+            or not _valid_receipt_candidate(receipt, expected_tag)
             or receipt.get("receiptSha256") not in trusted
         ):
             continue
@@ -177,9 +194,11 @@ def outputs_match(
     receipts: list[dict[str, Any]],
     current_matrix: dict[str, Any],
     current_markdown: str,
+    *,
+    expected_tag: str | None = None,
 ) -> bool:
     """Return whether committed outputs exactly match receipt-derived truth."""
-    expected = build_matrix(contract, receipts)
+    expected = build_matrix(contract, receipts, expected_tag=expected_tag)
     return current_matrix == expected and current_markdown == markdown(expected)
 
 

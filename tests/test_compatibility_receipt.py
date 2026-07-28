@@ -8,14 +8,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "create_compatibility_receipt.py"
+IDENTITY = ROOT / "scripts" / "release_identity.py"
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location("compatibility_receipt", SCRIPT)
+def load_module(path: Path = SCRIPT, name: str = "compatibility_receipt"):
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def release_tag() -> str:
+    """The tag under test is whatever this checkout declares, never a literal."""
+    return load_module(IDENTITY, "release_identity_receipt_test").release_tag()
 
 
 class CompatibilityReceiptTests(unittest.TestCase):
@@ -43,7 +49,7 @@ class CompatibilityReceiptTests(unittest.TestCase):
                         "schemaVersion": 1,
                         "product": "cognitive-powers",
                         "commit": commit,
-                        "tag": "v1.6.0",
+                        "tag": release_tag(),
                         "matched": True,
                         "readOnly": True,
                     }
@@ -56,7 +62,7 @@ class CompatibilityReceiptTests(unittest.TestCase):
                         "schemaVersion": 1,
                         "product": "cognitive-powers",
                         "candidateCommit": commit,
-                        "candidateTag": "v1.6.0",
+                        "candidateTag": release_tag(),
                         "scenarios": {
                             "rollback": {
                                 "passed": True,
@@ -128,7 +134,7 @@ class CompatibilityReceiptTests(unittest.TestCase):
                         "schemaVersion": 1,
                         "product": "cognitive-powers",
                         "commit": commit,
-                        "tag": "v1.6.0",
+                        "tag": release_tag(),
                         "matched": True,
                         "readOnly": True,
                     }

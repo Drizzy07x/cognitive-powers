@@ -265,23 +265,29 @@ jobs:
           --source "${{ runner.temp }}/matrix-evidence"
           --output "${{ runner.temp }}/release-final"
           --expected-cells 12
+      - name: Resolve the canonical archive name from the aggregated evidence
+        id: release-identity
+        run: >-
+          python -c "import json,os;from pathlib import Path;report=json.loads(Path(r'${{ runner.temp }}/release-final/reproducibility-report.json').read_text(encoding='utf-8'));Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8').write('archive='+report['archive']+'\n')"
       - name: Build aggregated release witness
         run: >-
           python -c "from pathlib import Path; import subprocess,sys; p=Path(r'${{ runner.temp }}/matrix-evidence'); receipts=sorted(p.rglob('validation-*.json')); manifest=Path(r'${{ runner.temp }}/release-final/release-manifest.json'); raise SystemExit(subprocess.call([sys.executable,'scripts/release_witness.py',*sum((['--receipt',str(r)] for r in receipts),[]),'--release-manifest',str(manifest),'--output',r'${{ runner.temp }}/cognitive-powers-release-witness.json']))"
       - name: Verify preserved archive checksum after download
         shell: bash
         working-directory: ${{ runner.temp }}/release-final
-        run: sha256sum --check cognitive-powers-1.6.0.tar.sha256
+        env:
+          ARCHIVE: ${{ steps.release-identity.outputs.archive }}
+        run: sha256sum --check "$ARCHIVE.sha256"
       - name: Attest canonical release archive provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-path: ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar
+          subject-path: ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-evidence-${{ github.ref_name }}
           path: |
-            ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar
-            ${{ runner.temp }}/release-final/cognitive-powers-1.6.0.tar.sha256
+            ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}
+            ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}.sha256
             ${{ runner.temp }}/release-final/release-manifest.json
             ${{ runner.temp }}/release-final/reproducibility-report.json
             ${{ runner.temp }}/cognitive-powers-release-witness.json

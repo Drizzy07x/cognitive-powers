@@ -5,9 +5,23 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import shutil
 from pathlib import Path
+
+
+def _load_release_identity():
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load the shared release identity: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
 
 
 class AggregationError(ValueError):
@@ -61,12 +75,29 @@ def aggregate(source: Path, output: Path, *, expected_cells: int) -> dict:
             "release artifacts are not byte-identical across CI cells"
         )
 
+    # Name the artifact after the manifest that was just proven byte-identical
+    # across every cell and matched to the archive digest. A literal here would
+    # let the release ship under the previous version's name, which is the one
+    # identity claim a checksum cannot catch.
+    canonical_manifest_bytes = next(iter(manifest_bytes))
+    canonical_manifest_value = json.loads(canonical_manifest_bytes)
+    if (
+        not isinstance(canonical_manifest_value, dict)
+        or canonical_manifest_value.get("product") != "cognitive-powers"
+    ):
+        raise AggregationError("release manifest does not identify cognitive-powers")
+    version = canonical_manifest_value.get("version")
+    try:
+        archive_filename = _RELEASE.archive_name(version)
+    except _RELEASE.ReleaseIdentityError as error:
+        raise AggregationError(str(error)) from error
+
     output.mkdir(parents=True, exist_ok=True)
-    canonical_archive = output / "cognitive-powers-1.6.0.tar"
+    canonical_archive = output / archive_filename
     canonical_manifest = output / "release-manifest.json"
-    canonical_checksum = output / "cognitive-powers-1.6.0.tar.sha256"
+    canonical_checksum = output / f"{archive_filename}.sha256"
     shutil.copyfile(archives[0], canonical_archive)
-    canonical_manifest.write_bytes(next(iter(manifest_bytes)))
+    canonical_manifest.write_bytes(canonical_manifest_bytes)
     digest = next(iter(archive_digests))
     canonical_checksum.write_text(
         f"{digest}  {canonical_archive.name}\n", encoding="ascii", newline="\n"
@@ -74,7 +105,8 @@ def aggregate(source: Path, output: Path, *, expected_cells: int) -> dict:
     report = {
         "schemaVersion": 1,
         "product": "cognitive-powers",
-        "version": "1.6.0",
+        "version": version,
+        "archive": archive_filename,
         "expectedCells": expected_cells,
         "verifiedCells": len(records),
         "archiveSha256": digest,

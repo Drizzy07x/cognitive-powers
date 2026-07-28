@@ -9,14 +9,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "build_compatibility_matrix.py"
+IDENTITY_PATH = ROOT / "scripts" / "release_identity.py"
 
 
-def load():
-    spec = importlib.util.spec_from_file_location("compatibility", MODULE_PATH)
+def load(path: Path = MODULE_PATH, name: str = "compatibility"):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def release_tag() -> str:
+    """The tag under test is whatever this checkout declares, never a literal."""
+    return load(IDENTITY_PATH, "release_identity_matrix_test").release_tag()
 
 
 class CompatibilityMatrixTests(unittest.TestCase):
@@ -36,7 +42,7 @@ class CompatibilityMatrixTests(unittest.TestCase):
             },
             "installation": {
                 "commit": "a" * 40,
-                "tag": "v1.6.0",
+                "tag": release_tag(),
                 "reportSha256": "c" * 64,
             },
             "attestation": {

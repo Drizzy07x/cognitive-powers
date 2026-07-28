@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,13 @@ FAKE = ROOT / "tests" / "fixtures" / "fake_codex_cli.py"
 FAKE_GH = ROOT / "tests" / "fixtures" / "fake_gh_cli.py"
 
 
+# The installer is a PowerShell 7 script. CI runners ship pwsh, so its absence
+# was reported as ten broken tests rather than an unexercised suite; a machine
+# without it must say so once, and say what it did not cover.
+@unittest.skipUnless(
+    shutil.which("pwsh") is not None,
+    "PowerShell 7 (pwsh) is not installed; install.ps1 cannot be exercised",
+)
 class InstallTransactionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -94,10 +102,16 @@ class InstallTransactionTests(unittest.TestCase):
             "version": version,
         }
 
-    def run_installer(self, *, gh_exit=0) -> subprocess.CompletedProcess[str]:
+    def run_installer(
+        self, *, gh_exit=0, python_exit=None
+    ) -> subprocess.CompletedProcess[str]:
         if gh_exit:
             (self.bin / "gh.cmd").write_text(
                 f"@exit /b {gh_exit}\r\n", encoding="utf-8"
+            )
+        if python_exit is not None:
+            (self.bin / "python.cmd").write_text(
+                f"@exit /b {python_exit}\r\n", encoding="utf-8"
             )
         env = os.environ.copy()
         env.update(
@@ -127,6 +141,19 @@ class InstallTransactionTests(unittest.TestCase):
         result = self.run_installer(gh_exit=7)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.read_state()["log"], [])
+
+    def test_unusable_python_fails_before_profile_query_or_mutation(self) -> None:
+        # 9009 is what the Microsoft Store alias at WindowsApps\python.exe
+        # returns: the name resolves, so a resolution-only check passes it
+        # through and the interpreter is not missed until the final verifier,
+        # after the profile has been mutated. 3 is a real interpreter below the
+        # supported minimum.
+        for python_exit in (9009, 3):
+            with self.subTest(python_exit=python_exit):
+                self.state()
+                result = self.run_installer(python_exit=python_exit)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.read_state()["log"], [])
 
     def test_untrusted_marketplace_sources_fail_closed_without_mutation(self) -> None:
         for source in (

@@ -29,16 +29,22 @@ jobs:
         run: gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --dir release-download
       - name: Rebuild and compare published canonical bytes
         shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          # The archive is named after the release it carries. Deriving that name
+          # from the tag under verification keeps this gate usable for every
+          # release instead of only the one it was written for.
+          archive="cognitive-powers-${TAG#v}.tar"
           mapfile -t actual < <(find release-download -maxdepth 1 -type f -printf '%f\n' | sort)
-          expected=(cognitive-powers-1.6.0.tar cognitive-powers-1.6.0.tar.sha256 cognitive-powers-release-witness.json compatibility-matrix.json compatibility.md release-manifest.json reproducibility-report.json)
+          expected=("$archive" "$archive.sha256" cognitive-powers-release-witness.json compatibility-matrix.json compatibility.md release-manifest.json reproducibility-report.json)
           mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
           test "${actual[*]}" = "${expected[*]}"
-          python scripts/build_release_manifest.py --tag "${{ inputs.tag }}" --archive reproduced.tar --output reproduced-manifest.json
-          cmp reproduced.tar release-download/cognitive-powers-1.6.0.tar
+          python scripts/build_release_manifest.py --tag "$TAG" --archive reproduced.tar --output reproduced-manifest.json
+          cmp reproduced.tar "release-download/$archive"
           cmp reproduced-manifest.json release-download/release-manifest.json
-          (cd release-download && sha256sum --check -- ./cognitive-powers-1.6.0.tar.sha256)
+          (cd release-download && sha256sum --check -- "./$archive.sha256")
           python - <<'PY'
           import json, pathlib
           matrix=json.loads(pathlib.Path('release-download/compatibility-matrix.json').read_text(encoding='utf-8'))
@@ -47,6 +53,8 @@ jobs:
           PY
           python scripts/validate_compatibility_matrix.py --matrix release-download/compatibility-matrix.json --contract compatibility-contract.json
       - name: Verify GitHub build provenance for the published archive
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh attestation verify release-download/cognitive-powers-1.6.0.tar --repo "${{ github.repository }}"
+          TAG: ${{ inputs.tag }}
+        run: gh attestation verify "release-download/cognitive-powers-${TAG#v}.tar" --repo "${{ github.repository }}"
