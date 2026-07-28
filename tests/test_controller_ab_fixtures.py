@@ -324,6 +324,17 @@ class ControllerABFixtureTests(unittest.TestCase):
             self.assertTrue(
                 all(task_id.startswith("cpfx-") for task_id in config["tasks"])
             )
+            # A fixture checked out under a directory named like an excluded
+            # part must still hash its own files: exclusions apply below the
+            # root, and matching the absolute spelling made the tree hash
+            # empty -- on both producer and verifier, so the guard failed open.
+            buried = Path(temporary).resolve() / "__pycache__" / "corpus"
+            (buried / "src").mkdir(parents=True)
+            (buried / "src" / "kept.py").write_text("kept", encoding="utf-8")
+            (buried / "__pycache__").mkdir()
+            (buried / "__pycache__" / "drop.pyc").write_bytes(b"x")
+            self.assertEqual(sorted(fixtures._tree_files(buried)), ["src/kept.py"])
+
             # Evaluator commands must name the generating interpreter: "py -3"
             # is the Windows-only launcher and raised FileNotFoundError on
             # every POSIX cell, and a bare "python" is a Store stub on Windows.

@@ -733,7 +733,13 @@ def build_batch_config(
 def _tree_files(root: Path) -> dict[str, bytes]:
     result: dict[str, bytes] = {}
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
+        # Exclusions apply to the path under the root, never to the absolute
+        # spelling: path.parts includes every ancestor above root, so a corpus
+        # checked out under any directory named like an excluded part hashed
+        # as an empty tree -- and both producer and verifier agreed on the
+        # empty digest, failing open.
+        relative_parts = path.relative_to(root).parts
+        if not path.is_file() or any(part in IGNORED_PARTS for part in relative_parts):
             continue
         result[path.relative_to(root).as_posix()] = path.read_bytes()
     return result

@@ -7,7 +7,7 @@ import argparse
 import hashlib
 import json
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 
@@ -87,7 +87,11 @@ def build_manifest(root: Path, tag: str, archive_path: Path) -> dict[str, Any]:
     records.sort(key=lambda item: item["path"])
 
     skills = sorted(
-        Path(item["path"]).parent.name
+        # git emits POSIX paths; parsing them with the host's Path flavour
+        # lets Windows additionally split on a literal backslash in a tracked
+        # name, which would change publicSurface only on the Windows cells and
+        # surface as an unexplained reproducibility failure.
+        PurePosixPath(item["path"]).parent.name
         for item in records
         if item["path"].startswith("skills-core/")
         and item["path"].endswith("/SKILL.md")

@@ -62,6 +62,22 @@ class MemoryTests(unittest.TestCase):
             mod.undo_native(store, second)
         self.assertTrue(first["after_sha256"])
 
+    def test_tilde_spelled_store_can_be_undone(self):
+        # write_native expands the tilde and records the expanded spelling in
+        # the receipt; undo_native resolved without expanding, so a store
+        # addressed as ~/... could never match its own receipt.
+        import os
+        from unittest import mock
+
+        home = self.root / "home"
+        home.mkdir()
+        overrides = {"HOME": str(home), "USERPROFILE": str(home)}
+        with mock.patch.dict(os.environ, overrides):
+            receipt = mod.write_native("~/memory.json", self.rec(), project_scope="p")
+            undone = mod.undo_native("~/memory.json", receipt)
+        self.assertTrue(undone["undone"])
+        self.assertFalse((home / "memory.json").exists())
+
     def test_supersession_applies_before_query_filtering(self):
         store = self.root / "m.json"
         old = self.rec("old")

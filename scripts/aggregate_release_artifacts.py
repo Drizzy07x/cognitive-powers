@@ -65,7 +65,8 @@ def aggregate(source: Path, output: Path, *, expected_cells: int) -> dict:
         manifest_bytes.add(manifest_raw)
         records.append(
             {
-                "artifactDirectory": str(archive.parent.relative_to(source)),
+                # Published artifact: spell the path platform-independently.
+                "artifactDirectory": archive.parent.relative_to(source).as_posix(),
                 "archiveSha256": digest,
                 "manifestSha256": hashlib.sha256(manifest_raw).hexdigest(),
             }

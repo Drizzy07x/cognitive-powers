@@ -209,7 +209,9 @@ def write_native(
 
 
 def undo_native(store: str | Path, receipt: str | Path | dict):
-    path = Path(store).resolve()
+    # Expand exactly as write_native did, or a tilde-spelled store never
+    # matches the receipt it produced and can never be undone.
+    path = Path(store).expanduser().resolve()
     data = (
         json.loads(Path(receipt).read_text(encoding="utf-8"))
         if not isinstance(receipt, dict)

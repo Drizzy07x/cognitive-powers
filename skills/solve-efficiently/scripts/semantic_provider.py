@@ -330,7 +330,15 @@ def _inspect_graphify(
     timeout_seconds: float = 10.0,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     root = _root(root)
-    out = Path(graphify_dir).resolve() if graphify_dir else root / "graphify-out"
+    # Resolve the default too: _within_index compares resolved member paths
+    # against this base, so a symlinked graphify-out (a common way to park a
+    # large index on another volume) reported every indexed file as outside
+    # its own index.
+    out = (
+        Path(graphify_dir).resolve()
+        if graphify_dir
+        else (root / "graphify-out").resolve()
+    )
     graph, manifest, marker = (
         out / "graph.json",
         out / "manifest.json",

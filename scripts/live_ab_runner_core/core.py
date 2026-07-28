@@ -481,8 +481,12 @@ def _resolved(path: Path) -> Path:
 
 
 def _is_within(path: Path, parent: Path) -> bool:
+    # Resolve both sides like the controller_ab_batch twin does: a containment
+    # check that trusts the caller's spelling lets a symlinked component
+    # escape it, and this copy is re-exported for future callers that may not
+    # pre-resolve the way the current ones do.
     try:
-        path.relative_to(parent)
+        path.resolve().relative_to(parent.resolve())
     except ValueError:
         return False
     return True

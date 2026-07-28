@@ -76,7 +76,13 @@ class AggregateReleaseArtifactsTests(unittest.TestCase):
                 (output / f"cognitive-powers-{version}.tar.sha256").is_file()
             )
             self.assertTrue((output / "release-manifest.json").is_file())
-            self.assertTrue((output / "reproducibility-report.json").is_file())
+            report_payload = json.loads(
+                (output / "reproducibility-report.json").read_text(encoding="utf-8")
+            )
+            # The report is a published asset: paths in it are spelled
+            # platform-independently, never with the producing OS separator.
+            for record in report_payload["artifacts"]:
+                self.assertNotIn("\\", record["artifactDirectory"])
 
     def test_archive_name_follows_the_manifest_rather_than_a_literal(self) -> None:
         """A different release must not ship under this release's filename."""
