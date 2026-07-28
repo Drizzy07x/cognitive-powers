@@ -486,8 +486,26 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("sha256sum --check", post_release)
         self.assertIn("gh attestation verify", post_release)
         self.assertIn("len(matrix['rows']) == 108", post_release)
-        self.assertIn("find release-download -maxdepth 1", post_release)
         self.assertNotRegex(post_release, r"actions/[a-z-]+@v[0-9]+")
+        # Downloads and rebuilds live outside the checkout: ./assets is
+        # tracked artwork, and downloading into the working tree is the
+        # publisher defect this job must not copy.
+        self.assertIn('--dir "${{ runner.temp }}/release-download"', post_release)
+        self.assertNotIn("--dir release-download", post_release)
+        self.assertIn('find "$DOWNLOAD" -maxdepth 1', post_release)
+        # The mismatch paths must say what they observed; a bare test here is
+        # indistinguishable from every other silent failure in the job.
+        self.assertIn("does not match the allowlist", post_release)
+        self.assertIn("does not reproduce from the tagged source", post_release)
+        # Post-publish, the body must equal the changelog section, and the
+        # job fires on publication rather than waiting to be remembered.
+        self.assertIn("release_identity.py", post_release)
+        self.assertIn(
+            "published release body is not the changelog section", post_release
+        )
+        self.assertIn("types: [published]", post_release)
+        self.assertIn("schedule:", post_release)
+        self.assertIn("releaseReady", post_release)
         publication = (
             PLUGIN_ROOT / ".github" / "workflows" / "publish-release.yml"
         ).read_text(encoding="utf-8")

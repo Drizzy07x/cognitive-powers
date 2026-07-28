@@ -1,6 +1,10 @@
 name: Verify published release
 
 "on":
+  release:
+    types: [published]
+  schedule:
+    - cron: "43 7 * * 1"
   workflow_dispatch:
     inputs:
       tag:
@@ -16,45 +20,122 @@ jobs:
   verify-published-assets:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the tag under verification
+        id: subject
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ]; then
+            tag="$RELEASE_TAG"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            tag="$INPUT_TAG"
+          else
+            # Scheduled sweep: verify the latest published release.
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          if [ -z "$tag" ]; then
+            echo "no published release to verify" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ steps.subject.outputs.tag }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
       - name: Download immutable GitHub Release assets
+        # Outside the checkout: ./assets is tracked artwork, and downloading
+        # into the working tree is the publisher defect this job must not copy.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --dir release-download
+        run: >-
+          gh release download "${{ steps.subject.outputs.tag }}"
+          --repo "${{ github.repository }}"
+          --dir "${{ runner.temp }}/release-download"
       - name: Rebuild and compare published canonical bytes
         shell: bash
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ steps.subject.outputs.tag }}
+          DOWNLOAD: ${{ runner.temp }}/release-download
+          REBUILD: ${{ runner.temp }}/release-rebuild
         run: |
           set -euo pipefail
           # The archive is named after the release it carries. Deriving that name
           # from the tag under verification keeps this gate usable for every
           # release instead of only the one it was written for.
           archive="cognitive-powers-${TAG#v}.tar"
-          mapfile -t actual < <(find release-download -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t actual < <(find "$DOWNLOAD" -maxdepth 1 -type f -printf '%f\n' | sort)
           expected=("$archive" "$archive.sha256" cognitive-powers-release-witness.json compatibility-matrix.json compatibility.md release-manifest.json reproducibility-report.json)
           mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
-          test "${actual[*]}" = "${expected[*]}"
-          python scripts/build_release_manifest.py --tag "$TAG" --archive reproduced.tar --output reproduced-manifest.json
-          cmp reproduced.tar "release-download/$archive"
-          cmp reproduced-manifest.json release-download/release-manifest.json
-          (cd release-download && sha256sum --check -- "./$archive.sha256")
-          python - <<'PY'
-          import json, pathlib
-          matrix=json.loads(pathlib.Path('release-download/compatibility-matrix.json').read_text(encoding='utf-8'))
-          assert len(matrix['rows']) == 108
-          assert all(row['status'] == 'compatible' for row in matrix['rows'])
+          if [ "${actual[*]}" != "${expected[*]}" ]; then
+            echo "published asset set does not match the allowlist" >&2
+            printf 'actual:   %s\n' "${actual[@]:-<none>}" >&2
+            printf 'expected: %s\n' "${expected[@]}" >&2
+            exit 1
+          fi
+          mkdir -p "$REBUILD"
+          python scripts/build_release_manifest.py --tag "$TAG" --archive "$REBUILD/reproduced.tar" --output "$REBUILD/reproduced-manifest.json"
+          if ! cmp "$REBUILD/reproduced.tar" "$DOWNLOAD/$archive"; then
+            echo "published archive does not reproduce from the tagged source" >&2
+            ls -l "$REBUILD/reproduced.tar" "$DOWNLOAD/$archive" >&2
+            exit 1
+          fi
+          if ! cmp "$REBUILD/reproduced-manifest.json" "$DOWNLOAD/release-manifest.json"; then
+            echo "published manifest does not reproduce from the tagged source" >&2
+            diff <(python -m json.tool "$REBUILD/reproduced-manifest.json") <(python -m json.tool "$DOWNLOAD/release-manifest.json") >&2 || true
+            exit 1
+          fi
+          (cd "$DOWNLOAD" && sha256sum --check -- "./$archive.sha256")
+          commit=$(git rev-parse HEAD)
+          python - "$TAG" "$commit" "$archive" "$DOWNLOAD" <<'PY'
+          import json, pathlib, sys
+          tag, commit, archive = sys.argv[1], sys.argv[2], sys.argv[3]
+          download = pathlib.Path(sys.argv[4])
+          manifest = json.loads((download / 'release-manifest.json').read_text(encoding='utf-8'))
+          assert manifest['tag'] == tag, f"manifest tag {manifest['tag']!r} != {tag!r}"
+          assert manifest['commit'] == commit, f"manifest commit {manifest['commit']!r} != {commit!r}"
+          assert manifest['version'] == tag[1:], f"manifest version {manifest['version']!r} != {tag[1:]!r}"
+          checksum = (download / (archive + '.sha256')).read_text(encoding='ascii').split()[0]
+          assert manifest['archive']['sha256'] == checksum, 'manifest archive digest != published checksum'
+          report = json.loads((download / 'reproducibility-report.json').read_text(encoding='utf-8'))
+          assert report['version'] == manifest['version'], f"report version {report['version']!r} diverges"
+          assert report['archive'] == archive, f"report archive {report['archive']!r} != {archive!r}"
+          witness = json.loads((download / 'cognitive-powers-release-witness.json').read_text(encoding='utf-8'))
+          assert witness.get('releaseReady') is True, 'witness does not declare the release ready'
+          matrix = json.loads((download / 'compatibility-matrix.json').read_text(encoding='utf-8'))
+          assert len(matrix['rows']) == 108, f"matrix rows {len(matrix['rows'])} != 108"
+          summary = matrix['summary']
+          assert summary == {'compatible': 108, 'incompatible': 0, 'unknown': 0}, f"matrix summary {summary}"
           PY
-          python scripts/validate_compatibility_matrix.py --matrix release-download/compatibility-matrix.json --contract compatibility-contract.json
+          python scripts/validate_compatibility_matrix.py --matrix "$DOWNLOAD/compatibility-matrix.json" --contract compatibility-contract.json
+      - name: Verify the release body is the changelog section
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.subject.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "${{ runner.temp }}/published-body.md"
+          python scripts/release_identity.py --version "${TAG#v}" --output "${{ runner.temp }}/expected-notes.md"
+          python - "${{ runner.temp }}/published-body.md" "${{ runner.temp }}/expected-notes.md" <<'PY'
+          import pathlib, sys
+          published = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').replace('\r\n', '\n').strip()
+          expected = pathlib.Path(sys.argv[2]).read_text(encoding='utf-8').strip()
+          if published != expected:
+              sys.stderr.write('published release body is not the changelog section\n')
+              sys.stderr.write(f'published: {len(published)} chars; expected: {len(expected)} chars\n')
+              raise SystemExit(1)
+          PY
       - name: Verify GitHub build provenance for the published archive
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-        run: gh attestation verify "release-download/cognitive-powers-${TAG#v}.tar" --repo "${{ github.repository }}"
+          TAG: ${{ steps.subject.outputs.tag }}
+        run: gh attestation verify "${{ runner.temp }}/release-download/cognitive-powers-${TAG#v}.tar" --repo "${{ github.repository }}"
