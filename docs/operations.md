@@ -148,7 +148,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.7.0
+  --installed-root <installed-root> --tag v1.7.1
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.

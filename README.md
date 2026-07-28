@@ -139,21 +139,21 @@ Context7, CodeGraph, Playwright, QCU, and Skyvern are optional. Cognitive Powers
 
 ## Install from the GitHub repository
 
-The commands in this section are release-facing. Before an exact `v1.7.0` tag
+The commands in this section are release-facing. Before an exact `v1.7.1` tag
 exists, immutable tag preflight intentionally fails without changing the profile.
 
 The installer resolves the release tag to an immutable commit through GitHub CLI and configures Git credentials with it, so `gh` must be installed and authenticated even though the repository itself is readable without it. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.1' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.7.0` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.7.0` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.7.1` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one version `1.7.1` entry is enabled. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
 
-To roll back immutably to 1.6.0, run the audited 1.7.0 installer with the prior tag. The same recovery transaction protects the currently installed release:
+To roll back immutably to 1.7.0, run the audited 1.7.1 installer with the prior tag. The same recovery transaction protects the currently installed release:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.0' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.6.0
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.1' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.7.0
 ```
 
 ## Update the local development installation
@@ -231,7 +231,7 @@ Verify an explicitly authorized installed copy against the immutable tag:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <isolated-installed-root> --tag v1.7.0 --host claude-code
+  --installed-root <isolated-installed-root> --tag v1.7.1 --host claude-code
 ```
 
 The `claude-code` host verifies tagged content and packaging only. It never
@@ -266,7 +266,7 @@ inventory, and the three-skill public surface:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <isolated-installed-root> --tag v1.7.0
+  --installed-root <isolated-installed-root> --tag v1.7.1
 ```
 
 Exit codes distinguish identity (`10`), content (`11`), inventory (`12`), and

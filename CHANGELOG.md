@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1 - 2026-07-28
+
+- Added a `UserPromptSubmit` hook that names the skill matching a prompt before the turn begins. Skills are selected from their descriptions, so a workflow previously ran only when the agent happened to recognise the match while reading the request; this makes that check deterministic. It stays silent unless one skill clearly wins, because a suggestion that fires on ordinary work teaches the agent to stop reading the channel. The thresholds were calibrated against the checked-in routing cases together with off-domain prompts: at the shipped pair no off-domain prompt fires and every firing case names its declared owner. Advisory in full, like the index refresh and unlike the `Stop` gate: it never blocks a prompt, stays silent on every error, and `COGNITIVE_POWERS_DISABLE_ROUTER` turns it off.
+- Moved the description ranker out of the routing benchmark into `scripts/skill_routing.py`, so the hook and the benchmark score a prompt with exactly the same code. A hook carrying its own copy of that logic could have satisfied every checked-in routing case while ranking something else at runtime, which is the one failure the benchmark exists to rule out.
+
 ## 1.7.0 - 2026-07-26
 
 Review follow-ups, all against defects introduced earlier in this release:
