@@ -10,7 +10,14 @@ begins.
 Advisory in full, like ``semantic_index.py`` and unlike the Stop gate in
 ``selective_hooks.py``: it never blocks a prompt and stays silent on every
 error. A suggestion that fires on ordinary work would train the agent to ignore
-the channel, so the thresholds below buy precision with recall.
+the channel, so the decision errs toward silence -- but silence is a failure
+too, and this file used to reach it for a third of the prompts the plugin is
+for.
+
+Reading the payload, rendering the message, and honouring the disable switch
+are all this hook does. Which skill to name, and whether to name one at all,
+belong to ``skill_routing.decide`` so the benchmark measures the same decision
+the host gets.
 """
 
 from __future__ import annotations
@@ -28,27 +35,13 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 try:
-    from skill_routing import load_skill_descriptions, rank_skills
+    from skill_routing import decide, load_skill_descriptions
 
     ROUTING_AVAILABLE = True
 except ImportError:  # A broken install must not fail the turn.
     ROUTING_AVAILABLE = False
 
 MAX_STDIN_BYTES = 2 * 1024 * 1024
-
-# Calibrated against benchmarks/skill_routing_cases.json plus off-domain
-# prompts (renames, commits, typo fixes, small talk). At this pair no
-# off-domain prompt fires and every firing positive names its declared owner,
-# for roughly three fifths of the positives. Suggesting a workflow for "fix the
-# typo in the README" costs more than staying quiet, because the agent stops
-# reading a channel that is usually wrong.
-MIN_SCORE = 0.27
-# A near-tie means the wording matched a family of skills rather than one of
-# them, and naming either is misleading.
-MIN_MARGIN = 0.02
-# rank_skills adds this when the prompt names a skill outright; such a request
-# is explicit rather than inferred and always clears the bar.
-EXPLICIT_REQUEST_SCORE = 2.0
 
 
 def _read_payload() -> dict[str, Any]:
@@ -119,27 +112,11 @@ def suggest(payload: dict[str, Any]) -> dict[str, Any]:
         descriptions = load_skill_descriptions(_plugin_root())
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill descriptions are unreadable"}
-    if len(descriptions) < 2:
-        # Margin is meaningless without a runner-up to compare against.
-        return {"status": "skipped", "reason": "not enough skills to rank"}
 
-    ranking = rank_skills(prompt, descriptions)
-    name, score = ranking[0]
-    margin = score - ranking[1][1]
-    if score < EXPLICIT_REQUEST_SCORE and (score < MIN_SCORE or margin < MIN_MARGIN):
-        return {
-            "status": "below-threshold",
-            "skill": name,
-            "score": score,
-            "margin": round(margin, 8),
-        }
-    return {
-        "status": "suggested",
-        "skill": name,
-        "score": score,
-        "margin": round(margin, 8),
-        "message": _message(name),
-    }
+    outcome = decide(prompt, descriptions)
+    if outcome["status"] != "suggested":
+        return outcome
+    return {**outcome, "message": _message(str(outcome["skill"]))}
 
 
 def main(argv: list[str] | None = None) -> int:

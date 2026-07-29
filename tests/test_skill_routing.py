@@ -10,15 +10,14 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PLUGIN_ROOT / "scripts" / "run_skill_routing_benchmarks.py"
+ROUTING_PATH = PLUGIN_ROOT / "scripts" / "skill_routing.py"
 CASES_PATH = PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json"
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location(
-        "test_skill_routing_module", SCRIPT_PATH
-    )
+def load_module(name: str = "test_skill_routing_module", path: Path = SCRIPT_PATH):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load {SCRIPT_PATH}")
+        raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -26,6 +25,9 @@ def load_module():
 
 
 routing = load_module()
+# The runner re-exports the ranking helpers but not the thresholds, and the
+# thresholds are half the routing decision.
+core = load_module("test_skill_routing_core", ROUTING_PATH)
 
 
 class SkillRoutingTests(unittest.TestCase):
@@ -88,11 +90,14 @@ class SkillRoutingTests(unittest.TestCase):
             "beta-skill": "Handle a skillful request only.",
         }
 
-        substring = routing.rank_skills("Use alpha-skillful only", descriptions)
-        exact = routing.rank_skills("Use alpha-skill only", descriptions)
+        substring = dict(routing.rank_skills("Use alpha-skillful", descriptions))
+        exact = dict(routing.rank_skills("Use alpha-skill", descriptions))
 
-        self.assertEqual(substring[0][0], "beta-skill")
-        self.assertEqual(exact[0][0], "alpha-skill")
+        # The boost is what the exactness rule guards, so assert on the boost
+        # rather than on the winner: with two descriptions this similar, which
+        # one leads on wording alone is not what this test is about.
+        self.assertLess(substring["alpha-skill"], core.EXPLICIT_REQUEST_SCORE)
+        self.assertGreaterEqual(exact["alpha-skill"], core.EXPLICIT_REQUEST_SCORE)
 
     def test_collision_detector_reports_near_identical_descriptions(self) -> None:
         descriptions = {

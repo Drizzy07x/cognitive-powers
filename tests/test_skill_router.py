@@ -101,6 +101,74 @@ class SkillRouterHookTests(unittest.TestCase):
         self.assertEqual(outcome["status"], "suggested")
         self.assertEqual(outcome["skill"], "solve-efficiently")
 
+    def test_a_skill_named_as_prose_is_still_named(self) -> None:
+        """Nobody types the hyphen when asking for a workflow out loud."""
+        for prompt in (
+            "use solve efficiently here",
+            "use solve_efficiently here",
+            "run Solve-Efficiently",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested")
+                self.assertEqual(outcome["skill"], "solve-efficiently")
+                self.assertEqual(outcome["reason"], "named skill")
+
+    def test_the_plugin_name_routes_to_a_workflow(self) -> None:
+        """The phrase a user reaches for when nothing seems to be happening.
+
+        solve-efficiently declares it runs "when Cognitive Powers is requested
+        by name", but only individual skill names were ever recognised, so the
+        plugin's own name matched nothing. It is also the only trigger that
+        survives a prompt written in a language the English descriptions cannot
+        score, which is how this was found.
+        """
+        for prompt in (
+            "use cognitive powers",
+            "Cognitive Powers",
+            "cognitive-powers please",
+            "usa cognitive powers para esto",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested", prompt)
+                self.assertEqual(outcome["reason"], "named plugin")
+                skill = PLUGIN_ROOT / "skills" / str(outcome["skill"]) / "SKILL.md"
+                self.assertTrue(skill.is_file(), skill)
+
+    def test_the_plugin_name_still_picks_the_fitting_workflow(self) -> None:
+        outcome = router.suggest(
+            {"user_input": "use cognitive powers to audit whether this release is done"}
+        )
+
+        self.assertEqual(outcome["skill"], "verify-delivery")
+
+    def test_a_single_shared_word_never_names_a_workflow(self) -> None:
+        """The rule that keeps ordinary editing out of the channel.
+
+        "reformat this file" lands on solve-efficiently through the one word
+        "file", and scores as high doing it as a genuine multi-file request
+        does on four words. Score alone cannot separate them; overlap can.
+        """
+        outcome = router.suggest({"user_input": "reformat this file"})
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "too few shared words")
+        self.assertLess(outcome["shared_tokens"], 2)
+
+    def test_a_clear_winner_is_not_discarded_for_a_modest_score(self) -> None:
+        """The shipped gate required a high score *and* a margin, so a prompt
+        that beat every other skill outright was still dropped for scoring
+        below an absolute floor."""
+        outcome = router.suggest(
+            {"user_input": "Solve this non-trivial multi-file coding task efficiently"}
+        )
+
+        self.assertEqual(outcome["status"], "suggested")
+        self.assertEqual(outcome["skill"], "solve-efficiently")
+
     def test_malformed_input_never_fails_the_turn(self) -> None:
         for payload in ("", "not json at all", "[]", '{"user_input": 42}', "{}"):
             with self.subTest(payload=payload):
@@ -148,6 +216,41 @@ class SkillRouterHookTests(unittest.TestCase):
             outcome = router.suggest({"user_input": next(iter(STRONG_MATCHES))})
 
         self.assertEqual(outcome["status"], "skipped")
+
+    def test_the_hook_and_the_benchmark_decide_alike(self) -> None:
+        """The invariant skill_routing exists to hold.
+
+        The benchmark can only vouch for what the host gets if both read the
+        same thresholds. A hook with its own copy passed every checked-in case
+        while staying silent on a third of them at runtime.
+        """
+        cases = json.loads(
+            (PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        for prompt in cases["quiet"]:
+            with self.subTest(prompt=prompt):
+                self.assertNotEqual(
+                    router.suggest({"user_input": prompt})["status"], "suggested"
+                )
+
+        named = 0
+        prompts = [
+            (case["prompt"], entry["name"])
+            for entry in cases["skills"]
+            for case in entry["positives"]
+        ]
+        for prompt, owner in prompts:
+            outcome = router.suggest({"user_input": prompt})
+            named += int(outcome["status"] == "suggested" and outcome["skill"] == owner)
+
+        self.assertGreaterEqual(
+            named / len(prompts),
+            float(cases["thresholds"]["min_suggestion_rate"]),
+            "the hook names fewer owners than the benchmark contract allows",
+        )
 
     def test_rejects_an_unknown_mode(self) -> None:
         completed = subprocess.run(

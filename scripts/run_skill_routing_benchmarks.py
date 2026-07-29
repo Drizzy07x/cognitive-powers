@@ -10,12 +10,14 @@ from typing import Mapping, Sequence
 
 try:
     from scripts.skill_routing import (
+        decide,
         description_collisions,
         load_skill_descriptions,
         rank_skills,
     )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from skill_routing import (
+        decide,
         description_collisions,
         load_skill_descriptions,
         rank_skills,
@@ -50,6 +52,7 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     positive_total = 0
     positive_rank1 = 0
     positive_top_k = 0
+    positive_suggested = 0
     negative_total = 0
     negative_passed = 0
     adversarial_total = 0
@@ -64,9 +67,17 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             rank = _rank_of(name, ranking)
             top_k = int(case.get("top_k", 3))
             passed = rank <= top_k
+            # Ranking first is not the deliverable; being named to the agent
+            # is. Scoring only the ordering is how a suite reporting 0.96
+            # coexisted with a hook that stayed silent on a third of these.
+            outcome = decide(str(case["prompt"]), descriptions)
+            suggested = (
+                outcome["status"] == "suggested" and outcome.get("skill") == name
+            )
             positive_total += 1
             positive_rank1 += int(rank == 1)
             positive_top_k += int(passed)
+            positive_suggested += int(suggested)
             results.append(
                 {
                     "skill": name,
@@ -74,6 +85,8 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
                     "prompt": case["prompt"],
                     "rank": rank,
                     "top_k": top_k,
+                    "suggested": suggested,
+                    "suggestion_reason": outcome.get("reason"),
                     "passed": passed,
                 }
             )
@@ -118,8 +131,31 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
                 }
             )
 
+    # Ordinary work that owns no workflow. Recall is only worth measuring
+    # against the noise it costs, and a threshold change that lifts recall by
+    # firing on everything must fail here rather than look like an improvement.
+    quiet_total = 0
+    quiet_passed = 0
+    for prompt in data.get("quiet", []):
+        outcome = decide(str(prompt), descriptions)
+        passed = outcome["status"] != "suggested"
+        quiet_total += 1
+        quiet_passed += int(passed)
+        results.append(
+            {
+                "skill": "-",
+                "kind": "quiet",
+                "prompt": prompt,
+                "suggested": None if passed else outcome.get("skill"),
+                "suggestion_reason": outcome.get("reason"),
+                "passed": passed,
+            }
+        )
+
     rank1_rate = positive_rank1 / positive_total
     top_k_rate = positive_top_k / positive_total
+    suggestion_rate = positive_suggested / positive_total
+    quiet_rate = quiet_passed / quiet_total if quiet_total else 1.0
     negative_rate = negative_passed / negative_total
     adversarial_rate = adversarial_passed / adversarial_total
     thresholds = data["thresholds"]
@@ -129,6 +165,8 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     passed = (
         rank1_rate >= float(thresholds["min_rank1_rate"])
         and top_k_rate >= float(thresholds["min_top_k_rate"])
+        and suggestion_rate >= float(thresholds["min_suggestion_rate"])
+        and quiet_rate >= float(thresholds["min_quiet_rate"])
         and negative_rate >= float(thresholds["min_negative_rate"])
         and adversarial_rate >= float(thresholds["min_adversarial_rate"])
         and not collisions
@@ -147,6 +185,9 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             "positive_cases": positive_total,
             "rank1_rate": round(rank1_rate, 4),
             "top_k_rate": round(top_k_rate, 4),
+            "suggestion_rate": round(suggestion_rate, 4),
+            "quiet_cases": quiet_total,
+            "quiet_rate": round(quiet_rate, 4),
             "negative_cases": negative_total,
             "negative_owner_rate": round(negative_rate, 4),
             "adversarial_cases": adversarial_total,
@@ -165,11 +206,14 @@ def format_report(report: Mapping[str, object]) -> str:
     lines = [
         "Skill routing benchmark",
         f"skills={report['skill_count']} positives={metrics['positive_cases']} rank1={metrics['rank1_rate']:.2f} top-k={metrics['top_k_rate']:.2f}",
+        f"suggested={metrics['suggestion_rate']:.2f} quiet={metrics['quiet_rate']:.2f} of {metrics['quiet_cases']}",
         f"negative-owner={metrics['negative_owner_rate']:.2f} adversarial-owner={metrics['adversarial_owner_rate']:.2f} collisions={len(report['collisions'])}",
     ]
     for case in report["cases"]:
         if not case["passed"]:
             lines.append(f"FAIL {case['kind']} {case['skill']}: {case['prompt']}")
+        elif case["kind"] == "positive" and not case["suggested"]:
+            lines.append(f"SILENT positive {case['skill']}: {case['prompt']}")
     lines.append("PASS suite" if report["passed"] else "FAIL suite")
     lines.append(
         "This deterministic contract does not prove end-to-end model improvement."
