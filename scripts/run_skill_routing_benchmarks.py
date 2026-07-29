@@ -152,9 +152,54 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             }
         )
 
+    # The same requests written in Spanish. The descriptions are English and
+    # the scorer is lexical, so this measures the translation layer rather than
+    # the ranking: before it existed these scored near zero and the router was
+    # silent on every one of them. Their own off-domain corpus is scored too,
+    # because a lexicon wide enough to match anything would read as a win here
+    # and as noise to the user.
+    spanish_total = 0
+    spanish_passed = 0
+    for case in data.get("spanish", []):
+        owner = str(case["owner"])
+        if owner not in descriptions:
+            raise ValueError(f"unknown owner for a Spanish case: {owner}")
+        outcome = decide(str(case["prompt"]), descriptions)
+        passed = outcome["status"] == "suggested" and outcome.get("skill") == owner
+        spanish_total += 1
+        spanish_passed += int(passed)
+        results.append(
+            {
+                "skill": owner,
+                "kind": "spanish",
+                "prompt": case["prompt"],
+                "suggested": outcome.get("skill")
+                if outcome["status"] == "suggested"
+                else None,
+                "suggestion_reason": outcome.get("reason"),
+                "passed": passed,
+            }
+        )
+    for prompt in data.get("spanish_quiet", []):
+        outcome = decide(str(prompt), descriptions)
+        passed = outcome["status"] != "suggested"
+        quiet_total += 1
+        quiet_passed += int(passed)
+        results.append(
+            {
+                "skill": "-",
+                "kind": "quiet",
+                "prompt": prompt,
+                "suggested": None if passed else outcome.get("skill"),
+                "suggestion_reason": outcome.get("reason"),
+                "passed": passed,
+            }
+        )
+
     rank1_rate = positive_rank1 / positive_total
     top_k_rate = positive_top_k / positive_total
     suggestion_rate = positive_suggested / positive_total
+    spanish_rate = spanish_passed / spanish_total if spanish_total else 1.0
     quiet_rate = quiet_passed / quiet_total if quiet_total else 1.0
     negative_rate = negative_passed / negative_total
     adversarial_rate = adversarial_passed / adversarial_total
@@ -169,11 +214,18 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
         and quiet_rate >= float(thresholds["min_quiet_rate"])
         and negative_rate >= float(thresholds["min_negative_rate"])
         and adversarial_rate >= float(thresholds["min_adversarial_rate"])
+        and spanish_rate >= float(thresholds["min_spanish_rate"])
         and not collisions
         and all(
             bool(result["passed"])
             for result in results
-            if result["kind"] != "positive" or int(result["top_k"]) == 1
+            # Spanish rides on its rate alone. A lexicon cannot be complete,
+            # and demanding every case here would be answered by widening it
+            # until it matches anything -- which the quiet corpus, held to the
+            # full bar in both languages, exists to make expensive. Every other
+            # kind keeps the bar it had.
+            if result["kind"] != "spanish"
+            and (result["kind"] != "positive" or int(result["top_k"]) == 1)
         )
     )
     return {
@@ -186,6 +238,8 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             "rank1_rate": round(rank1_rate, 4),
             "top_k_rate": round(top_k_rate, 4),
             "suggestion_rate": round(suggestion_rate, 4),
+            "spanish_cases": spanish_total,
+            "spanish_rate": round(spanish_rate, 4),
             "quiet_cases": quiet_total,
             "quiet_rate": round(quiet_rate, 4),
             "negative_cases": negative_total,
@@ -206,12 +260,15 @@ def format_report(report: Mapping[str, object]) -> str:
     lines = [
         "Skill routing benchmark",
         f"skills={report['skill_count']} positives={metrics['positive_cases']} rank1={metrics['rank1_rate']:.2f} top-k={metrics['top_k_rate']:.2f}",
-        f"suggested={metrics['suggestion_rate']:.2f} quiet={metrics['quiet_rate']:.2f} of {metrics['quiet_cases']}",
+        f"suggested={metrics['suggestion_rate']:.2f} spanish={metrics['spanish_rate']:.2f} of {metrics['spanish_cases']} quiet={metrics['quiet_rate']:.2f} of {metrics['quiet_cases']}",
         f"negative-owner={metrics['negative_owner_rate']:.2f} adversarial-owner={metrics['adversarial_owner_rate']:.2f} collisions={len(report['collisions'])}",
     ]
     for case in report["cases"]:
+        # Spanish counts toward its rate, not toward the pass/fail gate, so it
+        # is reported as a miss rather than as a failure it does not cause.
+        label = "MISS" if case["kind"] == "spanish" else "FAIL"
         if not case["passed"]:
-            lines.append(f"FAIL {case['kind']} {case['skill']}: {case['prompt']}")
+            lines.append(f"{label} {case['kind']} {case['skill']}: {case['prompt']}")
         elif case["kind"] == "positive" and not case["suggested"]:
             lines.append(f"SILENT positive {case['skill']}: {case['prompt']}")
     lines.append("PASS suite" if report["passed"] else "FAIL suite")

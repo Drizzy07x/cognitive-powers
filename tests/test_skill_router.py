@@ -217,6 +217,54 @@ class SkillRouterHookTests(unittest.TestCase):
 
         self.assertEqual(outcome["status"], "skipped")
 
+    def test_a_spanish_request_reaches_its_workflow(self) -> None:
+        """What the report was actually about.
+
+        The listings are English and the scorer is lexical, so before the
+        translation layer these scored near zero and the hook was silent on
+        every one -- the user saw a plugin that never did anything.
+        """
+        for prompt, expected in (
+            (
+                "Arregla el defecto usando la reproducción suministrada",
+                "solve-efficiently",
+            ),
+            (
+                "Diagnostica una regresión de rendimiento intermitente",
+                "diagnose-systematically",
+            ),
+            (
+                "Verifica esta regresión en el navegador con Playwright",
+                "verify-web-behavior",
+            ),
+            ("Audita si el lanzamiento está realmente completo", "verify-delivery"),
+            ("Explícame este artículo en lenguaje llano", "eli5"),
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested", prompt)
+                self.assertEqual(outcome["skill"], expected)
+
+    def test_ordinary_spanish_work_stays_silent(self) -> None:
+        """The lexicon buys recall with the same currency English spends.
+
+        A mapping wide enough to match anything would read as coverage and
+        arrive as noise, so ordinary Spanish editing is held to the same bar.
+        """
+        for prompt in (
+            "arregla la errata del README",
+            "renombra esta variable a userId",
+            "reformatea este archivo",
+            "haz commit de estos cambios",
+            "¿qué hora es?",
+            "añade una línea de log aquí",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertNotEqual(
+                    router.suggest({"user_input": prompt})["status"], "suggested"
+                )
+
     def test_the_hook_and_the_benchmark_decide_alike(self) -> None:
         """The invariant skill_routing exists to hold.
 

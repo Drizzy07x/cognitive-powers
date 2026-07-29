@@ -43,6 +43,86 @@ class SkillRoutingTests(unittest.TestCase):
             self.assertTrue(entry["adversarial"], entry["name"])
             self.assertTrue(all(case.get("owner") for case in entry["negatives"]))
 
+    def _description_vocabulary(self) -> set[str]:
+        descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
+        vocabulary: set[str] = set()
+        for name, description in descriptions.items():
+            vocabulary |= set(core._document(name, description))
+        return vocabulary
+
+    def test_every_translation_lands_in_the_description_vocabulary(self) -> None:
+        """A mapping onto a word no skill declares cannot help and does hurt.
+
+        It contributes nothing to any numerator while still counting toward
+        the query norm, so it lowers the score of the real matches beside it.
+        """
+        vocabulary = self._description_vocabulary()
+        stranded = {
+            spanish: english
+            for spanish, english in core.SPANISH_TERMS.items()
+            if core._stem(english) not in vocabulary
+        }
+
+        self.assertEqual(stranded, {})
+
+    def test_spanish_stopwords_silence_no_description_word(self) -> None:
+        """tokenize applies one list to prompts and to the English listings.
+
+        So a Spanish function word that happens to be spelled like an English
+        content word would delete that word from the skill that depends on it.
+        """
+        self.assertEqual(core.SPANISH_STOPWORDS & self._description_vocabulary(), set())
+
+    def test_no_translation_rewrites_an_english_word_into_a_different_stem(
+        self,
+    ) -> None:
+        """Nothing here knows which language it was handed.
+
+        A key spelled the same in both languages rewrites English prompts too:
+        "reduce" mapped to "reduced" moved an English case off its owner by
+        0.009. Identity mappings are safe; a shared spelling that lands
+        somewhere else is not, so it must be spelled unambiguously in Spanish.
+        """
+        english = set()
+        for name, description in core.load_skill_descriptions(PLUGIN_ROOT).items():
+            english |= set(
+                core.TOKEN_PATTERN.findall(
+                    core._fold(f"{name.replace('-', ' ')} {description}".casefold())
+                )
+            )
+        rewritten = {
+            spanish: english_term
+            for spanish, english_term in core.SPANISH_TERMS.items()
+            if spanish in english and core._stem(spanish) != core._stem(english_term)
+        }
+
+        self.assertEqual(rewritten, {})
+
+    def test_accented_spanish_survives_tokenization(self) -> None:
+        """TOKEN_PATTERN is ASCII, so without folding these split into pieces.
+
+        "implementacion" arrived as ['implementaci', 'n'] and "codigo" as
+        ['c', 'digo'] -- not weak matches but garbage that also inflated the
+        query norm, which no amount of translation above it could repair.
+        """
+        for text, expected in (
+            ("código", "code"),
+            ("diseño", "design"),
+            ("página", "pagina"),
+            ("análisis", "analysi"),
+            ("implementación", "implement"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(core.tokenize(text), [expected])
+
+    def test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus(self) -> None:
+        data = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+        descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
+
+        owners = {case["owner"] for case in data["spanish"]}
+        self.assertEqual(owners, set(descriptions))
+        self.assertGreaterEqual(len(data["spanish_quiet"]), 15)
+
     def test_checked_in_routing_contract_passes_without_quality_claim(self) -> None:
         report = routing.evaluate(PLUGIN_ROOT, CASES_PATH)
 

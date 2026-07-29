@@ -7,7 +7,8 @@
     "min_adversarial_rate": 0.9,
     "max_collision_similarity": 0.72,
     "min_suggestion_rate": 0.85,
-    "min_quiet_rate": 1.0
+    "min_quiet_rate": 1.0,
+    "min_spanish_rate": 0.8
   },
   "quiet": [
     "fix the typo in the README",
@@ -32,6 +33,232 @@
     "change the button color to blue",
     "update the copyright year",
     "add a log line here"
+  ],
+  "spanish": [
+    {
+      "prompt": "Audita qué flujos de trabajo recurrentes deberían convertirse en habilidades",
+      "owner": "audit-capabilities"
+    },
+    {
+      "prompt": "¿Nuestras habilidades existentes están obsoletas o duplicadas?",
+      "owner": "audit-capabilities"
+    },
+    {
+      "prompt": "Recomienda adiciones respaldadas por evidencia a esta colección de habilidades",
+      "owner": "audit-capabilities"
+    },
+    {
+      "prompt": "Dame una entrega técnica compacta sin perder evidencia",
+      "owner": "communicate-efficiently"
+    },
+    {
+      "prompt": "Adapta esta actualización de progreso para que sea concisa",
+      "owner": "communicate-efficiently"
+    },
+    {
+      "prompt": "Reduce la verbosidad de la salida preservando los hechos materiales",
+      "owner": "communicate-efficiently"
+    },
+    {
+      "prompt": "Rediseña esta página de aterrizaje con una dirección visual deliberada",
+      "owner": "design-intentionally"
+    },
+    {
+      "prompt": "Crea un panel responsive basado en la marca y la audiencia",
+      "owner": "design-intentionally"
+    },
+    {
+      "prompt": "Audita la interfaz por diseño genérico y fidelidad visual",
+      "owner": "design-intentionally"
+    },
+    {
+      "prompt": "Diagnostica una regresión de rendimiento intermitente con hipótesis falsables",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "Encuentra la causa raíz después de que el arreglo anterior falló",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "Minimiza este defecto difícil hasta una señal reproducible",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "Explícame este artículo para alguien fuera del campo",
+      "owner": "eli5"
+    },
+    {
+      "prompt": "Explica en lenguaje llano lo que este resultado de investigación realmente demuestra",
+      "owner": "eli5"
+    },
+    {
+      "prompt": "Quita la jerga de este pasaje técnico denso",
+      "owner": "eli5"
+    },
+    {
+      "prompt": "Convierte estas instrucciones informales en un contrato de prompt testeable",
+      "owner": "engineer-prompts"
+    },
+    {
+      "prompt": "Audita este prompt de agente reutilizable por objetivos y condiciones de parada",
+      "owner": "engineer-prompts"
+    },
+    {
+      "prompt": "Escribe un prompt neutral de versión con permisos, herramientas y evidencia",
+      "owner": "engineer-prompts"
+    },
+    {
+      "prompt": "Ejecuta esta tarea larga de varios pasos con estado persistente entre compactaciones",
+      "owner": "execute-durably"
+    },
+    {
+      "prompt": "Rastrea criterios observables con recibos de evidencia y verificación independiente",
+      "owner": "execute-durably"
+    },
+    {
+      "prompt": "Haz que este trabajo sea reanudable con historial de solo anexado",
+      "owner": "execute-durably"
+    },
+    {
+      "prompt": "Descubre un flujo de navegador desconocido y cambiante con Skyvern",
+      "owner": "explore-web-adaptively"
+    },
+    {
+      "prompt": "Explora un flujo entre sitios poco estructurado",
+      "owner": "explore-web-adaptively"
+    },
+    {
+      "prompt": "Produce un candidato de Playwright cuando los pasos del navegador son desconocidos",
+      "owner": "explore-web-adaptively"
+    },
+    {
+      "prompt": "Mapea este repositorio grande en una guía compacta de AGENTS.md",
+      "owner": "map-project"
+    },
+    {
+      "prompt": "Refresca la memoria jerárquica obsoleta del proyecto",
+      "owner": "map-project"
+    },
+    {
+      "prompt": "Documenta los límites de los módulos de este repositorio desconocido",
+      "owner": "map-project"
+    },
+    {
+      "prompt": "Opera esta aplicación nativa de Windows WPF a través de QCU",
+      "owner": "operate-desktop-adaptively"
+    },
+    {
+      "prompt": "Reproduce un flujo de instalador con entrada de escritorio local protegida",
+      "owner": "operate-desktop-adaptively"
+    },
+    {
+      "prompt": "Verifica un flujo de trabajo Win32 con evidencia duradera de escritorio",
+      "owner": "operate-desktop-adaptively"
+    },
+    {
+      "prompt": "Realiza investigación comparativa reproducible con un preregistro congelado",
+      "owner": "research-systematically"
+    },
+    {
+      "prompt": "Ejecuta experimentos confirmatorios y exploratorios enlazando cada afirmación con evidencia",
+      "owner": "research-systematically"
+    },
+    {
+      "prompt": "Investiga esta pregunta técnica y registra los callejones sin salida y un veredicto independiente",
+      "owner": "research-systematically"
+    },
+    {
+      "prompt": "Resuelve esta tarea de código de varios archivos de forma eficiente",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Usa carga progresiva de contexto y paralelismo dirigido",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Planifica y ejecuta esta tarea basada en archivos con evidencia",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Implementa una función pública en el modelo, la persistencia JSON, la CLI y pruebas enfocadas",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Arregla el defecto descrito por la reproducción suministrada y preserva el comportamiento no relacionado",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Resuelve esta decisión técnica acotada desde las fuentes primarias versionadas",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "Recupera documentación actual del framework que coincida con la versión",
+      "owner": "use-current-docs"
+    },
+    {
+      "prompt": "Comprueba la versión del SDK instalado contra la documentación autoritativa de la API",
+      "owner": "use-current-docs"
+    },
+    {
+      "prompt": "Verifica una migración contra la documentación actual de la biblioteca externa",
+      "owner": "use-current-docs"
+    },
+    {
+      "prompt": "Audita si el lanzamiento reclamado está realmente completo",
+      "owner": "verify-delivery"
+    },
+    {
+      "prompt": "Confirma las pruebas y el estado de Git usando evidencia real",
+      "owner": "verify-delivery"
+    },
+    {
+      "prompt": "Revisa esta entrega y detecta afirmaciones sin respaldo",
+      "owner": "verify-delivery"
+    },
+    {
+      "prompt": "Acabo de activar el complemento; comprueba que los hooks se disparan de verdad",
+      "owner": "verify-installation"
+    },
+    {
+      "prompt": "Verifica que la instalación del plugin funciona después de la actualización",
+      "owner": "verify-installation"
+    },
+    {
+      "prompt": "El intérprete y los hooks del complemento no parecen ejecutarse en este host",
+      "owner": "verify-installation"
+    },
+    {
+      "prompt": "Verifica esta regresión visible en el navegador con Playwright",
+      "owner": "verify-web-behavior"
+    },
+    {
+      "prompt": "Reproduce un flujo web end-to-end inestable con evidencia legible por máquina",
+      "owner": "verify-web-behavior"
+    },
+    {
+      "prompt": "Prueba el comportamiento de accesibilidad en la suite de navegador existente",
+      "owner": "verify-web-behavior"
+    }
+  ],
+  "spanish_quiet": [
+    "arregla la errata del README",
+    "renombra esta variable a userId",
+    "sube la versión a 2.0.1",
+    "haz commit de estos cambios",
+    "añade un comentario encima de la línea 40",
+    "¿qué hora es?",
+    "ordena los imports",
+    "borra el import sin usar",
+    "cambia el color del botón a azul",
+    "actualiza el año del copyright",
+    "añade una línea de log aquí",
+    "fusiona main en mi rama",
+    "¿qué hace este repo?",
+    "reformatea este archivo",
+    "pon un salto de línea al final del archivo",
+    "deshaz eso",
+    "imprime hola mundo",
+    "¿me puedes ayudar?"
   ],
   "skills": [
     {

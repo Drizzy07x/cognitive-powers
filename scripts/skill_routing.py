@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -24,15 +25,57 @@ TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 # "at", "the", and the "end" of "end-to-end flows". That put ordinary editing
 # above the firing threshold and genuine multi-file work below it, so the gate
 # could only be set high enough to silence both.
-STOPWORDS = frozenset(
+ENGLISH_STOPWORDS = frozenset(
     """
     a an and are as at be been but by can do does for from had has have how i
-    if in into is it its may must never not of on only or over per should so
+    if in into is it its may must never no not of on only or over per should so
     than that the their then there these they this those to use used uses
     using was were what when where which while who why will with without you
     your yours just also very more most much some any each both other another
     """.split()
 )
+
+# Spanish function words, folded. Without these the noise problem the English
+# list solves reappears in Spanish: a prompt is mostly function words, and each
+# one that survives is cosine mass spent on nothing.
+#
+# tokenize applies the union to prompts and descriptions alike, so a word
+# listed here is not merely ignored in Spanish -- it is deleted from the
+# English listings too. That is why these must not overlap the description
+# vocabulary, which test_spanish_stopwords_silence_no_description_word holds.
+# "no" is the exception that proves the rule: it is a function word in both
+# languages and explore-web-adaptively spends a high-idf token on it ("no
+# stable reproduction exists yet"), so every Spanish prompt containing "no"
+# would drift toward that one skill. It belongs on the English list above,
+# where dropping it from both sides is the intended effect rather than a
+# violation of this one's invariant.
+SPANISH_STOPWORDS = frozenset(
+    """
+    al algo alguna alguno ahora aqui asi aun cada como con contra cual cuando
+    de del desde donde dos el ella ellos en entre era eres es esa ese eso esta
+    estan este esto estos fue fueron ha haber habia hace hacer hasta hay la las
+    le les lo los mas me mi mientras mucho muy nada ni nos nuestro o os otra
+    otro para pero poco por porque puede pueden que quien quiero se sea ser si
+    sin sobre solo son su sus tambien tan tanto te tener tengo ti tiene todo
+    todos tu un una uno unos usar y ya yo favor porfa gracias hola ok vale
+    dame haz usa realiza convierte quita pon dime necesito podrias puedes
+    """.split()
+)
+
+STOPWORDS = ENGLISH_STOPWORDS | SPANISH_STOPWORDS
+
+
+# Spanish spelled with its accents is not a smaller version of the same
+# problem, it is a different one: TOKEN_PATTERN matches ASCII, so every
+# accented word shattered into fragments before any matching could happen.
+# "implementacion" became ['implementaci', 'n'] and "codigo" became ['c',
+# 'digo'] -- not weak matches, but garbage tokens that also inflated the query
+# norm and pushed the real words down. Folding runs before tokenization so the
+# words arrive whole; it also turns "n" with a tilde into "n", which is what
+# "diseno" and "espanol" need.
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def _stem(token: str) -> str:
@@ -54,12 +97,301 @@ def _stem(token: str) -> str:
     return token
 
 
+# Spanish content words, mapped onto the English the descriptions are written
+# in. Folding alone does not rescue these: the skill listings are English, so a
+# correctly tokenized "arregla el fallo intermitente" still shares no word with
+# diagnose-systematically. Latinate cognates were tried first and reach only 9
+# of 39 probed domain terms -- "implementacion" stems onto "implement", but
+# "archivo", "prueba", "fallo", and "navegador" have no English shape to find,
+# and stretching the stemmer far enough to invent one produces collisions
+# rather than matches. So the mapping is stated rather than guessed.
+#
+# Every value must be vocabulary some description actually uses; a mapping onto
+# a word no skill declares is dead weight that still inflates the query norm,
+# and test_every_translation_lands_in_the_description_vocabulary fails on one.
+#
+# A key spelled the same in both languages rewrites English prompts too, since
+# nothing here knows what language it was handed. Identity mappings ("test",
+# "version", "visual") are harmless, but "reduce" -- Spanish third person and
+# English imperative -- was mapped to "reduced" and quietly moved English
+# "Reduce output verbosity" from communicate-efficiently onto solve-efficiently
+# by 0.009. Unambiguously Spanish spellings only ("reducir"), unless the
+# mapping is identity or the English reading wants the same target anyway
+# ("error" and "bug" onto "defect"); the rule is checked by
+# test_no_translation_rewrites_an_english_word_into_a_different_stem.
+SPANISH_TERMS = {
+    # Artifacts and places
+    "archivo": "file",
+    "fichero": "file",
+    "repositorio": "repository",
+    "proyecto": "project",
+    "modulo": "module",
+    "paquete": "packages",
+    "codigo": "code",
+    "implementacion": "implementation",
+    "analisis": "analysis",
+    "compactacion": "compaction",
+    "version": "version",
+    "dependencia": "dependency",
+    "biblioteca": "library",
+    "libreria": "library",
+    "marco": "framework",
+    "herramienta": "tool",
+    "complemento": "plugin",
+    "extension": "plugin",
+    "agente": "agent",
+    "navegador": "browser",
+    "escritorio": "desktop",
+    "ventana": "window",
+    "aplicacion": "application",
+    "programa": "application",
+    "pantalla": "screenshot",
+    "sitio": "site",
+    "ruta": "path",
+    "flujo": "flow",
+    "interfaz": "interface",
+    "documentacion": "documentation",
+    "documento": "documentation",
+    "informe": "report",
+    "registro": "record",
+    "memoria": "memory",
+    "contexto": "context",
+    "estado": "state",
+    "instalacion": "installation",
+    "lanzamiento": "release",
+    "publicacion": "release",
+    "entrega": "delivery",
+    "tarea": "task",
+    "trabajo": "work",
+    "criterio": "criterion",
+    "objetivo": "outcomes",
+    "limite": "boundaries",
+    "frontera": "boundaries",
+    "permiso": "permission",
+    "condicion": "condition",
+    "evidencia": "evidence",
+    "recibo": "receipt",
+    "hipotesis": "hypotheses",
+    "experimento": "experiment",
+    "causa": "cause",
+    "defecto": "defect",
+    "fallo": "defect",
+    "error": "defect",
+    "bug": "defect",
+    "regresion": "regression",
+    "rendimiento": "performance",
+    "comportamiento": "behavior",
+    "prueba": "test",
+    "test": "test",
+    "senal": "signal",
+    "captura": "screenshot",
+    "diseno": "design",
+    "marca": "brand",
+    "calidad": "quality",
+    "accesibilidad": "accessibility",
+    "habilidad": "skill",
+    "capacidad": "capability",
+    "usuario": "user",
+    "decision": "decision",
+    "pregunta": "question",
+    "respuesta": "answer",
+    "explicacion": "explanation",
+    "lenguaje": "language",
+    "articulo": "paper",
+    "papel": "paper",
+    "fuente": "source",
+    "cambio": "change",
+    "persistencia": "persistence",
+    "verificacion": "verification",
+    "investigacion": "investigation",
+    "diagnostico": "diagnosis",
+    "auditoria": "audit",
+    "brecha": "gap",
+    "hueco": "gap",
+    # Actions
+    "arregla": "fix",
+    "arreglar": "fix",
+    "corrige": "fix",
+    "corregir": "fix",
+    "repara": "fix",
+    "reparar": "fix",
+    "implementa": "implement",
+    "implementar": "implement",
+    "ejecuta": "execute",
+    "ejecutar": "execute",
+    "corre": "run",
+    "correr": "run",
+    "verifica": "verify",
+    "verificar": "verify",
+    "comprueba": "verify",
+    "comprobar": "verify",
+    "revisa": "review",
+    "revisar": "review",
+    "audita": "audit",
+    "auditar": "audit",
+    "diagnostica": "diagnose",
+    "diagnosticar": "diagnose",
+    "investiga": "investigation",
+    "investigar": "investigation",
+    "reproduce": "reproduce",
+    "reproducir": "reproduce",
+    "minimiza": "minimize",
+    "minimizar": "minimize",
+    "demuestra": "prove",
+    "demostrar": "prove",
+    "explica": "explain",
+    "explicar": "explain",
+    "documenta": "documentation",
+    "documentar": "documentation",
+    "mapea": "map",
+    "mapear": "map",
+    "explora": "explore",
+    "explorar": "explore",
+    "descubre": "discover",
+    "descubrir": "discover",
+    "encuentra": "find",
+    "encontrar": "find",
+    "resuelve": "solve",
+    "resolver": "solve",
+    "reducir": "reduced",
+    "compara": "comparative",
+    "comparar": "comparative",
+    "guarda": "storage",
+    "guardar": "storage",
+    "almacena": "storage",
+    "almacenar": "storage",
+    "reanuda": "resume",
+    "reanudar": "resume",
+    "sobrevive": "survive",
+    "sobrevivir": "survive",
+    "instala": "install",
+    "instalar": "install",
+    "configura": "configured",
+    "configurar": "configured",
+    "actualiza": "update",
+    "actualizar": "update",
+    "selecciona": "select",
+    "seleccionar": "select",
+    "recomienda": "recommend",
+    "recomendar": "recommend",
+    "navega": "navigation",
+    "navegar": "navigation",
+    "opera": "operate",
+    "operar": "operate",
+    "falla": "defect",
+    "fallar": "defect",
+    # Words the corpus reached for that the shorter list missed
+    "actualizacion": "update",
+    "adapta": "adaptive",
+    "adaptar": "adaptive",
+    "compacta": "compact",
+    "compacto": "compact",
+    "comparativa": "comparative",
+    "comparativo": "comparative",
+    "congelada": "freeze",
+    "congelado": "freeze",
+    "contrato": "contract",
+    "deliberada": "deliberate",
+    "deliberado": "deliberate",
+    "densa": "dense",
+    "denso": "dense",
+    "direccion": "direction",
+    "entrada": "input",
+    "explicame": "explain",
+    "instalador": "installer",
+    "instruccion": "instruction",
+    "instrucciones": "instruction",
+    "pasaje": "passage",
+    "preregistro": "registration",
+    "preserva": "preserving",
+    "preservando": "preserving",
+    "preservar": "preserving",
+    "progresiva": "progressive",
+    "progresivo": "progressive",
+    "progreso": "progress",
+    "protegida": "guarded",
+    "protegido": "guarded",
+    "reanudable": "resume",
+    "redisena": "redesigns",
+    "redisenar": "redesigns",
+    "rediseno": "redesigns",
+    "registra": "record",
+    "relacionada": "unrelated",
+    "relacionado": "unrelated",
+    "reproduccion": "reproduction",
+    "suministrada": "supplied",
+    "suministrado": "supplied",
+    "tecnica": "technical",
+    "tecnico": "technical",
+    "testeable": "testable",
+    "verbosidad": "brevity",
+    # Qualities
+    "intermitente": "intermittent",
+    "sistematico": "systematically",
+    "sistematica": "systematically",
+    "reproducible": "reproducible",
+    "duradero": "durable",
+    "duradera": "durable",
+    "eficiente": "efficiently",
+    "eficientemente": "efficiently",
+    "actual": "current",
+    "actualizado": "current",
+    "obsoleto": "stale",
+    "obsoleta": "stale",
+    "desconocido": "unknown",
+    "desconocida": "unknown",
+    "nativo": "native",
+    "nativa": "native",
+    "visible": "visible",
+    "legible": "readable",
+    "publico": "public",
+    "publica": "public",
+    "visual": "visual",
+    "multiple": "multi",
+    "multiples": "multi",
+    "grande": "large",
+    "largo": "long",
+    "largas": "long",
+    "duplicado": "duplicated",
+    "duplicada": "duplicated",
+    "explicito": "explicit",
+    "explicita": "explicit",
+    "conciso": "brevity",
+    "concisa": "brevity",
+    "breve": "brevity",
+    "sencillo": "simply",
+    "sencilla": "simply",
+    "simple": "simply",
+    "llano": "plain",
+}
+
+
+def _translate(token: str) -> str | None:
+    """Map one folded Spanish token onto description vocabulary, or None.
+
+    Plurals are handled by rule rather than by listing every form, but the
+    exact spelling is tried first so that a singular ending in -s ("analisis")
+    is not mistaken for a plural of something else.
+    """
+    term = SPANISH_TERMS.get(token)
+    if term is not None:
+        return term
+    if token.endswith("es") and len(token) > 4:
+        term = SPANISH_TERMS.get(token[:-2])
+        if term is not None:
+            return term
+    if token.endswith("s") and len(token) > 3:
+        return SPANISH_TERMS.get(token[:-1])
+    return None
+
+
 def tokenize(text: str) -> list[str]:
     tokens: list[str] = []
-    for raw in TOKEN_PATTERN.findall(text.casefold()):
+    for raw in TOKEN_PATTERN.findall(_fold(text.casefold())):
         if raw in STOPWORDS:
             continue
-        stemmed = _stem(raw)
+        translated = _translate(raw)
+        stemmed = _stem(translated if translated is not None else raw)
         if stemmed in STOPWORDS:
             continue
         tokens.append(stemmed)
