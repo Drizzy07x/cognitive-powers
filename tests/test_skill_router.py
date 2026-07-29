@@ -62,10 +62,15 @@ def run_hook(payload: object, env=None) -> subprocess.CompletedProcess[str]:
 
 class SkillRouterHookTests(unittest.TestCase):
     def test_strong_match_emits_user_prompt_submit_context(self) -> None:
+        # The Skill-tool wording is the Claude Code shape, so the host is named
+        # rather than inherited: with neither variable set the hook falls back
+        # to naming the workflow file, which is the form both hosts can follow.
+        environment = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)}
         for prompt, expected in STRONG_MATCHES.items():
             with self.subTest(prompt=prompt):
                 completed = run_hook(
-                    {"hook_event_name": "UserPromptSubmit", "user_input": prompt}
+                    {"hook_event_name": "UserPromptSubmit", "user_input": prompt},
+                    env=environment,
                 )
 
                 self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -216,6 +221,64 @@ class SkillRouterHookTests(unittest.TestCase):
             outcome = router.suggest({"user_input": next(iter(STRONG_MATCHES))})
 
         self.assertEqual(outcome["status"], "skipped")
+
+    def test_the_suggestion_names_a_route_the_running_host_has(self) -> None:
+        """Both hosts run this hook and reach a workflow differently.
+
+        Claude Code installs all of skills/ and invokes one through the Skill
+        tool. Codex installs the three routers in skills-core/ and reaches the
+        rest by reading skills/<name>/SKILL.md, so a Skill-tool id named there
+        instructed the agent to call something that host does not have -- for
+        thirteen of the sixteen workflows.
+        """
+        prompt = "Diagnose an intermittent performance regression"
+        environment = os.environ.copy()
+        environment.pop("CLAUDE_PLUGIN_ROOT", None)
+        environment.pop("PLUGIN_ROOT", None)
+
+        claude = run_hook(
+            {"user_input": prompt},
+            env={**environment, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)},
+        )
+        codex = run_hook(
+            {"user_input": prompt},
+            env={**environment, "PLUGIN_ROOT": str(PLUGIN_ROOT)},
+        )
+
+        claude_context = json.loads(claude.stdout)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        codex_context = json.loads(codex.stdout)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn("cognitive-powers:diagnose-systematically", claude_context)
+        self.assertNotIn("cognitive-powers:", codex_context)
+        self.assertIn("skills/diagnose-systematically/SKILL.md", codex_context)
+
+    def test_workflows_codex_only_reads_are_not_offered_as_installed_skills(
+        self,
+    ) -> None:
+        """Only skills-core is installed there; the other thirteen are files."""
+        core = {
+            path.parent.name
+            for path in (PLUGIN_ROOT / "skills-core").glob("*/SKILL.md")
+        }
+        internal = {
+            path.parent.name for path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md")
+        }
+        self.assertTrue(core < internal)
+
+        environment = os.environ.copy()
+        environment.pop("CLAUDE_PLUGIN_ROOT", None)
+        environment["PLUGIN_ROOT"] = str(PLUGIN_ROOT)
+        for name in sorted(internal - core):
+            completed = run_hook({"user_input": f"use {name}"}, env=environment)
+            with self.subTest(skill=name):
+                context = json.loads(completed.stdout)["hookSpecificOutput"][
+                    "additionalContext"
+                ]
+                self.assertIn(f"skills/{name}/SKILL.md", context)
+                self.assertNotIn("Skill tool", context)
 
     def test_a_spanish_request_reaches_its_workflow(self) -> None:
         """What the report was actually about.

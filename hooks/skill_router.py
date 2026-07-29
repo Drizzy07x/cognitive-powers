@@ -76,24 +76,47 @@ def _prompt(payload: dict[str, Any]) -> str | None:
 
 
 def _plugin_root() -> Path:
-    value = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if value:
+    # Claude Code exports CLAUDE_PLUGIN_ROOT; the Codex manifest spells the
+    # same thing PLUGIN_ROOT, as selective_hooks already accepts.
+    for variable in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"):
+        value = os.environ.get(variable)
+        if not value:
+            continue
         try:
             root = Path(value).expanduser().resolve()
         except OSError:
-            return PLUGIN_ROOT
+            continue
         if (root / "skills").is_dir():
             return root
     return PLUGIN_ROOT
 
 
 def _message(name: str) -> str:
+    """Name the workflow the way the running host can actually reach it.
+
+    Both hosts run this hook, and they reach a workflow differently. Claude
+    Code installs all of skills/ and invokes one through the Skill tool. Codex
+    installs the three routers in skills-core/ and reaches the rest by reading
+    skills/<name>/SKILL.md, so naming a Skill-tool id there instructed the
+    agent to call something that does not exist on that host -- for thirteen of
+    the sixteen workflows, on a channel whose whole value is that it is not
+    usually wrong.
+    """
+    caveat = (
+        " This is a description-similarity match computed from the prompt "
+        "alone, not a judgment about the work, so proceed without it when it "
+        "does not apply."
+    )
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return (
+            f"Cognitive Powers: this request matches the {name!r} skill. Invoke "
+            f"it with the Skill tool as cognitive-powers:{name} before starting "
+            f"if it fits the actual task.{caveat}"
+        )
     return (
-        f"Cognitive Powers: this request matches the {name!r} skill. Invoke it "
-        f"with the Skill tool as cognitive-powers:{name} before starting if it "
-        "fits the actual task. This is a description-similarity match computed "
-        "from the prompt alone, not a judgment about the work, so proceed "
-        "without it when it does not apply."
+        f"Cognitive Powers: this request matches the {name!r} workflow. Read "
+        f"skills/{name}/SKILL.md under the plugin root and follow it before "
+        f"starting if it fits the actual task.{caveat}"
     )
 
 

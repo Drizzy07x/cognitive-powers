@@ -1,10 +1,91 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+
+SKILL_RELATIVE_SCRIPT = re.compile(r"(?<!/)`(scripts/[A-Za-z0-9_./-]+\.py)`")
+PLUGIN_ROOT_PATH = re.compile(r"<plugin-root>/([A-Za-z0-9_./-]+)")
+MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+
+
+SKILL_TREES = ("skills", "skills-core")
+
+
+def _skill_directory(document: Path) -> Path:
+    directory = document
+    while directory.parent.name not in SKILL_TREES:
+        directory = directory.parent
+    return directory
+
+
+class SkillPathReferenceTests(unittest.TestCase):
+    """Every path a skill tells the agent to run has to resolve.
+
+    The skills state the rule themselves -- `scripts/<file>` is relative to the
+    skill's own directory, `<plugin-root>/...` to the installed root -- and
+    then two of them spelled a plugin-root script the skill-relative way.
+    solve-efficiently named `scripts/run_skill_routing_benchmarks.py` three
+    sections below its own statement of the convention, and its sibling
+    reference file spelled the same script correctly, so nothing disagreed
+    loudly enough to be noticed. An agent following the stated rule looks
+    inside the skill and finds nothing.
+    """
+
+    def _documents(self) -> list[Path]:
+        # skills-core is the reduced copy Codex installs. It is clean today and
+        # is covered here so it cannot drift into the same defect unwatched.
+        return sorted(
+            document
+            for tree in SKILL_TREES
+            for document in (PLUGIN_ROOT / tree).glob("*/**/*.md")
+        )
+
+    def test_skill_relative_script_paths_exist_in_that_skill(self) -> None:
+        for document in self._documents():
+            skill = _skill_directory(document)
+            for reference in SKILL_RELATIVE_SCRIPT.findall(
+                document.read_text(encoding="utf-8")
+            ):
+                with self.subTest(document=document.name, reference=reference):
+                    self.assertTrue(
+                        (skill / reference).is_file(),
+                        f"{document.relative_to(PLUGIN_ROOT)} points at "
+                        f"{reference}, which is not in {skill.name}; if it lives "
+                        "at the installed root, spell it <plugin-root>/",
+                    )
+
+    def test_plugin_root_paths_exist_at_the_plugin_root(self) -> None:
+        for document in self._documents():
+            for reference in PLUGIN_ROOT_PATH.findall(
+                document.read_text(encoding="utf-8")
+            ):
+                # The sentence stating the convention spells the placeholder
+                # itself ("<plugin-root>/... is relative to"), and several
+                # commands take a literal argument slot such as <repo-root>.
+                if "..." in reference or "<" in reference:
+                    continue
+                with self.subTest(document=document.name, reference=reference):
+                    self.assertTrue(
+                        (PLUGIN_ROOT / reference).exists(),
+                        f"{document.relative_to(PLUGIN_ROOT)} points at "
+                        f"<plugin-root>/{reference}, which does not exist",
+                    )
+
+    def test_relative_markdown_links_resolve(self) -> None:
+        for document in self._documents():
+            for target in MARKDOWN_LINK.findall(document.read_text(encoding="utf-8")):
+                target = target.split("#")[0].strip()
+                if not target or target.startswith(("http://", "https://", "mailto:")):
+                    continue
+                with self.subTest(document=document.name, target=target):
+                    self.assertTrue(
+                        (document.parent / target).exists(),
+                        f"{document.relative_to(PLUGIN_ROOT)} links to {target}",
+                    )
 
 
 class DocumentationTests(unittest.TestCase):

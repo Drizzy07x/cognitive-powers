@@ -41,7 +41,7 @@ This reads an on-disk format the host does not publish as an interface, so treat
 - Any assistant message whose usage is not fully readable makes the command refuse, naming the format as the suspect. A partially recognised row would otherwise undercount, and an undercount reads as a genuine efficiency result.
 - `hostVersions` records the Claude Code build that wrote the counted rows, so a later discrepancy identifies which format produced the numbers rather than leaving it to be reconstructed.
 
-Both the receipt writer and the durable recorder convert usage through `scripts/provider_usage.py` at the plugin root. The recorder re-derives receipt totals rather than trusting them, so reading fewer provider shapes than the writer accepts would reject correct evidence; one implementation removes that failure rather than detecting it afterwards.
+Both the receipt writer and the durable recorder convert usage through `<plugin-root>/scripts/provider_usage.py`. The recorder re-derives receipt totals rather than trusting them, so reading fewer provider shapes than the writer accepts would reject correct evidence; one implementation removes that failure rather than detecting it afterwards.
 
 `compare` requires matching task IDs and refuses an efficiency verdict unless both runs succeeded, neither has a critical failure, and the candidate quality is no lower than the baseline. Report input, fresh-input, output, and total deltas separately.
 
