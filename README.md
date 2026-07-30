@@ -2,6 +2,12 @@
   <img src="assets/logo.png" alt="Cognitive Powers" width="720">
 </p>
 
+<p align="center">
+  <a href="https://github.com/Drizzy07x/cognitive-powers/actions/workflows/validate.yml"><img src="https://github.com/Drizzy07x/cognitive-powers/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
+  <a href="https://github.com/Drizzy07x/cognitive-powers/releases/latest"><img src="https://img.shields.io/github/v/release/Drizzy07x/cognitive-powers" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Drizzy07x/cognitive-powers" alt="License: MIT"></a>
+</p>
+
 # Cognitive Powers
 
 Cognitive Powers is a Codex and Claude Code plugin for executing non-trivial work with focused context and evidence-based verification.
@@ -523,3 +529,14 @@ Validate compiled plans, portable prompt contracts, selective hook configuration
 This offline suite keeps `liveCodexHookValidated`, `runtimePerformanceMeasured`, `semanticPromptQualityProven`, and `endToEndImprovementProven` false. It executes the hook script with a synthetic Codex-shaped payload and validates deterministic contracts; a real Codex hook session, semantic prompt review, and measured browser or bundle evidence remain separate requirements.
 
 Durable session data is stored outside the target repository under `COGNITIVE_POWERS_DATA`, `PLUGIN_DATA`, or `~/.codex/cognitive-powers` in that order. An override that resolves inside the repository is rejected before state is created.
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+Third-party components and referenced projects remain subject to their own
+licenses. Every audited source, its observed license, and its adoption decision
+are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+`integrations/catalog.json`. No third-party source is vendored: the adapters for
+Playwright, Skyvern, and QCU are original implementations, and nothing under
+`ci/` beyond `package.json` and `package-lock.json` is tracked.
