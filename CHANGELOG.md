@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.7.3 - 2026-07-30
+
+- Fixed two README claims the previous bump left stale, both naming a version the installer no longer installs. `install.ps1` derives what it verifies from the release ref — `$expectedVersion = $releaseRef.Substring(1)` — but the prose said it "verifies that exactly one version `1.7.1` entry is enabled", which was false for every release after 1.7.1 and pointed anyone diagnosing a failed install at the wrong version; it now states the rule rather than a number, so it cannot go stale again. The rollback paragraph likewise offered "the audited 1.7.1 installer" directly above a command fetching a newer one. Both survived `bump_version.py` because they were spelled bare, and its carrier pattern deliberately matches only `vX.Y.Z`; the rollback reference is now tag-shaped and moves with every future bump.
 
 - Fixed three ways the previous entries in this section let a suggestion through with no floor under it, all found by review of the same release.
 

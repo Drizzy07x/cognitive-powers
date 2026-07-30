@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v\d+\.\d+\.\d+$')]
-    [string]$ReleaseRef = "v1.7.2"
+    [string]$ReleaseRef = "v1.7.3"
 )
 
 Set-StrictMode -Version Latest
