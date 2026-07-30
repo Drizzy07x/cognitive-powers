@@ -12,6 +12,14 @@
 
 Cognitive Powers is a Codex and Claude Code plugin for executing non-trivial work with focused context and evidence-based verification.
 
+Each release ships the evidence for its own claims. The release archive is built
+twice and compared byte for byte, and the compatibility matrix carries 108
+cells — three operating systems, two Python versions, and two Codex CLI
+versions, each across nine lifecycle scenarios including upgrade, rollback,
+CRLF/LF, symlinks, Unicode paths, corrupt state, and a checkout without Git —
+every one populated from a receipt bound to that exact commit and run. A cell
+with no receipt stays `unknown` instead of being assumed to work.
+
 One source tree packages both hosts. Codex loads `.codex-plugin/plugin.json` and
 `skills-core/`; Claude Code loads `.claude-plugin/plugin.json` and `skills/`.
 Both expose the same three core workflows and the same thirteen specialized ones.
@@ -306,8 +314,14 @@ commit and binds the archive digest, every tracked file, CI OS/Python axes, and
 the public skills/hooks surface. Tag CI rebuilds twice and compares manifests
 and archive bytes before preserving candidate assets; it does not publish a
 release. `compatibility-baseline.json` and `docs/compatibility.md` are generated
-only from validated CI receipts. The current matrix contains no receipts, so all
-108 combinations are `unknown`; none is claimed compatible.
+only from validated CI receipts. The in-repo baseline is empty by construction:
+it holds all 108 combinations as `unknown`, because a receipt bound to a CI run
+cannot be produced locally, and an unbacked cell is never assumed to work.
+
+The populated matrix is a release asset. For v1.7.3, `compatibility-matrix.json`
+reports all 108 cells `compatible`, each from a receipt whose commit, run ID, and
+run attempt are verified against the run that produced it before the assets are
+preserved.
 
 ## Capability matrix
 

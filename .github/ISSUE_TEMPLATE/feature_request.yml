@@ -1,0 +1,34 @@
+name: Proposal
+description: Suggest a skill, a capability, or a change to an existing contract
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The work this would make possible
+      description: Describe the task you are trying to accomplish, not the feature you imagine. The concrete case is what makes a proposal decidable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+    validations:
+      required: true
+
+  - type: textarea
+    id: existing
+    attributes:
+      label: Why the existing skills do not cover it
+      description: There are sixteen. Naming the closest one and where it stops is the most useful part of a proposal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: How it would be verified
+      description: Every capability here has to be checkable by something other than assertion. What evidence would show this works?
+    validations:
+      required: false

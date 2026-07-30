@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Relicensed under MIT. The repository publishes a plugin with a one-line installer and a marketplace manifest, but the license granted no permission to use it at all, so the distribution mechanism and the license contradicted each other. GitHub classified the old text as `NOASSERTION`, which also excluded the project from license-filtered search and from every directory that requires a detected license — the same standard `THIRD_PARTY_NOTICES.md` applies when it rejects Composio for having none. The notices stay out of the `LICENSE` body so detection sees pure MIT text; the pointers to `THIRD_PARTY_NOTICES.md` and `integrations/catalog.json` moved to a README section that cannot affect it.
+
+- Documented the two compatibility artifacts separately, because describing only one made the project look like it proves nothing. `compatibility-baseline.json` is empty by construction — a receipt bound to a CI run cannot be produced locally — but the README stated that as "none is claimed compatible" without mentioning that the populated matrix ships as a release asset, where all 108 cells are backed by receipts verified against the run that produced them. The distinction is now explicit in both places, and the release-asset reference is tag-shaped so `bump_version.py` carries it.
+
+- Added contribution, security, and conduct guidance, plus issue and pull-request templates. The two validation constraints that fail closed with no hint in CI are now stated where an outside contributor reads them first: the receipt must land outside the repository, and the worktree must be clean. Security reports route to GitHub's private advisory channel rather than a public issue.
+
 ## 1.7.3 - 2026-07-30
 
 - Fixed two README claims the previous bump left stale, both naming a version the installer no longer installs. `install.ps1` derives what it verifies from the release ref — `$expectedVersion = $releaseRef.Substring(1)` — but the prose said it "verifies that exactly one version `1.7.1` entry is enabled", which was false for every release after 1.7.1 and pointed anyone diagnosing a failed install at the wrong version; it now states the rule rather than a number, so it cannot go stale again. The rollback paragraph likewise offered "the audited 1.7.1 installer" directly above a command fetching a newer one. Both survived `bump_version.py` because they were spelled bare, and its carrier pattern deliberately matches only `vX.Y.Z`; the rollback reference is now tag-shaped and moves with every future bump.

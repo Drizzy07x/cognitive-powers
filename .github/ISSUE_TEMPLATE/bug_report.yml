@@ -1,0 +1,69 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fastest reports carry a validation receipt. If you can run the
+        offline suite, its JSON output names the exact command that failed and
+        binds it to a commit, which usually removes a whole round trip.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest sequence that shows it. Exact commands help more than a description of them.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or tag
+      description: "Output of: codex plugin marketplace list --json, or the release tag you installed."
+      placeholder: v1.7.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options:
+        - Claude Code
+        - Codex
+        - Both
+        - Not host-specific
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and Python version
+      placeholder: Windows 11, Python 3.13.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: receipt
+    attributes:
+      label: Validation receipt or failing output
+      description: |
+        Paste the failed-command tail from the receipt, or the raw error.
+
+        ```
+        & $python scripts/validate_all.py --offline --json-output <path-outside-repo>.json
+        ```
+      render: text
+    validations:
+      required: false
