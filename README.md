@@ -82,7 +82,7 @@ Version 1.4 adds fail-closed evidence and result-quality boundaries:
 The broader Cognitive Powers surface includes:
 
 - A typed context pipeline with ordered providers and processors, strict character budgets, per-item inclusion receipts, and deterministic lint for duplicates, contradictions, expiry, and unused context.
-- A routing benchmark for every installed skill with positive, negative-owner, adversarial-pressure, rank-1, top-k, and collision cases without claiming end-to-end model improvement.
+- A routing benchmark for every installed skill with positive, negative-owner, adversarial-pressure, rank-1, top-k, and collision cases, plus the decision the host actually gets: the rate at which a positive is named, a bilingual off-domain corpus that must draw no suggestion at all, a Spanish corpus, and a ceiling on prompts routed to a workflow that does not own them. It does not claim end-to-end model improvement.
 - Provider-neutral semantic navigation across an existing fresh CodeGraph index, a worktree-bound, structurally healthy, incrementally complete Graphify export, or bounded lexical fallback. Graphify probes expose counts and bounded diagnostics rather than the graph payload.
 - Demand-only, project-scoped memory through native JSON or SQLite stores and an optional existing memU CLI, with source hashes, timestamps, confidence, expiry, supersession, snapshots, and guarded undo.
 - An evidence-bound capability lifecycle: `observed`, `candidate`, `trial`, `active`, and `retired`, with distinct events, immutable checks, approval, implementation fingerprints, and rollback evidence.

@@ -24,16 +24,17 @@ STRONG_MATCHES = {
 }
 
 # Ordinary work and chatter that owns no workflow. A suggestion here would be
-# noise, and noise is what stops the channel from being read.
-ORDINARY_PROMPTS = [
-    "fix the typo in the README",
-    "rename this variable to userId",
-    "bump the version to 2.0.1",
-    "commit these changes",
-    "add a comment above line 40",
-    "ok gracias",
-    "hola, como estas?",
-]
+# noise, and noise is what stops the channel from being read. Read from the
+# case file the benchmark actually gates on: three hand-kept copies of this
+# corpus had drifted apart, and the JSON one is the copy an author is least
+# likely to remember to update.
+CASES = json.loads(
+    (PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json").read_text(
+        encoding="utf-8"
+    )
+)
+ORDINARY_PROMPTS = CASES["quiet"]
+ORDINARY_SPANISH_PROMPTS = CASES["spanish_quiet"]
 
 
 def load_module():
@@ -47,6 +48,15 @@ def load_module():
 
 
 router = load_module()
+
+# The module the hook must not diverge from. Loaded directly so the comparison
+# is against the shared decision, not against a second copy of the thresholds.
+_core_spec = importlib.util.spec_from_file_location(
+    "test_skill_router_core", PLUGIN_ROOT / "scripts" / "skill_routing.py"
+)
+core = importlib.util.module_from_spec(_core_spec)
+sys.modules[_core_spec.name] = core
+_core_spec.loader.exec_module(core)
 
 
 def run_hook(payload: object, env=None) -> subprocess.CompletedProcess[str]:
@@ -62,10 +72,15 @@ def run_hook(payload: object, env=None) -> subprocess.CompletedProcess[str]:
 
 class SkillRouterHookTests(unittest.TestCase):
     def test_strong_match_emits_user_prompt_submit_context(self) -> None:
+        # The Skill-tool wording is the Claude Code shape, so the host is named
+        # rather than inherited: with neither variable set the hook falls back
+        # to naming the workflow file, which is the form both hosts can follow.
+        environment = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)}
         for prompt, expected in STRONG_MATCHES.items():
             with self.subTest(prompt=prompt):
                 completed = run_hook(
-                    {"hook_event_name": "UserPromptSubmit", "user_input": prompt}
+                    {"hook_event_name": "UserPromptSubmit", "user_input": prompt},
+                    env=environment,
                 )
 
                 self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -97,6 +112,129 @@ class SkillRouterHookTests(unittest.TestCase):
 
     def test_explicit_skill_request_fires_regardless_of_wording(self) -> None:
         outcome = router.suggest({"user_input": "use solve-efficiently here"})
+
+        self.assertEqual(outcome["status"], "suggested")
+        self.assertEqual(outcome["skill"], "solve-efficiently")
+
+    def test_a_skill_named_as_prose_is_still_named(self) -> None:
+        """Nobody types the hyphen when asking for a workflow out loud."""
+        for prompt in (
+            "use solve efficiently here",
+            "use solve_efficiently here",
+            "run Solve-Efficiently",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested")
+                self.assertEqual(outcome["skill"], "solve-efficiently")
+                self.assertEqual(outcome["reason"], "named skill")
+
+    def test_the_plugin_name_routes_to_a_workflow(self) -> None:
+        """The phrase a user reaches for when nothing seems to be happening.
+
+        solve-efficiently declares it runs "when Cognitive Powers is requested
+        by name", but only individual skill names were ever recognised, so the
+        plugin's own name matched nothing. It is also the only trigger that
+        survives a prompt written in a language the English descriptions cannot
+        score, which is how this was found.
+        """
+        for prompt in (
+            "use cognitive powers",
+            "Cognitive Powers",
+            "cognitive-powers please",
+            "usa cognitive powers para esto",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested", prompt)
+                self.assertEqual(outcome["reason"], "named plugin")
+                skill = PLUGIN_ROOT / "skills" / str(outcome["skill"]) / "SKILL.md"
+                self.assertTrue(skill.is_file(), skill)
+
+    def test_a_skill_name_in_ordinary_prose_is_not_a_request(self) -> None:
+        """Two adjacent words are a noun phrase, not an invocation.
+
+        Accepting the spaced spelling bare made "verify delivery of the
+        shipment before friday" an explicit request scoring 2.0, and an
+        explicit request answers to no threshold -- a new noise channel with
+        no floor at all, on the one channel whose value is being right.
+        """
+        for prompt in (
+            "verify delivery of the shipment before friday",
+            "map project milestones onto the calendar",
+            "audit capabilities of the vendor account",
+            "engineer prompts for the marketing copy",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertNotEqual(outcome.get("reason"), "named skill")
+
+    def test_naming_the_plugin_to_complain_is_not_asking_for_it(self) -> None:
+        """Answering "turn this off" with another suggestion is the worst
+        possible reply, and the alias branch skipped every gate to give it."""
+        for prompt in (
+            "turn off cognitive powers",
+            "uninstall cognitive-powers",
+            "cognitive powers is spamming me, turn the hook off",
+            "desactiva cognitive powers",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "below-threshold")
+                self.assertEqual(outcome["reason"], "named plugin as the subject")
+
+    def test_naming_two_skills_is_not_naming_one(self) -> None:
+        outcome = core.decide(
+            "use alpha-skill and beta-skill",
+            {"alpha-skill": "Handle work.", "beta-skill": "Handle work."},
+        )
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "named two skills")
+
+    def test_the_plugin_alias_never_falls_back_to_alphabetical_order(self) -> None:
+        """With no domain vocabulary every score ties at zero and rank_skills
+        breaks the tie by name, so the alias used to name whichever skill
+        sorted first with no evidence behind it."""
+        outcome = core.decide(
+            "use cognitive powers to sort my email",
+            {"alpha-skill": "Handle alpha.", "zeta-skill": "Handle zeta."},
+        )
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "no default workflow installed")
+
+    def test_the_plugin_name_still_picks_the_fitting_workflow(self) -> None:
+        outcome = router.suggest(
+            {"user_input": "use cognitive powers to audit whether this release is done"}
+        )
+
+        self.assertEqual(outcome["skill"], "verify-delivery")
+
+    def test_a_single_shared_word_never_names_a_workflow(self) -> None:
+        """The rule that keeps ordinary editing out of the channel.
+
+        "reformat this file" lands on solve-efficiently through the one word
+        "file", and scores as high doing it as a genuine multi-file request
+        does on four words. Score alone cannot separate them; overlap can.
+        """
+        outcome = router.suggest({"user_input": "reformat this file"})
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "too few shared words")
+        self.assertLess(outcome["shared_tokens"], 2)
+
+    def test_a_clear_winner_is_not_discarded_for_a_modest_score(self) -> None:
+        """The shipped gate required a high score *and* a margin, so a prompt
+        that beat every other skill outright was still dropped for scoring
+        below an absolute floor."""
+        outcome = router.suggest(
+            {"user_input": "Solve this non-trivial multi-file coding task efficiently"}
+        )
 
         self.assertEqual(outcome["status"], "suggested")
         self.assertEqual(outcome["skill"], "solve-efficiently")
@@ -148,6 +286,150 @@ class SkillRouterHookTests(unittest.TestCase):
             outcome = router.suggest({"user_input": next(iter(STRONG_MATCHES))})
 
         self.assertEqual(outcome["status"], "skipped")
+
+    def test_the_suggestion_names_a_route_the_running_host_has(self) -> None:
+        """Both hosts run this hook and reach a workflow differently.
+
+        Claude Code installs all of skills/ and invokes one through the Skill
+        tool. Codex installs the three routers in skills-core/ and reaches the
+        rest by reading skills/<name>/SKILL.md, so a Skill-tool id named there
+        instructed the agent to call something that host does not have -- for
+        thirteen of the sixteen workflows.
+        """
+        prompt = "Diagnose an intermittent performance regression"
+        environment = os.environ.copy()
+        environment.pop("CLAUDE_PLUGIN_ROOT", None)
+        environment.pop("PLUGIN_ROOT", None)
+
+        claude = run_hook(
+            {"user_input": prompt},
+            env={**environment, "CLAUDE_PLUGIN_ROOT": str(PLUGIN_ROOT)},
+        )
+        codex = run_hook(
+            {"user_input": prompt},
+            env={**environment, "PLUGIN_ROOT": str(PLUGIN_ROOT)},
+        )
+
+        claude_context = json.loads(claude.stdout)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        codex_context = json.loads(codex.stdout)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn("cognitive-powers:diagnose-systematically", claude_context)
+        self.assertNotIn("cognitive-powers:", codex_context)
+        self.assertIn("skills/diagnose-systematically/SKILL.md", codex_context)
+
+    def test_workflows_codex_only_reads_are_not_offered_as_installed_skills(
+        self,
+    ) -> None:
+        """Only skills-core is installed there; the other thirteen are files."""
+        core = {
+            path.parent.name
+            for path in (PLUGIN_ROOT / "skills-core").glob("*/SKILL.md")
+        }
+        internal = {
+            path.parent.name for path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md")
+        }
+        self.assertTrue(core < internal)
+
+        environment = os.environ.copy()
+        environment.pop("CLAUDE_PLUGIN_ROOT", None)
+        environment["PLUGIN_ROOT"] = str(PLUGIN_ROOT)
+        for name in sorted(internal - core):
+            completed = run_hook({"user_input": f"use {name}"}, env=environment)
+            with self.subTest(skill=name):
+                context = json.loads(completed.stdout)["hookSpecificOutput"][
+                    "additionalContext"
+                ]
+                self.assertIn(f"skills/{name}/SKILL.md", context)
+                self.assertNotIn("Skill tool", context)
+
+    def test_a_spanish_request_reaches_its_workflow(self) -> None:
+        """What the report was actually about.
+
+        The listings are English and the scorer is lexical, so before the
+        translation layer these scored near zero and the hook was silent on
+        every one -- the user saw a plugin that never did anything.
+        """
+        for prompt, expected in (
+            (
+                "Arregla el defecto usando la reproducción suministrada",
+                "solve-efficiently",
+            ),
+            (
+                "Diagnostica una regresión de rendimiento intermitente",
+                "diagnose-systematically",
+            ),
+            (
+                "Verifica esta regresión en el navegador con Playwright",
+                "verify-web-behavior",
+            ),
+            ("Audita si el lanzamiento está realmente completo", "verify-delivery"),
+            ("Explícame este artículo en lenguaje llano", "eli5"),
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "suggested", prompt)
+                self.assertEqual(outcome["skill"], expected)
+
+    def test_ordinary_spanish_work_stays_silent(self) -> None:
+        """The lexicon buys recall with the same currency English spends.
+
+        A mapping wide enough to match anything would read as coverage and
+        arrive as noise, so ordinary Spanish editing is held to the same bar.
+        """
+        for prompt in ORDINARY_SPANISH_PROMPTS:
+            with self.subTest(prompt=prompt):
+                self.assertNotEqual(
+                    router.suggest({"user_input": prompt})["status"], "suggested"
+                )
+
+    def test_the_hook_and_the_benchmark_decide_alike(self) -> None:
+        """The invariant skill_routing exists to hold.
+
+        Compared prompt by prompt, not as a rate. The earlier version of this
+        test recomputed the aggregate suggestion rate and checked it against
+        the same threshold the benchmark already enforces, so a hook that
+        named the wrong owner on five prompts and the right one on five it
+        currently misses kept the ratio and passed -- a weaker form of exactly
+        the divergence being guarded. Wrapping the hook to drop every Spanish
+        prompt also passed it.
+        """
+        cases = json.loads(
+            (PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
+        prompts = [
+            *(
+                case["prompt"]
+                for entry in cases["skills"]
+                for kind in ("positives", "negatives", "adversarial")
+                for case in entry[kind]
+            ),
+            *cases["quiet"],
+            *cases["spanish_quiet"],
+            *(case["prompt"] for case in cases["spanish"]),
+        ]
+
+        divergent = []
+        for prompt in prompts:
+            hook = router.suggest({"user_input": prompt})
+            reference = core.decide(prompt, descriptions)
+            observed = (hook["status"], hook.get("skill"), hook.get("reason"))
+            expected = (
+                reference["status"],
+                reference.get("skill"),
+                reference.get("reason"),
+            )
+            if observed != expected:
+                divergent.append((prompt, observed, expected))
+
+        self.assertEqual(divergent, [], "the hook decided differently from decide()")
+        self.assertGreater(len(prompts), 180)
 
     def test_rejects_an_unknown_mode(self) -> None:
         completed = subprocess.run(

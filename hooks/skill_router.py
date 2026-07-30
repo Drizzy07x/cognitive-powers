@@ -10,7 +10,14 @@ begins.
 Advisory in full, like ``semantic_index.py`` and unlike the Stop gate in
 ``selective_hooks.py``: it never blocks a prompt and stays silent on every
 error. A suggestion that fires on ordinary work would train the agent to ignore
-the channel, so the thresholds below buy precision with recall.
+the channel, so the decision errs toward silence -- but silence is a failure
+too, and this file used to reach it for a third of the prompts the plugin is
+for.
+
+Reading the payload, rendering the message, and honouring the disable switch
+are all this hook does. Which skill to name, and whether to name one at all,
+belong to ``skill_routing.decide`` so the benchmark measures the same decision
+the host gets.
 """
 
 from __future__ import annotations
@@ -28,27 +35,13 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 try:
-    from skill_routing import load_skill_descriptions, rank_skills
+    from skill_routing import decide, load_skill_descriptions
 
     ROUTING_AVAILABLE = True
 except ImportError:  # A broken install must not fail the turn.
     ROUTING_AVAILABLE = False
 
 MAX_STDIN_BYTES = 2 * 1024 * 1024
-
-# Calibrated against benchmarks/skill_routing_cases.json plus off-domain
-# prompts (renames, commits, typo fixes, small talk). At this pair no
-# off-domain prompt fires and every firing positive names its declared owner,
-# for roughly three fifths of the positives. Suggesting a workflow for "fix the
-# typo in the README" costs more than staying quiet, because the agent stops
-# reading a channel that is usually wrong.
-MIN_SCORE = 0.27
-# A near-tie means the wording matched a family of skills rather than one of
-# them, and naming either is misleading.
-MIN_MARGIN = 0.02
-# rank_skills adds this when the prompt names a skill outright; such a request
-# is explicit rather than inferred and always clears the bar.
-EXPLICIT_REQUEST_SCORE = 2.0
 
 
 def _read_payload() -> dict[str, Any]:
@@ -82,25 +75,59 @@ def _prompt(payload: dict[str, Any]) -> str | None:
     return value
 
 
-def _plugin_root() -> Path:
-    value = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if value:
+def _resolve_host() -> tuple[Path, bool]:
+    """Return the plugin root and whether the host is Claude Code.
+
+    One question, answered once. These used to be two independent lookups --
+    the root by validated precedence here, the host by a bare
+    ``CLAUDE_PLUGIN_ROOT`` test inside ``_message`` -- so a stale or partial
+    ``CLAUDE_PLUGIN_ROOT`` made the root resolve from ``PLUGIN_ROOT`` while
+    the message still named a Skill-tool id, reinstating on Codex the exact
+    defect the per-host wording exists to remove.
+
+    ``PLUGIN_ROOT`` is tried first because ``selective_hooks._roots`` does,
+    and two hooks of one plugin resolving different installs in one session is
+    the condition its own docstring calls out as fatal to the Stop gate.
+    """
+    for variable in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT"):
+        value = os.environ.get(variable)
+        if not value:
+            continue
         try:
             root = Path(value).expanduser().resolve()
         except OSError:
-            return PLUGIN_ROOT
+            continue
         if (root / "skills").is_dir():
-            return root
-    return PLUGIN_ROOT
+            return root, variable == "CLAUDE_PLUGIN_ROOT"
+    return PLUGIN_ROOT, False
 
 
-def _message(name: str) -> str:
+def _message(name: str, claude_code: bool) -> str:
+    """Name the workflow the way the running host can actually reach it.
+
+    Both hosts run this hook, and they reach a workflow differently. Claude
+    Code installs all of skills/ and invokes one through the Skill tool. Codex
+    installs the three routers in skills-core/ and reaches the rest by reading
+    skills/<name>/SKILL.md, so naming a Skill-tool id there instructed the
+    agent to call something that does not exist on that host -- for thirteen of
+    the sixteen workflows, on a channel whose whole value is that it is not
+    usually wrong.
+    """
+    caveat = (
+        " This is a description-similarity match computed from the prompt "
+        "alone, not a judgment about the work, so proceed without it when it "
+        "does not apply."
+    )
+    if claude_code:
+        return (
+            f"Cognitive Powers: this request matches the {name!r} skill. Invoke "
+            f"it with the Skill tool as cognitive-powers:{name} before starting "
+            f"if it fits the actual task.{caveat}"
+        )
     return (
-        f"Cognitive Powers: this request matches the {name!r} skill. Invoke it "
-        f"with the Skill tool as cognitive-powers:{name} before starting if it "
-        "fits the actual task. This is a description-similarity match computed "
-        "from the prompt alone, not a judgment about the work, so proceed "
-        "without it when it does not apply."
+        f"Cognitive Powers: this request matches the {name!r} workflow. Read "
+        f"skills/{name}/SKILL.md under the plugin root and follow it before "
+        f"starting if it fits the actual task.{caveat}"
     )
 
 
@@ -116,30 +143,15 @@ def suggest(payload: dict[str, Any]) -> dict[str, Any]:
         return {"status": "skipped", "reason": "no usable prompt"}
 
     try:
-        descriptions = load_skill_descriptions(_plugin_root())
+        root, claude_code = _resolve_host()
+        descriptions = load_skill_descriptions(root)
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill descriptions are unreadable"}
-    if len(descriptions) < 2:
-        # Margin is meaningless without a runner-up to compare against.
-        return {"status": "skipped", "reason": "not enough skills to rank"}
 
-    ranking = rank_skills(prompt, descriptions)
-    name, score = ranking[0]
-    margin = score - ranking[1][1]
-    if score < EXPLICIT_REQUEST_SCORE and (score < MIN_SCORE or margin < MIN_MARGIN):
-        return {
-            "status": "below-threshold",
-            "skill": name,
-            "score": score,
-            "margin": round(margin, 8),
-        }
-    return {
-        "status": "suggested",
-        "skill": name,
-        "score": score,
-        "margin": round(margin, 8),
-        "message": _message(name),
-    }
+    outcome = decide(prompt, descriptions)
+    if outcome["status"] != "suggested":
+        return outcome
+    return {**outcome, "message": _message(str(outcome["skill"]), claude_code)}
 
 
 def main(argv: list[str] | None = None) -> int:

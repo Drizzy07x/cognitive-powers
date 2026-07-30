@@ -53,7 +53,7 @@ Invoke `map-project` when the user wants reusable repository guidance or when a 
 
 Do not repeatedly dump the same file, broad directory, log, or tool result into context. Reuse a concise fact already established unless it is likely to have changed.
 
-Use `scripts/run_skill_routing_benchmarks.py` after changing a skill name or description. Its rank-1, top-k, negative-owner, adversarial, and collision checks are deterministic routing regressions; they do not prove that a model selects or follows the skill correctly end to end.
+Use `<plugin-root>/scripts/run_skill_routing_benchmarks.py` after changing a skill name or description. Its rank-1, top-k, negative-owner, adversarial, and collision checks are deterministic routing regressions; they do not prove that a model selects or follows the skill correctly end to end.
 
 ## 3. Match effort to complexity
 
