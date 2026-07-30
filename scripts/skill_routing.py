@@ -74,6 +74,11 @@ STOPWORDS = ENGLISH_STOPWORDS | SPANISH_STOPWORDS
 # words arrive whole; it also turns "n" with a tilde into "n", which is what
 # "diseno" and "espanol" need.
 def _fold(text: str) -> str:
+    # Every skill description is ASCII and they are re-folded on every ranking,
+    # so the common input needs no work at all: the guard takes that path from
+    # 0.37 ms per ranking to about a microsecond.
+    if text.isascii():
+        return text
     decomposed = unicodedata.normalize("NFD", text)
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
@@ -118,7 +123,13 @@ def _stem(token: str) -> str:
 # by 0.009. Unambiguously Spanish spellings only ("reducir"), unless the
 # mapping is identity or the English reading wants the same target anyway
 # ("error" and "bug" onto "defect"); the rule is checked by
-# test_no_translation_rewrites_an_english_word_into_a_different_stem.
+# test_no_translation_rewrites_an_english_word_into_a_different_stem, which
+# scans this repository's own English prose rather than only the descriptions.
+# Scanning the descriptions alone is what let "actual" (English: real, not
+# current) route "the actual behavior differs from the docs" to
+# use-current-docs, and "extension", "simple", "opera", "multiple" and
+# "legible" do the same -- none of them appear in a description, so the narrow
+# check could not see any of them.
 SPANISH_TERMS = {
     # Artifacts and places
     "archivo": "file",
@@ -138,7 +149,6 @@ SPANISH_TERMS = {
     "marco": "framework",
     "herramienta": "tool",
     "complemento": "plugin",
-    "extension": "plugin",
     "agente": "agent",
     "navegador": "browser",
     "escritorio": "desktop",
@@ -276,7 +286,6 @@ SPANISH_TERMS = {
     "recomendar": "recommend",
     "navega": "navigation",
     "navegar": "navigation",
-    "opera": "operate",
     "operar": "operate",
     "falla": "defect",
     "fallar": "defect",
@@ -300,7 +309,6 @@ SPANISH_TERMS = {
     "explicame": "explain",
     "instalador": "installer",
     "instruccion": "instruction",
-    "instrucciones": "instruction",
     "pasaje": "passage",
     "preregistro": "registration",
     "preserva": "preserving",
@@ -334,7 +342,6 @@ SPANISH_TERMS = {
     "duradera": "durable",
     "eficiente": "efficiently",
     "eficientemente": "efficiently",
-    "actual": "current",
     "actualizado": "current",
     "obsoleto": "stale",
     "obsoleta": "stale",
@@ -343,12 +350,9 @@ SPANISH_TERMS = {
     "nativo": "native",
     "nativa": "native",
     "visible": "visible",
-    "legible": "readable",
     "publico": "public",
     "publica": "public",
     "visual": "visual",
-    "multiple": "multi",
-    "multiples": "multi",
     "grande": "large",
     "largo": "long",
     "largas": "long",
@@ -361,7 +365,6 @@ SPANISH_TERMS = {
     "breve": "brevity",
     "sencillo": "simply",
     "sencilla": "simply",
-    "simple": "simply",
     "llano": "plain",
 }
 
@@ -455,7 +458,7 @@ def _unseen_weight(document_count: int) -> float:
 
 
 def _vector(
-    tokens: Iterable[str], idf: Mapping[str, float], unseen: float = 1.0
+    tokens: Iterable[str], idf: Mapping[str, float], unseen: float
 ) -> dict[str, float]:
     counts = Counter(tokens)
     return {token: count * idf.get(token, unseen) for token, count in counts.items()}
@@ -471,14 +474,32 @@ def _cosine(left: Mapping[str, float], right: Mapping[str, float]) -> float:
     return numerator / (left_norm * right_norm)
 
 
+# Asking for a skill out loud drops the hyphen, so the spaced spelling has to
+# be recognised -- but on its own it is not a request, it is a noun phrase.
+# "verify delivery", "map project", "audit capabilities", and "use current
+# docs" are ordinary English, and because an explicit match answers to no
+# threshold, accepting them bare turned "verify delivery of the shipment
+# before friday" into a full-confidence suggestion. The spaced form therefore
+# needs a word that means the user is asking for a workflow; the hyphenated and
+# underscored spellings do not, because nobody writes those by accident.
+INVOCATION_CUE = re.compile(
+    r"(?:^|[^a-z0-9_-])(?:use|using|used|run|runs|invoke|apply|call|start|with|"
+    r"via|try|do)\s+(?:the\s+)?$"
+)
+
+
 def _explicit_skill_requested(query: str, name: str) -> bool:
-    # A skill is named the same way whether it is typed as it appears on disk
-    # or as ordinary prose, so "solve-efficiently", "solve efficiently", and
-    # "solve_efficiently" are one request. Only the separator is loosened; the
-    # words themselves still have to match in order.
-    spelling = re.escape(name.casefold()).replace(r"\-", "[-_ ]")
-    pattern = rf"(?<![a-z0-9_-])\$?{spelling}(?![a-z0-9_-])"
-    return re.search(pattern, query.casefold()) is not None
+    folded = _fold(query.casefold())
+    literal = re.escape(name.casefold())
+    for spelling, needs_cue in (
+        (literal.replace(r"\-", "[-_]"), False),
+        (literal.replace(r"\-", " "), True),
+    ):
+        pattern = rf"(?<![a-z0-9_-])\$?{spelling}(?![a-z0-9_-])"
+        for match in re.finditer(pattern, folded):
+            if not needs_cue or INVOCATION_CUE.search(folded[: match.start()]):
+                return True
+    return False
 
 
 def _document(name: str, description: str) -> list[str]:
@@ -500,13 +521,14 @@ def rank_skills(query: str, descriptions: Mapping[str, str]) -> list[tuple[str, 
     names = list(descriptions)
     documents = [_document(name, descriptions[name]) for name in names]
     idf = _idf(documents)
+    unseen = _unseen_weight(len(documents))
     query_tokens = tokenize(query)
-    query_vector = _vector(query_tokens, idf, _unseen_weight(len(documents)))
+    query_vector = _vector(query_tokens, idf, unseen)
     ranked: list[tuple[str, float]] = []
     for name, tokens in zip(names, documents):
-        score = _cosine(query_vector, _vector(tokens, idf))
+        score = _cosine(query_vector, _vector(tokens, idf, unseen))
         if _explicit_skill_requested(query, name):
-            score += 2.0
+            score += EXPLICIT_REQUEST_SCORE
         ranked.append((name, round(score, 8)))
     return sorted(ranked, key=lambda item: (-item[1], item[0]))
 
@@ -549,6 +571,25 @@ EXPLICIT_REQUEST_SCORE = 2.0
 # prompt being written in a language these English descriptions cannot score.
 PLUGIN_ALIAS_PATTERN = re.compile(r"(?<![a-z0-9_-])cognitive[-_ ]?powers(?![a-z0-9_-])")
 
+# Naming the plugin is not always asking for it. "turn off cognitive powers",
+# "uninstall cognitive-powers", and "cognitive powers is spamming me" all
+# matched the alias and were answered with a workflow suggestion -- replying to
+# a request to stop by doing it again. These words decide that the plugin is
+# the subject of the sentence rather than the instrument.
+PLUGIN_COMPLAINT = re.compile(
+    r"(?<![a-z0-9_-])(?:off|disable|disabled|uninstall|remove|removing|stop|"
+    r"stopped|silence|mute|quiet|revert|broken|breaks|broke|spam|spamming|"
+    r"annoying|noisy|desinstala|desactiva|desactivar|quitar|apaga|apagar|"
+    r"molesta|molestando|roto|rompe)(?![a-z0-9_-])"
+)
+
+# When the alias arrives with no domain vocabulary at all, every score ties at
+# zero and rank_skills breaks the tie alphabetically -- naming whichever skill
+# sorts first with no evidence behind it. solve-efficiently is the workflow
+# that declares itself the answer to a bare request for the plugin, so it is
+# named explicitly instead of by accident of sort order.
+PLUGIN_DEFAULT_SKILL = "solve-efficiently"
+
 
 def decide(query: str, descriptions: Mapping[str, str]) -> dict[str, object]:
     """Whether to name a skill for this prompt, and which one.
@@ -576,13 +617,27 @@ def decide(query: str, descriptions: Mapping[str, str]) -> dict[str, object]:
         "shared_tokens": shared,
     }
     blocked = dict(outcome, status="below-threshold")
+    folded = _fold(query.casefold())
 
-    # An explicit request is not an inference, so it answers to no threshold:
+    # An explicit request is not an inference, so it clears the evidence gates:
     # the user named the skill, or named the plugin and left the choice of
-    # workflow to the ranking.
+    # workflow to the ranking. It does not clear the tie gate. Naming two
+    # skills is not a request for one of them, and answering "solve
+    # efficiently and communicate efficiently" with whichever won by 0.009 is
+    # the same coin-flip the tie rule exists to refuse.
     if score >= EXPLICIT_REQUEST_SCORE:
+        if margin < MIN_MARGIN:
+            return dict(blocked, reason="named two skills")
         return dict(outcome, reason="named skill")
-    if PLUGIN_ALIAS_PATTERN.search(query.casefold()):
+    if PLUGIN_ALIAS_PATTERN.search(folded):
+        if PLUGIN_COMPLAINT.search(folded):
+            return dict(blocked, reason="named plugin as the subject")
+        if score <= 0.0:
+            # No domain vocabulary to rank on, so the order is alphabetical
+            # noise. Name the declared default, or say nothing if it is absent.
+            if PLUGIN_DEFAULT_SKILL not in descriptions:
+                return dict(blocked, reason="no default workflow installed")
+            return dict(outcome, skill=PLUGIN_DEFAULT_SKILL, reason="named plugin")
         return dict(outcome, reason="named plugin")
     if shared < MIN_SHARED_TOKENS:
         return dict(blocked, reason="too few shared words")
@@ -601,7 +656,9 @@ def description_collisions(
     names = list(descriptions)
     documents = [tokenize(descriptions[name]) for name in names]
     idf = _idf(documents)
-    vectors = [_vector(tokens, idf) for tokens in documents]
+    vectors = [
+        _vector(tokens, idf, _unseen_weight(len(documents))) for tokens in documents
+    ]
     collisions: list[dict[str, object]] = []
     for left_index, left_name in enumerate(names):
         for right_index in range(left_index + 1, len(names)):

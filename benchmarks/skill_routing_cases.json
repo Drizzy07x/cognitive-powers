@@ -8,7 +8,8 @@
     "max_collision_similarity": 0.72,
     "min_suggestion_rate": 0.85,
     "min_quiet_rate": 1.0,
-    "min_spanish_rate": 0.8
+    "min_spanish_rate": 0.8,
+    "max_misrouted": 3
   },
   "quiet": [
     "fix the typo in the README",
@@ -32,7 +33,15 @@
     "delete the unused import",
     "change the button color to blue",
     "update the copyright year",
-    "add a log line here"
+    "add a log line here",
+    "turn off cognitive powers",
+    "uninstall cognitive-powers",
+    "cognitive powers is spamming me, turn the hook off",
+    "cognitive-powers seems broken, revert it",
+    "the actual behavior differs from the docs",
+    "keep the explanation simple for a non-expert",
+    "rename the variable in multiple files",
+    "add a browser extension manifest"
   ],
   "spanish": [
     {
@@ -258,7 +267,9 @@
     "pon un salto de línea al final del archivo",
     "deshaz eso",
     "imprime hola mundo",
-    "¿me puedes ayudar?"
+    "¿me puedes ayudar?",
+    "desactiva cognitive powers",
+    "el complemento cognitive powers esta roto, quitalo"
   ],
   "skills": [
     {

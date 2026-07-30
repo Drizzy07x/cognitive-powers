@@ -47,12 +47,24 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
         raise ValueError(
             f"routing cases do not match skills; missing={missing}, unknown={unknown}"
         )
+    # A corpus read with .get(..., []) whose rate then defaults to 1.0 reports
+    # a perfect score for measuring nothing, which is the exact failure these
+    # three corpora were added to stop. Deleting or misspelling one has to be
+    # louder than passing. The thresholds, by contrast, are read with defaults
+    # so that a cases file written before they existed still runs instead of
+    # dying on a bare KeyError from a documented --cases flag.
+    for required in ("quiet", "spanish", "spanish_quiet"):
+        if not data.get(required):
+            raise ValueError(
+                f"routing cases must carry a non-empty {required!r} corpus"
+            )
 
     results: list[dict[str, object]] = []
     positive_total = 0
     positive_rank1 = 0
     positive_top_k = 0
     positive_suggested = 0
+    positive_misrouted = 0
     negative_total = 0
     negative_passed = 0
     adversarial_total = 0
@@ -71,9 +83,10 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             # is. Scoring only the ordering is how a suite reporting 0.96
             # coexisted with a hook that stayed silent on a third of these.
             outcome = decide(str(case["prompt"]), descriptions)
-            suggested = (
-                outcome["status"] == "suggested" and outcome.get("skill") == name
-            )
+            named = outcome.get("skill") if outcome["status"] == "suggested" else None
+            suggested = named == name
+            if named is not None and not suggested:
+                positive_misrouted += 1
             positive_total += 1
             positive_rank1 += int(rank == 1)
             positive_top_k += int(passed)
@@ -86,6 +99,7 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
                     "rank": rank,
                     "top_k": top_k,
                     "suggested": suggested,
+                    "named": named,
                     "suggestion_reason": outcome.get("reason"),
                     "passed": passed,
                 }
@@ -136,21 +150,26 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     # firing on everything must fail here rather than look like an improvement.
     quiet_total = 0
     quiet_passed = 0
-    for prompt in data.get("quiet", []):
-        outcome = decide(str(prompt), descriptions)
-        passed = outcome["status"] != "suggested"
-        quiet_total += 1
-        quiet_passed += int(passed)
-        results.append(
-            {
-                "skill": "-",
-                "kind": "quiet",
-                "prompt": prompt,
-                "suggested": None if passed else outcome.get("skill"),
-                "suggestion_reason": outcome.get("reason"),
-                "passed": passed,
-            }
-        )
+    for corpus in ("quiet", "spanish_quiet"):
+        for prompt in data.get(corpus, []):
+            outcome = decide(str(prompt), descriptions)
+            passed = outcome["status"] != "suggested"
+            quiet_total += 1
+            quiet_passed += int(passed)
+            results.append(
+                {
+                    # Tagged by corpus, not merged: the Spanish rows used to
+                    # carry kind "quiet" too, so a report could not say which
+                    # language regressed. "skill" carries whatever fired, so
+                    # a failure names it instead of printing a bare dash.
+                    "skill": outcome.get("skill") if not passed else "-",
+                    "kind": corpus,
+                    "prompt": prompt,
+                    "suggested": None if passed else outcome.get("skill"),
+                    "suggestion_reason": outcome.get("reason"),
+                    "passed": passed,
+                }
+            )
 
     # The same requests written in Spanish. The descriptions are English and
     # the scorer is lexical, so this measures the translation layer rather than
@@ -160,42 +179,37 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     # and as noise to the user.
     spanish_total = 0
     spanish_passed = 0
+    spanish_misrouted = 0
     for case in data.get("spanish", []):
         owner = str(case["owner"])
         if owner not in descriptions:
             raise ValueError(f"unknown owner for a Spanish case: {owner}")
         outcome = decide(str(case["prompt"]), descriptions)
-        passed = outcome["status"] == "suggested" and outcome.get("skill") == owner
+        named = outcome.get("skill") if outcome["status"] == "suggested" else None
+        passed = named == owner
         spanish_total += 1
         spanish_passed += int(passed)
+        # Silence and a confident wrong answer are not the same failure, and
+        # reporting both as one hid that two of the four current misses point
+        # the user at another workflow rather than at nothing.
+        if named is not None and not passed:
+            spanish_misrouted += 1
         results.append(
             {
                 "skill": owner,
                 "kind": "spanish",
                 "prompt": case["prompt"],
-                "suggested": outcome.get("skill")
-                if outcome["status"] == "suggested"
-                else None,
-                "suggestion_reason": outcome.get("reason"),
-                "passed": passed,
-            }
-        )
-    for prompt in data.get("spanish_quiet", []):
-        outcome = decide(str(prompt), descriptions)
-        passed = outcome["status"] != "suggested"
-        quiet_total += 1
-        quiet_passed += int(passed)
-        results.append(
-            {
-                "skill": "-",
-                "kind": "quiet",
-                "prompt": prompt,
-                "suggested": None if passed else outcome.get("skill"),
+                "suggested": named,
+                "named": named,
                 "suggestion_reason": outcome.get("reason"),
                 "passed": passed,
             }
         )
 
+    if not positive_total or not negative_total or not adversarial_total:
+        raise ValueError(
+            "routing cases must carry positive, negative, and adversarial cases"
+        )
     rank1_rate = positive_rank1 / positive_total
     top_k_rate = positive_top_k / positive_total
     suggestion_rate = positive_suggested / positive_total
@@ -210,11 +224,18 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     passed = (
         rank1_rate >= float(thresholds["min_rank1_rate"])
         and top_k_rate >= float(thresholds["min_top_k_rate"])
-        and suggestion_rate >= float(thresholds["min_suggestion_rate"])
-        and quiet_rate >= float(thresholds["min_quiet_rate"])
+        and suggestion_rate >= float(thresholds.get("min_suggestion_rate", 0.85))
+        and quiet_rate >= float(thresholds.get("min_quiet_rate", 1.0))
         and negative_rate >= float(thresholds["min_negative_rate"])
         and adversarial_rate >= float(thresholds["min_adversarial_rate"])
-        and spanish_rate >= float(thresholds["min_spanish_rate"])
+        and spanish_rate >= float(thresholds.get("min_spanish_rate", 0.80))
+        # Naming the wrong workflow is not the same failure as naming none,
+        # and the rates could not tell them apart. Both corpora are held to one
+        # ceiling rather than Spanish getting a carve-out English does not:
+        # map-project is misrouted in English too, so exempting only Spanish
+        # would encode an asymmetry the data does not have.
+        and (positive_misrouted + spanish_misrouted)
+        <= int(thresholds.get("max_misrouted", 3))
         and not collisions
         and all(
             bool(result["passed"])
@@ -238,8 +259,10 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             "rank1_rate": round(rank1_rate, 4),
             "top_k_rate": round(top_k_rate, 4),
             "suggestion_rate": round(suggestion_rate, 4),
+            "misrouted_positives": positive_misrouted,
             "spanish_cases": spanish_total,
             "spanish_rate": round(spanish_rate, 4),
+            "misrouted_spanish": spanish_misrouted,
             "quiet_cases": quiet_total,
             "quiet_rate": round(quiet_rate, 4),
             "negative_cases": negative_total,
@@ -261,16 +284,26 @@ def format_report(report: Mapping[str, object]) -> str:
         "Skill routing benchmark",
         f"skills={report['skill_count']} positives={metrics['positive_cases']} rank1={metrics['rank1_rate']:.2f} top-k={metrics['top_k_rate']:.2f}",
         f"suggested={metrics['suggestion_rate']:.2f} spanish={metrics['spanish_rate']:.2f} of {metrics['spanish_cases']} quiet={metrics['quiet_rate']:.2f} of {metrics['quiet_cases']}",
+        f"misrouted={metrics['misrouted_positives']} positives, {metrics['misrouted_spanish']} spanish",
         f"negative-owner={metrics['negative_owner_rate']:.2f} adversarial-owner={metrics['adversarial_owner_rate']:.2f} collisions={len(report['collisions'])}",
     ]
     for case in report["cases"]:
         # Spanish counts toward its rate, not toward the pass/fail gate, so it
         # is reported as a miss rather than as a failure it does not cause.
         label = "MISS" if case["kind"] == "spanish" else "FAIL"
+        named = case.get("named") if case["kind"] != "quiet" else case.get("suggested")
         if not case["passed"]:
-            lines.append(f"{label} {case['kind']} {case['skill']}: {case['prompt']}")
+            # Name what fired. A quiet failure printed a bare dash, which is
+            # the one line an operator needs to be specific: this repo has a
+            # commit titled "make the silent validate gates name what they
+            # observed", and the new gate was not doing it.
+            detail = f" -> {named}" if named else " -> silent"
+            lines.append(
+                f"{label} {case['kind']} {case['skill']}{detail}: {case['prompt']}"
+            )
         elif case["kind"] == "positive" and not case["suggested"]:
-            lines.append(f"SILENT positive {case['skill']}: {case['prompt']}")
+            detail = f" -> {named}" if named else " -> silent"
+            lines.append(f"MISS positive {case['skill']}{detail}: {case['prompt']}")
     lines.append("PASS suite" if report["passed"] else "FAIL suite")
     lines.append(
         "This deterministic contract does not prove end-to-end model improvement."

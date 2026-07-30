@@ -24,16 +24,17 @@ STRONG_MATCHES = {
 }
 
 # Ordinary work and chatter that owns no workflow. A suggestion here would be
-# noise, and noise is what stops the channel from being read.
-ORDINARY_PROMPTS = [
-    "fix the typo in the README",
-    "rename this variable to userId",
-    "bump the version to 2.0.1",
-    "commit these changes",
-    "add a comment above line 40",
-    "ok gracias",
-    "hola, como estas?",
-]
+# noise, and noise is what stops the channel from being read. Read from the
+# case file the benchmark actually gates on: three hand-kept copies of this
+# corpus had drifted apart, and the JSON one is the copy an author is least
+# likely to remember to update.
+CASES = json.loads(
+    (PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json").read_text(
+        encoding="utf-8"
+    )
+)
+ORDINARY_PROMPTS = CASES["quiet"]
+ORDINARY_SPANISH_PROMPTS = CASES["spanish_quiet"]
 
 
 def load_module():
@@ -47,6 +48,15 @@ def load_module():
 
 
 router = load_module()
+
+# The module the hook must not diverge from. Loaded directly so the comparison
+# is against the shared decision, not against a second copy of the thresholds.
+_core_spec = importlib.util.spec_from_file_location(
+    "test_skill_router_core", PLUGIN_ROOT / "scripts" / "skill_routing.py"
+)
+core = importlib.util.module_from_spec(_core_spec)
+sys.modules[_core_spec.name] = core
+_core_spec.loader.exec_module(core)
 
 
 def run_hook(payload: object, env=None) -> subprocess.CompletedProcess[str]:
@@ -142,6 +152,61 @@ class SkillRouterHookTests(unittest.TestCase):
                 self.assertEqual(outcome["reason"], "named plugin")
                 skill = PLUGIN_ROOT / "skills" / str(outcome["skill"]) / "SKILL.md"
                 self.assertTrue(skill.is_file(), skill)
+
+    def test_a_skill_name_in_ordinary_prose_is_not_a_request(self) -> None:
+        """Two adjacent words are a noun phrase, not an invocation.
+
+        Accepting the spaced spelling bare made "verify delivery of the
+        shipment before friday" an explicit request scoring 2.0, and an
+        explicit request answers to no threshold -- a new noise channel with
+        no floor at all, on the one channel whose value is being right.
+        """
+        for prompt in (
+            "verify delivery of the shipment before friday",
+            "map project milestones onto the calendar",
+            "audit capabilities of the vendor account",
+            "engineer prompts for the marketing copy",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertNotEqual(outcome.get("reason"), "named skill")
+
+    def test_naming_the_plugin_to_complain_is_not_asking_for_it(self) -> None:
+        """Answering "turn this off" with another suggestion is the worst
+        possible reply, and the alias branch skipped every gate to give it."""
+        for prompt in (
+            "turn off cognitive powers",
+            "uninstall cognitive-powers",
+            "cognitive powers is spamming me, turn the hook off",
+            "desactiva cognitive powers",
+        ):
+            with self.subTest(prompt=prompt):
+                outcome = router.suggest({"user_input": prompt})
+
+                self.assertEqual(outcome["status"], "below-threshold")
+                self.assertEqual(outcome["reason"], "named plugin as the subject")
+
+    def test_naming_two_skills_is_not_naming_one(self) -> None:
+        outcome = core.decide(
+            "use alpha-skill and beta-skill",
+            {"alpha-skill": "Handle work.", "beta-skill": "Handle work."},
+        )
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "named two skills")
+
+    def test_the_plugin_alias_never_falls_back_to_alphabetical_order(self) -> None:
+        """With no domain vocabulary every score ties at zero and rank_skills
+        breaks the tie by name, so the alias used to name whichever skill
+        sorted first with no evidence behind it."""
+        outcome = core.decide(
+            "use cognitive powers to sort my email",
+            {"alpha-skill": "Handle alpha.", "zeta-skill": "Handle zeta."},
+        )
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "no default workflow installed")
 
     def test_the_plugin_name_still_picks_the_fitting_workflow(self) -> None:
         outcome = router.suggest(
@@ -315,14 +380,7 @@ class SkillRouterHookTests(unittest.TestCase):
         A mapping wide enough to match anything would read as coverage and
         arrive as noise, so ordinary Spanish editing is held to the same bar.
         """
-        for prompt in (
-            "arregla la errata del README",
-            "renombra esta variable a userId",
-            "reformatea este archivo",
-            "haz commit de estos cambios",
-            "¿qué hora es?",
-            "añade una línea de log aquí",
-        ):
+        for prompt in ORDINARY_SPANISH_PROMPTS:
             with self.subTest(prompt=prompt):
                 self.assertNotEqual(
                     router.suggest({"user_input": prompt})["status"], "suggested"
@@ -331,37 +389,47 @@ class SkillRouterHookTests(unittest.TestCase):
     def test_the_hook_and_the_benchmark_decide_alike(self) -> None:
         """The invariant skill_routing exists to hold.
 
-        The benchmark can only vouch for what the host gets if both read the
-        same thresholds. A hook with its own copy passed every checked-in case
-        while staying silent on a third of them at runtime.
+        Compared prompt by prompt, not as a rate. The earlier version of this
+        test recomputed the aggregate suggestion rate and checked it against
+        the same threshold the benchmark already enforces, so a hook that
+        named the wrong owner on five prompts and the right one on five it
+        currently misses kept the ratio and passed -- a weaker form of exactly
+        the divergence being guarded. Wrapping the hook to drop every Spanish
+        prompt also passed it.
         """
         cases = json.loads(
             (PLUGIN_ROOT / "benchmarks" / "skill_routing_cases.json").read_text(
                 encoding="utf-8"
             )
         )
-
-        for prompt in cases["quiet"]:
-            with self.subTest(prompt=prompt):
-                self.assertNotEqual(
-                    router.suggest({"user_input": prompt})["status"], "suggested"
-                )
-
-        named = 0
+        descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
         prompts = [
-            (case["prompt"], entry["name"])
-            for entry in cases["skills"]
-            for case in entry["positives"]
+            *(
+                case["prompt"]
+                for entry in cases["skills"]
+                for kind in ("positives", "negatives", "adversarial")
+                for case in entry[kind]
+            ),
+            *cases["quiet"],
+            *cases["spanish_quiet"],
+            *(case["prompt"] for case in cases["spanish"]),
         ]
-        for prompt, owner in prompts:
-            outcome = router.suggest({"user_input": prompt})
-            named += int(outcome["status"] == "suggested" and outcome["skill"] == owner)
 
-        self.assertGreaterEqual(
-            named / len(prompts),
-            float(cases["thresholds"]["min_suggestion_rate"]),
-            "the hook names fewer owners than the benchmark contract allows",
-        )
+        divergent = []
+        for prompt in prompts:
+            hook = router.suggest({"user_input": prompt})
+            reference = core.decide(prompt, descriptions)
+            observed = (hook["status"], hook.get("skill"), hook.get("reason"))
+            expected = (
+                reference["status"],
+                reference.get("skill"),
+                reference.get("reason"),
+            )
+            if observed != expected:
+                divergent.append((prompt, observed, expected))
+
+        self.assertEqual(divergent, [], "the hook decided differently from decide()")
+        self.assertGreater(len(prompts), 180)
 
     def test_rejects_an_unknown_mode(self) -> None:
         completed = subprocess.run(

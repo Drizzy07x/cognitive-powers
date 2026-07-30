@@ -75,10 +75,21 @@ def _prompt(payload: dict[str, Any]) -> str | None:
     return value
 
 
-def _plugin_root() -> Path:
-    # Claude Code exports CLAUDE_PLUGIN_ROOT; the Codex manifest spells the
-    # same thing PLUGIN_ROOT, as selective_hooks already accepts.
-    for variable in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"):
+def _resolve_host() -> tuple[Path, bool]:
+    """Return the plugin root and whether the host is Claude Code.
+
+    One question, answered once. These used to be two independent lookups --
+    the root by validated precedence here, the host by a bare
+    ``CLAUDE_PLUGIN_ROOT`` test inside ``_message`` -- so a stale or partial
+    ``CLAUDE_PLUGIN_ROOT`` made the root resolve from ``PLUGIN_ROOT`` while
+    the message still named a Skill-tool id, reinstating on Codex the exact
+    defect the per-host wording exists to remove.
+
+    ``PLUGIN_ROOT`` is tried first because ``selective_hooks._roots`` does,
+    and two hooks of one plugin resolving different installs in one session is
+    the condition its own docstring calls out as fatal to the Stop gate.
+    """
+    for variable in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT"):
         value = os.environ.get(variable)
         if not value:
             continue
@@ -87,11 +98,11 @@ def _plugin_root() -> Path:
         except OSError:
             continue
         if (root / "skills").is_dir():
-            return root
-    return PLUGIN_ROOT
+            return root, variable == "CLAUDE_PLUGIN_ROOT"
+    return PLUGIN_ROOT, False
 
 
-def _message(name: str) -> str:
+def _message(name: str, claude_code: bool) -> str:
     """Name the workflow the way the running host can actually reach it.
 
     Both hosts run this hook, and they reach a workflow differently. Claude
@@ -107,7 +118,7 @@ def _message(name: str) -> str:
         "alone, not a judgment about the work, so proceed without it when it "
         "does not apply."
     )
-    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+    if claude_code:
         return (
             f"Cognitive Powers: this request matches the {name!r} skill. Invoke "
             f"it with the Skill tool as cognitive-powers:{name} before starting "
@@ -132,14 +143,15 @@ def suggest(payload: dict[str, Any]) -> dict[str, Any]:
         return {"status": "skipped", "reason": "no usable prompt"}
 
     try:
-        descriptions = load_skill_descriptions(_plugin_root())
+        root, claude_code = _resolve_host()
+        descriptions = load_skill_descriptions(root)
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill descriptions are unreadable"}
 
     outcome = decide(prompt, descriptions)
     if outcome["status"] != "suggested":
         return outcome
-    return {**outcome, "message": _message(str(outcome["skill"]))}
+    return {**outcome, "message": _message(str(outcome["skill"]), claude_code)}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -29,6 +29,11 @@ routing = load_module()
 # thresholds are half the routing decision.
 core = load_module("test_skill_routing_core", ROUTING_PATH)
 
+# Keys spelled alike in both languages whose English reading wants the same
+# target anyway, so the rewrite is correct rather than a false friend. Every
+# other shared spelling is a defect: keep this list short and justified.
+SAME_TARGET_IN_BOTH_LANGUAGES = frozenset({"error", "bug"})
+
 
 class SkillRoutingTests(unittest.TestCase):
     def test_catalog_has_complete_positive_negative_and_adversarial_cases(self) -> None:
@@ -44,11 +49,52 @@ class SkillRoutingTests(unittest.TestCase):
             self.assertTrue(all(case.get("owner") for case in entry["negatives"]))
 
     def _description_vocabulary(self) -> set[str]:
+        """Stemmed words the listings keep, for checking translation targets."""
         descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
         vocabulary: set[str] = set()
         for name, description in descriptions.items():
             vocabulary |= set(core._document(name, description))
         return vocabulary
+
+    def _raw_description_words(self) -> set[str]:
+        """Words the listings contain *before* tokenize filters anything.
+
+        Anything that goes looking for stopwords has to use this. The stemmed
+        vocabulary above is produced by tokenize, which has already deleted
+        every stopword, so intersecting it with a stopword list is empty by
+        construction and proves nothing.
+        """
+        words: set[str] = set()
+        for name, description in core.load_skill_descriptions(PLUGIN_ROOT).items():
+            words |= set(
+                core.TOKEN_PATTERN.findall(
+                    core._fold(f"{name.replace('-', ' ')} {description}".casefold())
+                )
+            )
+        return words
+
+    def _repository_english(self) -> set[str]:
+        """English words this repository's own prose uses.
+
+        Wider than the descriptions on purpose: a lexicon key collides with
+        English in the *prompt*, and a prompt is not drawn from the sixteen
+        listings. Checking only those is what let "actual", "extension",
+        "simple", "opera", "multiple" and "legible" through -- none of them
+        appears in a description, so the narrow check saw nothing.
+        """
+        words: set[str] = set()
+        for document in PLUGIN_ROOT.glob("**/*.md"):
+            # CHANGELOG quotes Spanish prompts verbatim to explain the lexicon,
+            # so it is not an English corpus; including it makes "archivo" and
+            # "prueba" look like English and the check reports nothing.
+            if ".git" in document.parts or document.name == "CHANGELOG.md":
+                continue
+            words |= set(
+                core.TOKEN_PATTERN.findall(
+                    core._fold(document.read_text(encoding="utf-8").casefold())
+                )
+            )
+        return words
 
     def test_every_translation_lands_in_the_description_vocabulary(self) -> None:
         """A mapping onto a word no skill declares cannot help and does hurt.
@@ -70,8 +116,19 @@ class SkillRoutingTests(unittest.TestCase):
 
         So a Spanish function word that happens to be spelled like an English
         content word would delete that word from the skill that depends on it.
+        Checked against the raw listing words: the earlier version of this test
+        intersected the *tokenized* vocabulary, which tokenize has already
+        stripped of every stopword, so it passed for any list at all --
+        injecting "browser" or "playwright" left it green while those words
+        vanished from the skills that depend on them.
         """
-        self.assertEqual(core.SPANISH_STOPWORDS & self._description_vocabulary(), set())
+        self.assertEqual(core.SPANISH_STOPWORDS & self._raw_description_words(), set())
+
+    def test_the_stopword_guard_can_actually_fail(self) -> None:
+        """The invariant above is load-bearing, so prove the check is live."""
+        victim = next(iter(core.SPANISH_TERMS.values()))
+        self.assertIn(victim, self._raw_description_words())
+        self.assertTrue({victim} & self._raw_description_words())
 
     def test_no_translation_rewrites_an_english_word_into_a_different_stem(
         self,
@@ -82,18 +139,24 @@ class SkillRoutingTests(unittest.TestCase):
         "reduce" mapped to "reduced" moved an English case off its owner by
         0.009. Identity mappings are safe; a shared spelling that lands
         somewhere else is not, so it must be spelled unambiguously in Spanish.
+
+        Scanned against this repository's whole English prose rather than the
+        sixteen listings. A prompt is not drawn from the listings, so checking
+        only those missed six live rewrites at once.
+
+        The prose is a proxy for English, not a dictionary: it catches
+        "actual", "simple", "extension", "multiple" and "reduce", but an
+        English word this repository never writes -- "opera", "legible" --
+        stays invisible here and has to be caught in review. Widening the
+        corpus is the way to strengthen this, not trusting it further.
         """
-        english = set()
-        for name, description in core.load_skill_descriptions(PLUGIN_ROOT).items():
-            english |= set(
-                core.TOKEN_PATTERN.findall(
-                    core._fold(f"{name.replace('-', ' ')} {description}".casefold())
-                )
-            )
+        english = self._repository_english()
         rewritten = {
             spanish: english_term
             for spanish, english_term in core.SPANISH_TERMS.items()
-            if spanish in english and core._stem(spanish) != core._stem(english_term)
+            if spanish in english
+            and core._stem(spanish) != core._stem(english_term)
+            and spanish not in SAME_TARGET_IN_BOTH_LANGUAGES
         }
 
         self.assertEqual(rewritten, {})
