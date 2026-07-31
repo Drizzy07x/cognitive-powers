@@ -118,10 +118,22 @@ def format_report(report: dict[str, object]) -> str:
     lines = ["Semantic CodeGraph benchmark"]
     for case in report["cases"]:
         status = "PASS" if case["passed"] else "FAIL"
-        lines.append(
-            f"{status} {case['id']}: impact recall={case['impact_recall']:.2f}, "
-            f"test recall={case['test_recall']:.2f}, version={case['codegraph_version']}"
-        )
+        if not case["semantic_provider"]:
+            # Recall figures from the deterministic fallback describe the
+            # fallback, not the provider this suite exists to measure. Printing
+            # them alone made an unconfigured machine look like a provider that
+            # answered badly, which is a different problem with a different fix.
+            detail = (
+                "CodeGraph did not answer, so nothing semantic was measured; "
+                "install and index the provider, or pass --codegraph"
+            )
+        else:
+            detail = (
+                f"impact recall={case['impact_recall']:.2f}, "
+                f"test recall={case['test_recall']:.2f}, "
+                f"version={case['codegraph_version']}"
+            )
+        lines.append(f"{status} {case['id']}: {detail}")
     lines.append("PASS suite" if report["passed"] else "FAIL suite")
     return "\n".join(lines)
 
