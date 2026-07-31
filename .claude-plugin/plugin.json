@@ -22,6 +22,12 @@
     "desktop-automation"
   ],
   "hooks": "./hooks/hooks.claude.json",
+  "mcpServers": {
+    "cognitive-powers-evidence": {
+      "command": "${user_config.python_executable}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/evidence_server.py"]
+    }
+  },
   "userConfig": {
     "python_executable": {
       "type": "file",
