@@ -8,7 +8,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import random
 import re
 import shutil
 import subprocess
@@ -350,53 +349,6 @@ def run_compaction_fault_injection(
     return {
         "passed": all(item["failedClosed"] for item in boundaries),
         "boundaries": boundaries,
-    }
-
-
-def run_fault_state_machines(*, seed: int, sequences: int = 1000) -> dict[str, Any]:
-    """Exercise deterministic offline models for terminal, dependency, and WAL invariants."""
-    if sequences < 1:
-        raise WorkStateError("sequences must be positive")
-    rng = random.Random(seed)
-    terminal_passed = dependency_passed = wal_passed = True
-    terminal_states = {"completed", "killed", "collected"}
-    for _ in range(sequences):
-        current = "active"
-        for _step in range(rng.randint(1, 20)):
-            proposed = rng.choice(
-                ["active", "failed", "completed", "killed", "collected"]
-            )
-            previous = current
-            if current not in terminal_states:
-                current = proposed
-            if previous in terminal_states and current != previous:
-                terminal_passed = False
-        completed = {item for item in range(5) if rng.choice([True, False])}
-        dependencies = {item: set(range(item)) for item in range(5)}
-        runnable = {
-            item
-            for item in range(5)
-            if item not in completed and dependencies[item].issubset(completed)
-        }
-        dependency_passed &= not bool(runnable.intersection(completed))
-        state_seq = rng.randint(0, 100)
-        snapshots = [rng.randint(0, 100) for _ in range(rng.randint(0, 10))]
-        recovered = max([state_seq, *snapshots])
-        wal_passed &= recovered >= state_seq and all(
-            recovered >= item for item in snapshots
-        )
-    machines = {
-        "terminal-monotonicity": {"passed": terminal_passed, "sequences": sequences},
-        "dependency-resume": {"passed": dependency_passed, "sequences": sequences},
-        "wal-recovery": {"passed": wal_passed, "sequences": sequences},
-    }
-    return {
-        "schema_version": 1,
-        "seed": seed,
-        "sequencesPerMachine": sequences,
-        "machines": machines,
-        "passed": all(item["passed"] for item in machines.values()),
-        "providerCalls": 0,
     }
 
 

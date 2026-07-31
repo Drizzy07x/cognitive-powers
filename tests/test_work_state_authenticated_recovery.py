@@ -128,16 +128,6 @@ class WorkStateAuthenticatedRecoveryTests(unittest.TestCase):
         self.assertTrue(compacted["last_verifiable_state_retained"])
         self.assertTrue(bundle.is_file())
 
-    def test_fault_models_survive_1000_deterministic_sequences_each(self) -> None:
-        report = work_state.run_fault_state_machines(seed=1600, sequences=1000)
-        self.assertEqual(report["seed"], 1600)
-        self.assertEqual(report["sequencesPerMachine"], 1000)
-        self.assertEqual(
-            set(report["machines"]),
-            {"terminal-monotonicity", "dependency-resume", "wal-recovery"},
-        )
-        self.assertTrue(all(item["passed"] for item in report["machines"].values()))
-
 
 if __name__ == "__main__":
     unittest.main()
