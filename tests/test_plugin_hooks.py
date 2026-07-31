@@ -200,6 +200,104 @@ class PluginHookTests(unittest.TestCase):
         self.assertEqual(event["files"], [])
         self.assertNotIn("secret", self.ledger().read_text(encoding="utf-8"))
 
+    def test_data_root_under_the_working_directory_still_records_provenance(
+        self,
+    ) -> None:
+        """A session opened above the evidence store must keep its provenance.
+
+        Claude Code reports the session's own working directory, which on
+        Windows is routinely a drive root or the home directory -- both
+        ancestors of the default data root. Refusing the whole event there left
+        the ledger empty, so the stop gate could never fire while every
+        packaging check still passed.
+        """
+        work = self.base / "work.txt"
+        work.write_text("edited\n", encoding="utf-8")
+        stored = self.data / "hooks" / "events" / "unrelated.txt"
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_text("evidence\n", encoding="utf-8")
+
+        payload = self.payload("Write")
+        payload["cwd"] = str(self.base)
+        payload["toolInput"] = {"file_path": str(work)}
+        result = self.run_hook("post-tool-use", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual([item["path"] for item in events[0]["files"]], ["work.txt"])
+
+        stored_payload = self.payload("Write")
+        stored_payload["cwd"] = str(self.base)
+        stored_payload["toolInput"] = {"file_path": str(stored)}
+        self.run_hook("post-tool-use", stored_payload)
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1]["files"], [], "the evidence store is not user work")
+
+    def test_an_oversized_payload_still_reaches_the_stop_gate(self) -> None:
+        """A dropped edit must not be indistinguishable from no edit.
+
+        Claude Code inlines written content in the payload, so one large
+        generated file exceeded the cap, the event was discarded, and the stop
+        gate read the empty ledger as a session that changed nothing.
+        """
+        payload = self.payload("Write")
+        payload["toolInput"] = {"file_path": "big.bin", "content": "x" * (3 * 1024**2)}
+        result = self.run_hook("post-tool-use", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0]["payloadTruncated"])
+        self.assertEqual(events[0]["files"], [], "no file identity was parsed")
+        self.assertEqual(events[0]["cwd"], str(self.repo))
+        self.assertEqual(events[0]["tool"], "Write")
+
+        stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertIn("no current", json.loads(stop.stdout)["systemMessage"])
+
+    def test_notebook_edits_record_the_notebook_they_changed(self) -> None:
+        notebook = self.repo / "analysis.ipynb"
+        notebook.write_text("{}\n", encoding="utf-8")
+        payload = self.payload("NotebookEdit")
+        payload["toolInput"] = {"notebook_path": "analysis.ipynb"}
+        self.run_hook("post-tool-use", payload)
+        event = json.loads(self.ledger().read_text(encoding="utf-8"))
+        self.assertEqual([item["path"] for item in event["files"]], ["analysis.ipynb"])
+        self.assertEqual(
+            event["files"][0]["sha256"],
+            hashlib.sha256(notebook.read_bytes()).hexdigest(),
+        )
+
+    def test_stop_leaves_no_lock_behind_for_a_session_that_edited_nothing(self) -> None:
+        result = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+        events = self.data / "hooks" / "events"
+        self.assertFalse(
+            events.exists() and any(events.iterdir()),
+            "a read-only session must not leave an orphan lock behind",
+        )
+
+    def test_a_session_inside_the_evidence_store_records_nothing(self) -> None:
+        inside = self.data / "projects" / "session"
+        inside.mkdir(parents=True)
+        payload = self.payload("Write")
+        payload["cwd"] = str(inside)
+        payload["toolInput"] = {"file_path": "note.txt"}
+        self.run_hook("post-tool-use", payload)
+        self.assertFalse(self.ledger().exists())
+
     def test_stop_warns_for_edits_then_accepts_current_evidence_receipt(self) -> None:
         self.run_hook("post-tool-use", self.payload("Write"))
         stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})

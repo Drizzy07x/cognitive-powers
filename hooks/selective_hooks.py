@@ -26,6 +26,7 @@ from typing import Any, Iterator
 SCHEMA = "cognitive-powers.edit-event.v1"
 RECEIPT_SCHEMA = "cognitive-powers.validation-receipt.v1"
 MAX_STDIN_BYTES = 2 * 1024 * 1024
+PREFIX_SCAN_BYTES = 64 * 1024
 MAX_HASH_BYTES = 32 * 1024 * 1024
 LOCK_TIMEOUT_SECONDS = 5.0
 SUPPORTED_TOOLS = {
@@ -184,15 +185,51 @@ def _ledger_lock(ledger: Path) -> Iterator[None]:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _read_payload() -> dict[str, Any] | None:
+class OversizedPayload:
+    """An edit whose payload exceeded the cap, carrying the readable prefix."""
+
+    __slots__ = ("prefix",)
+
+    def __init__(self, prefix: bytes) -> None:
+        self.prefix = prefix
+
+
+def _read_payload() -> dict[str, Any] | OversizedPayload | None:
     raw = sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)
-    if not raw or len(raw) > MAX_STDIN_BYTES:
+    if not raw:
         return None
+    if len(raw) > MAX_STDIN_BYTES:
+        return OversizedPayload(raw[:PREFIX_SCAN_BYTES])
     try:
         payload = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _scan_prefix(prefix: bytes, *names: str) -> str | None:
+    """Recover one string field from an unparsable payload prefix.
+
+    Only reached when the payload was too large to parse. A regular expression
+    over the head of the stream is not a JSON parser, and it is not used as one:
+    a miss returns None and the field is recorded as unknown rather than guessed.
+    """
+    for name in names:
+        match = re.search(
+            rb'"'
+            + re.escape(name.encode("ascii"))
+            + rb'"\s*:\s*"((?:[^"\\]|\\.){0,512})"',
+            prefix,
+        )
+        if match is None:
+            continue
+        try:
+            value = json.loads(b'"' + match.group(1) + b'"')
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
@@ -202,7 +239,11 @@ def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _candidate_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
     candidates: list[str] = []
-    for key in ("file_path", "filePath", "path"):
+    # NotebookEdit is matched by both hosts but spells its target notebook_path.
+    # Reading only the three generic keys recorded every notebook edit with an
+    # empty file list, so the ledger proved a write happened and nothing about
+    # what was written.
+    for key in ("file_path", "filePath", "path", "notebook_path", "notebookPath"):
         value = tool_input.get(key)
         if isinstance(value, str) and value.strip():
             candidates.append(value.strip())
@@ -214,7 +255,9 @@ def _candidate_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
-def _file_records(cwd: Path, candidates: list[str]) -> list[dict[str, Any]]:
+def _file_records(
+    cwd: Path, candidates: list[str], data_root: Path
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for candidate in candidates:
         supplied = Path(candidate).expanduser()
@@ -224,6 +267,12 @@ def _file_records(cwd: Path, candidates: list[str]) -> list[dict[str, Any]]:
             else supplied.resolve()
         )
         if not _inside(resolved, cwd):
+            continue
+        # The evidence store is not user work. It lives under the working
+        # directory whenever the session was opened at an ancestor of the home
+        # directory, and recording its own writes would feed the ledger back
+        # into itself.
+        if _inside(resolved, data_root):
             continue
         record: dict[str, Any] = {"path": resolved.relative_to(cwd).as_posix()}
         if resolved.is_file() and not resolved.is_symlink():
@@ -272,6 +321,56 @@ def _read_ledger(path: Path) -> tuple[list[dict[str, Any]], str | None]:
     return events, None
 
 
+def _append_event(data_root: Path, session_id: str, fields: dict[str, Any]) -> None:
+    ledger = _ledger_path(data_root, session_id)
+    with _ledger_lock(ledger):
+        events, error = _read_ledger(ledger)
+        if error:
+            return
+        event: dict[str, Any] = {
+            "schema": SCHEMA,
+            "sessionId": session_id,
+            "event": "PostToolUse",
+            **fields,
+            "recordedAt": datetime.now(timezone.utc).isoformat(),
+            "previousEventHash": events[-1]["eventHash"] if events else None,
+        }
+        event["eventHash"] = _sha256_bytes(_canonical(event))
+        with ledger.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def record_oversized_payload(prefix: bytes) -> None:
+    """Record that an edit happened whose payload could not be parsed.
+
+    The stop gate reads an empty ledger as "nothing was edited", so dropping an
+    oversized payload did not merely lose the file hashes -- it switched the
+    completion gate off for the whole session. Claude Code inlines written
+    content in the payload, so writing one large generated file was enough.
+    A degraded event keeps the gate firing; it deliberately carries no file
+    identity, because none was parsed.
+    """
+    roots = _roots()
+    session_id = _scan_prefix(
+        prefix, "sessionId", "session_id", "threadId", "thread_id"
+    )
+    if roots is None or session_id is None:
+        return
+    _, data_root = roots
+    _append_event(
+        data_root,
+        session_id,
+        {
+            "turnId": _scan_prefix(prefix, "turnId", "turn_id"),
+            "tool": _scan_prefix(prefix, "toolName", "tool_name", "tool") or "unknown",
+            "cwd": _scan_prefix(prefix, "cwd", "workingDirectory", "working_directory")
+            or "",
+            "files": [],
+            "payloadTruncated": True,
+        },
+    )
+
+
 def post_tool_use(payload: dict[str, Any]) -> None:
     roots = _roots()
     session_id = _session_id(payload)
@@ -285,29 +384,28 @@ def post_tool_use(payload: dict[str, Any]) -> None:
     if not isinstance(cwd_value, str) or not cwd_value.strip():
         return
     cwd = Path(cwd_value).expanduser().resolve()
-    if not cwd.is_dir() or _inside(data_root, cwd):
+    # Refuse only a session that is working *inside* the evidence store. The
+    # test used to be the reverse -- data root under cwd -- which silently
+    # disabled provenance for every session opened at an ancestor of the data
+    # root: a drive root, the home directory, or C:\Users. The stop gate reads
+    # this ledger, so on those hosts the whole completion gate was inert while
+    # every packaging check still reported healthy. Excluding the store per
+    # file keeps the original protection without that blast radius.
+    if not cwd.is_dir() or cwd == data_root or _inside(cwd, data_root):
         return
     tool_input = _tool_input(payload)
-    files = _file_records(cwd, _candidate_paths(tool_name, tool_input))
-    ledger = _ledger_path(data_root, session_id)
-    with _ledger_lock(ledger):
-        events, error = _read_ledger(ledger)
-        if error:
-            return
-        event: dict[str, Any] = {
-            "schema": SCHEMA,
-            "sessionId": session_id,
+    _append_event(
+        data_root,
+        session_id,
+        {
             "turnId": _first(payload, "turnId", "turn_id"),
-            "event": "PostToolUse",
             "tool": tool_name,
             "cwd": str(cwd),
-            "files": files,
-            "recordedAt": datetime.now(timezone.utc).isoformat(),
-            "previousEventHash": events[-1]["eventHash"] if events else None,
-        }
-        event["eventHash"] = _sha256_bytes(_canonical(event))
-        with ledger.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+            "files": _file_records(
+                cwd, _candidate_paths(tool_name, tool_input), data_root
+            ),
+        },
+    )
 
 
 def _receipt_is_current(
@@ -490,6 +588,11 @@ def stop(payload: dict[str, Any]) -> None:
         return
     plugin_root, data_root = roots
     ledger = _ledger_path(data_root, session_id)
+    # Taking the lock first created a one-byte .lock beside a ledger that may
+    # never exist. Every turn-ending of every read-only session left one behind
+    # and nothing prunes them. A missing ledger has nothing to serialise against.
+    if not ledger.is_file():
+        return
     with _ledger_lock(ledger):
         events, error = _read_ledger(ledger)
     if not events and error is None:
@@ -631,7 +734,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     try:
         payload = _read_payload()
-        if payload is not None:
+        if isinstance(payload, OversizedPayload):
+            # Only the edit event can be degraded and still mean something. A
+            # Stop payload is small, so an oversized one is not a real case.
+            if args.command == "post-tool-use":
+                record_oversized_payload(payload.prefix)
+        elif payload is not None:
             post_tool_use(payload) if args.command == "post-tool-use" else stop(payload)
     except Exception:
         # Observability must never turn an incomplete payload or I/O race into a tool block.
