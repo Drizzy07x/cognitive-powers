@@ -196,6 +196,15 @@ class WorkStateRecoveryTests(unittest.TestCase):
 
         self.assertEqual(ledger.read_text(encoding="utf-8"), corrupt)
 
+    def test_a_torn_recovery_checkpoint_fails_closed(self) -> None:
+        """The last recovery source must fail closed, not raise a ValueError."""
+        (self.session / "recovery.json").write_bytes(b"\x80\x80\x80")
+
+        with self.assertRaisesRegex(
+            work_state.WorkStateError, "recovery checkpoint is unreadable"
+        ):
+            work_state.load_state(self.session)
+
     def test_compact_cli_is_supported(self) -> None:
         args = work_state.build_parser().parse_args(
             [

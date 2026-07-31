@@ -125,9 +125,16 @@ def read_events(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     events: list[dict[str, Any]] = []
-    for line_number, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), 1
-    ):
+    # One physical line is one record, exactly as _read_ledger_events defines it.
+    # splitlines() additionally breaks on U+2028, U+2029, and U+0085, which
+    # json.dumps(ensure_ascii=False) leaves raw inside a record, so an event
+    # carrying one of those separators split into two malformed lines here and
+    # the board, timeline, blockers, and handoff became permanently unavailable
+    # for a session that work_state.py itself still read.
+    lines = path.read_text(encoding="utf-8").split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    for line_number, line in enumerate(lines, 1):
         if not line.strip():
             continue
         value = json.loads(line)

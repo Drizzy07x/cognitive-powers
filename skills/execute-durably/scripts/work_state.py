@@ -1156,16 +1156,6 @@ def status(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     return payload, 0
 
 
-def compact_ledger_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
-    root = resolve_root(args.root)
-    data_root = resolve_data_root(args.data_root)
-    session_dir = session_directory(root, data_root, args.session)
-    return {
-        "message": f"session {sanitize_identifier(args.session, 'session')}: compacted",
-        **compact_ledger(session_dir),
-    }, 0
-
-
 def _external_data_root(args: argparse.Namespace) -> Path:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
@@ -1196,14 +1186,31 @@ def storage_gc_command(args: argparse.Namespace) -> tuple[dict[str, object], int
         keep_last=args.keep_last,
         apply=args.apply,
     )
-    return {
-        "message": (
-            "storage garbage collection applied"
-            if args.apply
-            else "storage garbage collection dry-run; pass --apply to delete"
-        ),
-        **report,
-    }, 0
+    failed_sessions = report.get("failed_sessions") or []
+    unscannable = report.get("unscannable_evidence") or []
+    if not args.apply:
+        message = "storage garbage collection dry-run; pass --apply to delete"
+    elif failed_sessions:
+        # Continuing past one uncollectable session is what lets the run report
+        # what it did delete. Reporting that partial run as "applied" with exit
+        # 0 would replace a loud abort with a quiet lie, so the incomplete run
+        # says so and exits like any other refused operation.
+        message = (
+            f"storage garbage collection incomplete: {len(failed_sessions)} of "
+            f"{len(failed_sessions) + len(report.get('deleted_sessions') or [])} "
+            "sessions could not be collected; see failed_sessions"
+        )
+    else:
+        message = "storage garbage collection applied"
+    if unscannable:
+        # Unreferenced objects are protected wholesale while any evidence file
+        # is unreadable, so a store that never shrinks needs to name the reason
+        # rather than look like a collector that found nothing to do.
+        message += (
+            f"; {len(unscannable)} evidence file(s) could not be scanned, so no "
+            "unreferenced object was collected (see unscannable_evidence)"
+        )
+    return {"message": message, **report}, 2 if failed_sessions else 0
 
 
 def _begin_attempt(
@@ -1430,7 +1437,10 @@ def _read_json_input(value: str, label: str) -> dict[str, Any]:
             else Path(value).read_text(encoding="utf-8")
         )
         payload = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as error:
+    # A plan written in UTF-16 or cp1252 raises UnicodeDecodeError, which is a
+    # ValueError and not a JSONDecodeError, so it escaped as a traceback with
+    # exit 1 instead of the contract's error object with exit 2.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(f"{label} is unreadable: {error}") from error
     if not isinstance(payload, dict):
         raise WorkStateError(f"{label} must be a JSON object")

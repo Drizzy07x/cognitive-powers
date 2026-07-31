@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import os
@@ -9,6 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -250,6 +252,145 @@ class WorkStateStorageTests(unittest.TestCase):
         self.assertEqual(object_decisions[referenced], "protect")
         self.assertEqual(object_decisions["0" * 64], "delete")
         self.assertFalse(orphan.exists())
+
+    def test_gc_protects_objects_when_evidence_cannot_be_scanned(self) -> None:
+        """Evidence carries artifacts this scan never wrote, so it can be cp1252.
+
+        The scan runs after the session deletions, so raising there destroyed
+        sessions and reported nothing, and skipping the file silently dropped
+        the digests it named and collected objects a live session still needs.
+        """
+        self.initialize("keeper")
+        artifact = self.base / "artifact.bin"
+        artifact.write_bytes(b"referenced only by the unreadable receipt\n")
+        self.record("keeper", artifact)
+        digest = work_state._sha256_file(artifact)
+        object_path = next((self.data_root / "objects" / "sha256").rglob(digest))
+        receipt = next((self.data_root / "projects").rglob("evidence/*/*/receipt.json"))
+        receipt.write_bytes(b'{"note": "caf\xe9"}')
+        stale_time = time.time() - (40 * 86400)
+        os.utime(object_path, (stale_time, stale_time))
+
+        report = work_state.garbage_collect_storage(
+            self.data_root, older_than_days=30, keep_last=0, apply=True
+        )
+
+        self.assertEqual(
+            [Path(item).name for item in report["unscannable_evidence"]],
+            ["receipt.json"],
+        )
+        decision = next(
+            item for item in report["object_decisions"] if item["sha256"] == digest
+        )
+        self.assertEqual(decision["decision"], "protect")
+        self.assertEqual(decision["reason"], "unscannable-evidence")
+        self.assertTrue(object_path.is_file())
+
+    def test_gc_reports_deletions_when_one_session_cannot_be_collected(self) -> None:
+        """A rename Windows refuses used to discard the whole run's record.
+
+        The sessions collected before the failure were already gone, so the
+        operator was left with an error string and no list of what it removed.
+        """
+        first = self.initialize("aaa-session")
+        second = self.initialize("zzz-session")
+        artifact = self.base / "artifact.bin"
+        artifact.write_bytes(b"still referenced by the surviving session\n")
+        self.record("zzz-session", artifact)
+        digest = work_state._sha256_file(artifact)
+        object_path = next((self.data_root / "objects" / "sha256").rglob(digest))
+        self.mark_complete(first)
+        self.mark_complete(second)
+        stale_time = time.time() - (40 * 86400)
+        for path in (first, second, object_path):
+            os.utime(path, (stale_time, stale_time))
+        replace = work_state._STORAGE_CORE.os.replace
+
+        def refuse_second(source, destination, *arguments, **keywords):
+            if Path(source).name == second.name:
+                raise PermissionError(5, "Access is denied")
+            return replace(source, destination, *arguments, **keywords)
+
+        with mock.patch.object(work_state._STORAGE_CORE.os, "replace", refuse_second):
+            report = work_state.garbage_collect_storage(
+                self.data_root, older_than_days=30, keep_last=0, apply=True
+            )
+
+        self.assertEqual(
+            [Path(item).name for item in report["deleted_sessions"]], ["aaa-session"]
+        )
+        self.assertFalse(first.exists())
+        self.assertTrue(second.is_dir())
+        self.assertTrue(report["failed"])
+        failure = report["failed_sessions"][0]
+        self.assertEqual(Path(str(failure["path"])).name, "zzz-session")
+        self.assertIn("Access is denied", str(failure["error"]))
+        decision = next(
+            item for item in report["object_decisions"] if item["sha256"] == digest
+        )
+        self.assertEqual(decision["decision"], "protect")
+        self.assertTrue(object_path.is_file())
+
+    def test_a_partial_collection_does_not_exit_zero_saying_applied(self) -> None:
+        """Continuing past a failure must not turn a loud abort into a quiet lie.
+
+        Aborting the whole run discarded the record of what it had deleted, so
+        the loop now continues -- but the command still reported "applied" with
+        exit 0 while sessions were left behind, which is the worse of the two.
+        """
+        first = self.initialize("aaa-session")
+        second = self.initialize("zzz-session")
+        self.mark_complete(first)
+        self.mark_complete(second)
+        stale_time = time.time() - (40 * 86400)
+        for path in (first, second):
+            os.utime(path, (stale_time, stale_time))
+
+        arguments = argparse.Namespace(
+            root=str(self.workspace),
+            data_root=str(self.data_root),
+            older_than_days=30,
+            keep_last=0,
+            apply=True,
+        )
+        replace = work_state._STORAGE_CORE.os.replace
+
+        def refuse_second(source, destination, *rest, **keywords):
+            if Path(source).name == second.name:
+                raise PermissionError(5, "Access is denied")
+            return replace(source, destination, *rest, **keywords)
+
+        with mock.patch.object(work_state._STORAGE_CORE.os, "replace", refuse_second):
+            payload, exit_code = work_state.storage_gc_command(arguments)
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("incomplete", str(payload["message"]))
+        self.assertNotIn("applied", str(payload["message"]))
+        self.assertEqual(len(payload["failed_sessions"]), 1)
+        self.assertEqual(
+            [Path(p).name for p in payload["deleted_sessions"]], ["aaa-session"]
+        )
+
+    def test_unscannable_evidence_is_named_in_the_collection_message(self) -> None:
+        session = self.initialize("keeper")
+        artifact = self.base / "legacy.json"
+        artifact.write_bytes('{"note": "caf\xe9"}\n'.encode("cp1252"))
+        self.record("keeper", artifact)
+        self.mark_complete(session)
+
+        payload, exit_code = work_state.storage_gc_command(
+            argparse.Namespace(
+                root=str(self.workspace),
+                data_root=str(self.data_root),
+                older_than_days=30,
+                keep_last=1,
+                apply=True,
+            )
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["unscannable_evidence"])
+        self.assertIn("could not be scanned", str(payload["message"]))
 
     def test_storage_cli_is_supported_and_gc_requires_apply(self) -> None:
         self.initialize("cli")
