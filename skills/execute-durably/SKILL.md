@@ -1,7 +1,7 @@
 ---
 name: execute-durably
 description: Run long or compaction-prone work against external durable state, recording a hash-bound receipt for each observable criterion and requiring a separate verifier before a criterion may close.
-when_to_use: Use when work spans several turns or is likely to cross a context compaction, must survive interruption and resume from stored state, or has several criteria whose proof must outlive the conversation. Skip work that finishes and can be checked in a single pass.
+when_to_use: Use when work spans several turns or is likely to cross a context compaction, must survive interruption and resume from stored state, or has several criteria whose proof must outlive the conversation. Makes work resumable from an append-only history. Skip work that finishes and can be checked in a single pass.
 ---
 
 # Execute Durably

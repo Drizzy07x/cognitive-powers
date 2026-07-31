@@ -1,7 +1,7 @@
 ---
 name: research-systematically
 description: Run reproducible research: freeze a pre-registration of question, hypotheses, falsifiers, and stopping rules, run labeled confirmatory and exploratory experiments, then bind every claim to evidence.
-when_to_use: Use for comparative evaluations, benchmarks, or experimental investigations where exploration must not be presented as confirmation. For a bounded factual lookup about an external library, use use-current-docs instead.
+when_to_use: Use for comparative evaluations, benchmarks, or experimental investigations where exploration must not be presented as confirmation. Records dead ends, pivots, and an independent verdict. For a bounded factual lookup about an external library, use use-current-docs instead.
 ---
 
 # Research Systematically
