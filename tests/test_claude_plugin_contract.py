@@ -387,14 +387,76 @@ class ClaudeAgentTests(unittest.TestCase):
                 self.assertEqual(fields.get("name"), path.stem)
                 self.assertTrue(fields.get("description"))
 
+    def test_a_workflow_that_declares_itself_read_only_is_held_to_it(self) -> None:
+        """These four state a read-only boundary in their own description.
+
+        Until the frontmatter carried it, that boundary was a sentence the model
+        was asked to respect while the edit tools stayed in the pool. The field
+        is what makes 'audits finished work only' a property of the turn.
+        """
+        for name in (
+            "audit-capabilities",
+            "eli5",
+            "verify-delivery",
+            "verify-installation",
+        ):
+            with self.subTest(skill=name):
+                path = PLUGIN_ROOT / "skills" / name / "SKILL.md"
+                refused = {
+                    tool.strip()
+                    for tool in frontmatter(path).get("disallowed-tools", "").split(",")
+                }
+                self.assertEqual(refused, {"Edit", "Write", "NotebookEdit"})
+
+    def test_no_agent_can_spawn_a_descendant(self) -> None:
+        """Depth one is a tool-set property or it is nothing.
+
+        Omitting `tools` entirely inherits every tool available to subagents,
+        `Agent` included, so the two implementation roles could spawn their own
+        workers while the workflow text told them not to.
+        """
+        for path in sorted((PLUGIN_ROOT / "agents").glob("*.md")):
+            with self.subTest(agent=path.stem):
+                declared = frontmatter(path).get("tools", "")
+                granted = {tool.strip() for tool in declared.split(",")}
+                granted.discard("")
+                self.assertTrue(
+                    granted,
+                    "an agent without an explicit tool set inherits Agent and "
+                    "can spawn descendants",
+                )
+                for spawner in ("Agent", "Task"):
+                    self.assertNotIn(spawner, granted)
+
     def test_verifier_cannot_write(self) -> None:
-        tools = frontmatter(PLUGIN_ROOT / "agents" / "verifier.md").get("tools", "")
-        granted = {tool.strip() for tool in tools.split(",") if tool.strip()}
+        """Withholding the edit tools is not what makes the verifier read-only.
+
+        This assertion used to stop at three tool names while Bash -- which can
+        write, move, and delete -- stayed granted, so it reported a containment
+        the packaging never had. Bash cannot be withdrawn without ending the
+        agent's ability to run a check, so the guarantee has to come from
+        somewhere the agent cannot reach: a disposable worktree.
+        """
+        fields = frontmatter(PLUGIN_ROOT / "agents" / "verifier.md")
+        granted = {tool.strip() for tool in fields.get("tools", "").split(",")}
+        granted.discard("")
         self.assertTrue(granted, "the verifier must declare an explicit tool set")
+        refused = {
+            tool.strip() for tool in fields.get("disallowedTools", "").split(",")
+        }
         for forbidden in ("Write", "Edit", "NotebookEdit"):
-            self.assertNotIn(
-                forbidden, granted, "read-only verification cannot mutate the workspace"
+            self.assertNotIn(forbidden, granted)
+            self.assertIn(
+                forbidden,
+                refused,
+                "the edit tools must be refused, not merely unlisted",
             )
+        self.assertEqual(
+            fields.get("isolation"),
+            "worktree",
+            "Bash stays granted, so only worktree isolation keeps the user's "
+            "tree out of reach of a mutating command",
+        )
 
 
 class ClaudeDoctorTests(unittest.TestCase):

@@ -2,6 +2,7 @@
 name: audit-capabilities
 description: Audit recurring workflows and installed skills to recommend evidence-backed skill updates, additions, or removals, based on repeated procedures rather than recurring topics.
 when_to_use: Use for skill-gap analysis, stale or duplicated capability review, or deciding whether an installed skill already covers a workflow. Requires repeated observed procedures, not a single task.
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # Audit Capabilities
