@@ -264,7 +264,9 @@ class SkillRouterHookTests(unittest.TestCase):
             "beta-skill": "Verify browser behavior using Playwright evidence.",
         }
 
-        with mock.patch.object(router, "load_skill_descriptions", return_value=tied):
+        with mock.patch.object(
+            router, "load_parsable_skill_descriptions", return_value=(tied, [])
+        ):
             outcome = router.suggest(
                 {"user_input": "Verify browser behavior using Playwright evidence"}
             )
@@ -273,7 +275,9 @@ class SkillRouterHookTests(unittest.TestCase):
 
     def test_single_skill_install_stays_silent(self) -> None:
         with mock.patch.object(
-            router, "load_skill_descriptions", return_value={"only-skill": "Do work."}
+            router,
+            "load_parsable_skill_descriptions",
+            return_value=({"only-skill": "Do work."}, []),
         ):
             outcome = router.suggest({"user_input": "Do work."})
 
@@ -281,7 +285,38 @@ class SkillRouterHookTests(unittest.TestCase):
 
     def test_unreadable_descriptions_stay_silent(self) -> None:
         with mock.patch.object(
-            router, "load_skill_descriptions", side_effect=ValueError("bad frontmatter")
+            router,
+            "load_parsable_skill_descriptions",
+            side_effect=ValueError("bad frontmatter"),
+        ):
+            outcome = router.suggest({"user_input": next(iter(STRONG_MATCHES))})
+
+        self.assertEqual(outcome["status"], "skipped")
+
+    def test_an_unparsable_skill_is_named_instead_of_silently_dropped(self) -> None:
+        """A dead router and a quiet one used to look identical.
+
+        One malformed SKILL.md aborted the whole load, and the hook renders a
+        failed load exactly like a prompt that matched nothing -- for every
+        prompt, with no runtime signal that sixteen workflows had stopped
+        being routable.
+        """
+        surviving = {
+            "verify-web-behavior": "Verify browser behavior through Playwright."
+        }
+        with mock.patch.object(
+            router,
+            "load_parsable_skill_descriptions",
+            return_value=(surviving, ["map-project", "solve-efficiently"]),
+        ):
+            outcome = router.suggest({"user_input": "unrelated ordinary question"})
+
+        self.assertIn("map-project", outcome["warning"])
+        self.assertIn("solve-efficiently", outcome["warning"])
+
+    def test_an_empty_catalogue_is_not_treated_as_a_clean_load(self) -> None:
+        with mock.patch.object(
+            router, "load_parsable_skill_descriptions", return_value=({}, ["broken"])
         ):
             outcome = router.suggest({"user_input": next(iter(STRONG_MATCHES))})
 

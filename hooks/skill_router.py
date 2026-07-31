@@ -35,7 +35,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 try:
-    from skill_routing import decide, load_skill_descriptions
+    from skill_routing import decide, load_parsable_skill_descriptions
 
     ROUTING_AVAILABLE = True
 except ImportError:  # A broken install must not fail the turn.
@@ -144,14 +144,32 @@ def suggest(payload: dict[str, Any]) -> dict[str, Any]:
 
     try:
         root, claude_code = _resolve_host()
-        descriptions = load_skill_descriptions(root)
+        descriptions, unparsable = load_parsable_skill_descriptions(root)
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill descriptions are unreadable"}
+    if not descriptions:
+        return {"status": "skipped", "reason": "skill descriptions are unreadable"}
+
+    # Silence is this hook's ordinary output, so a catalogue that failed to load
+    # looks exactly like a prompt that matched nothing. Naming the skills that
+    # did not parse is the only way a broken install stops being invisible.
+    warning = (
+        "Cognitive Powers: "
+        + ", ".join(sorted(unparsable))
+        + " could not be read and "
+        + ("was" if len(unparsable) == 1 else "were")
+        + " left out of skill routing. Check the frontmatter of "
+        + ("that skill" if len(unparsable) == 1 else "those skills")
+        + "; a single-line description is required."
+        if unparsable
+        else None
+    )
 
     outcome = decide(prompt, descriptions)
     if outcome["status"] != "suggested":
-        return outcome
-    return {**outcome, "message": _message(str(outcome["skill"]), claude_code)}
+        return {**outcome, "warning": warning} if warning else outcome
+    message = _message(str(outcome["skill"]), claude_code)
+    return {**outcome, "message": message, "warning": warning}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -165,22 +183,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Silence is the ordinary path. Only a clear winner is worth spending the
-    # agent's attention on.
-    if outcome["status"] != "suggested":
+    # agent's attention on -- or a catalogue that could not be read, which is
+    # the one silence that means the hook is broken rather than unmatched.
+    warning = outcome.get("warning")
+    if outcome["status"] != "suggested" and not warning:
         return 0
 
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "UserPromptSubmit",
-                    "additionalContext": outcome["message"],
-                },
-                "suppressOutput": True,
-            },
-            ensure_ascii=False,
-        )
-    )
+    output: dict[str, Any] = {"suppressOutput": True}
+    if outcome["status"] == "suggested":
+        output["hookSpecificOutput"] = {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": outcome["message"],
+        }
+    if warning:
+        output["systemMessage"] = warning
+    print(json.dumps(output, ensure_ascii=False))
     return 0
 
 
