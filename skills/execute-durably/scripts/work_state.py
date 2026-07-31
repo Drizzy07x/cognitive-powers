@@ -289,16 +289,44 @@ def compact_session(
     }
 
 
-def verify_compaction_bundle(bundle_path: Path) -> dict[str, Any]:
-    """Authenticate a historical compaction bundle without trusting its JSON."""
+def verify_compaction_bundle(bundle_path: Path, session_dir: Path) -> dict[str, Any]:
+    """Authenticate a bundle against the ledger that recorded making it.
+
+    The bundle is a byte copy of the session directory, ``.ledger.key``
+    included, so a key carried inside it authenticates nothing: rewriting
+    ``state.json`` and ``ledger.jsonl``, re-signing under a fresh key and
+    dropping that key in as ``.ledger.key`` produced ``verified: True``. The
+    returned digest was no anchor either, being computed from the same file.
+
+    The anchor has to be a value the bundle cannot restate. ``compact_session``
+    already writes one: a ``compaction_checkpoint`` event carrying the bundle's
+    digest into the *surviving* session ledger, signed under the key that stays
+    in the session directory. This reads that instead. Structural checks on the
+    archive remain, but they describe integrity and never decide authenticity.
+    """
     bundle_path = bundle_path.resolve()
+    session_dir = session_dir.resolve()
+    digest = _sha256_file(bundle_path)
+    recorded = {
+        str(event.get("bundle_sha256"))
+        for event in _read_ledger_events(session_dir)
+        if event.get("event") == "compaction_checkpoint" and event.get("bundle_sha256")
+    }
+    if digest not in recorded:
+        # A bundle whose checkpoint has since been compacted away is equally
+        # unverifiable here, and saying so is the honest outcome: this session
+        # no longer holds the evidence that it produced these bytes.
+        raise WorkStateError(
+            "compaction bundle is not one this session recorded: no signed "
+            "compaction_checkpoint names its digest"
+        )
     try:
         with zipfile.ZipFile(bundle_path, "r") as archive:
             if archive.testzip() is not None:
                 raise WorkStateError("compaction bundle has corrupt members")
             required = {"state.json", "ledger.jsonl", ".ledger.key"}
             if not required.issubset(archive.namelist()):
-                raise WorkStateError("compaction bundle lacks authenticated state")
+                raise WorkStateError("compaction bundle lacks recoverable state")
             with tempfile.TemporaryDirectory() as temporary:
                 extracted = Path(temporary)
                 for name in required:
@@ -309,7 +337,7 @@ def verify_compaction_bundle(bundle_path: Path) -> dict[str, Any]:
         raise WorkStateError(f"compaction bundle is unreadable: {error}") from error
     return {
         "verified": True,
-        "bundle_sha256": _sha256_file(bundle_path),
+        "bundle_sha256": digest,
         "events": len(events),
         "last_seq": state["last_seq"],
     }
@@ -325,7 +353,7 @@ def run_compaction_fault_injection(
         if name == "bundle-write":
             target.write_bytes(b"partial")
             try:
-                verify_compaction_bundle(target)
+                verify_compaction_bundle(target, session_dir)
             except WorkStateError:
                 boundaries.append({"name": name, "failedClosed": True})
         elif name == "bundle-verify":
@@ -334,7 +362,7 @@ def run_compaction_fault_injection(
             data[len(data) // 2] ^= 1
             target.write_bytes(data)
             try:
-                verify_compaction_bundle(target)
+                verify_compaction_bundle(target, session_dir)
             except WorkStateError:
                 boundaries.append({"name": name, "failedClosed": True})
         else:
@@ -1128,6 +1156,25 @@ def storage_inspect_command(
             f"{report['projects']} projects, {report['sessions']} sessions"
         ),
         **report,
+    }, 0
+
+
+def verify_bundle_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Authenticate an exported bundle before anyone relies on or deletes it.
+
+    The operational guide tells the reader not to remove a bundle until it and
+    the retained state have both been verified, and until now no command could
+    do that: the verifier was reachable only from a fault injector called by one
+    test.
+    """
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    return {
+        "message": (
+            f"session {sanitize_identifier(args.session, 'session')}: bundle verified"
+        ),
+        **verify_compaction_bundle(Path(args.bundle).expanduser(), session_dir),
     }, 0
 
 
@@ -2970,6 +3017,14 @@ def build_parser() -> argparse.ArgumentParser:
     compact_parser.add_argument("--retain-events", type=int, default=25)
     _add_json_flag(compact_parser)
 
+    verify_bundle_parser = subparsers.add_parser(
+        "verify-bundle",
+        help="authenticate an exported bundle against the session that made it",
+    )
+    verify_bundle_parser.add_argument("--session", required=True)
+    verify_bundle_parser.add_argument("--bundle", required=True)
+    _add_json_flag(verify_bundle_parser)
+
     inspect_parser = subparsers.add_parser(
         "storage-inspect", help="report bounded durable storage usage"
     )
@@ -3183,6 +3238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "status": status,
         "resume-summary": resume_session,
         "compact": compact_session_command,
+        "verify-bundle": verify_bundle_command,
         "storage-inspect": storage_inspect_command,
         "storage-gc": storage_gc_command,
         "state-migrate": state_migrate,

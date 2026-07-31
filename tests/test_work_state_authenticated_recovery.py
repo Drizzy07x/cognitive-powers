@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from tests.test_work_state import work_state
@@ -64,11 +66,81 @@ class WorkStateAuthenticatedRecoveryTests(unittest.TestCase):
     def test_compaction_verifies_bundle_and_real_write_boundaries(self) -> None:
         bundle = self.base / "bundle.zip"
         work_state.compact_session(self.session, bundle, retain_events=1)
-        report = work_state.verify_compaction_bundle(bundle)
+        report = work_state.verify_compaction_bundle(bundle, self.session)
         self.assertTrue(report["verified"])
         faults = work_state.run_compaction_fault_injection(self.session, self.base)
         self.assertTrue(faults["passed"])
         self.assertGreaterEqual(len(faults["boundaries"]), 3)
+
+    def test_a_bundle_resigned_under_a_new_key_is_refused(self) -> None:
+        """Verifying with the key the bundle carries authenticates nothing.
+
+        The old check required `.ledger.key` to be present *inside* the archive
+        and verified against it, so an attacker could rewrite the state, re-sign
+        the ledger under a key they chose, ship that key in the bundle, and be
+        told `verified: True`. The fault injector never caught it because it
+        only flipped one bit, which the in-bundle key still detects.
+        """
+        bundle = self.base / "bundle.zip"
+        work_state.compact_session(self.session, bundle, retain_events=1)
+        self.assertTrue(
+            work_state.verify_compaction_bundle(bundle, self.session)["verified"]
+        )
+
+        forged = self.base / "forged.zip"
+        forgery_source = self.base / "forgery"
+        forgery_source.mkdir()
+        with zipfile.ZipFile(bundle, "r") as archive:
+            archive.extractall(forgery_source)
+        state = json.loads((forgery_source / "state.json").read_text(encoding="utf-8"))
+        state["objective"] = "an objective this session never had"
+        (forgery_source / "state.json").write_text(json.dumps(state), encoding="utf-8")
+        events = work_state._read_ledger_events(forgery_source)
+        events[0]["_state_snapshot"] = state
+        # Re-sign the whole ledger under a key of the forger's choosing and ship
+        # that key with the archive. Reading has to happen first, under the real
+        # key; swapping it earlier would only break the forger's own read.
+        (forgery_source / ".ledger.key").write_text(
+            secrets.token_bytes(32).hex() + "\n", encoding="ascii"
+        )
+        (forgery_source / "ledger.jsonl").write_text(
+            work_state._encode_ledger_events(forgery_source, events), encoding="utf-8"
+        )
+        with zipfile.ZipFile(forged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(forgery_source.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(forgery_source).as_posix())
+
+        # Self-consistent under its own key -- and that is precisely why the
+        # in-bundle key cannot be the authority.
+        self.assertTrue(work_state._read_ledger_events(forgery_source))
+        with self.assertRaisesRegex(work_state.WorkStateError, "compaction_checkpoint"):
+            work_state.verify_compaction_bundle(forged, self.session)
+
+    def test_verify_bundle_is_reachable_from_the_command_line(self) -> None:
+        bundle = self.base / "exports" / "cli.zip"
+        work_state.compact_session(self.session, bundle, retain_events=1)
+        arguments = work_state.build_parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "--data-root",
+                str(self.data_root),
+                "verify-bundle",
+                "--session",
+                "session",
+                "--bundle",
+                str(bundle),
+                "--json",
+            ]
+        )
+        payload, exit_code = work_state.verify_bundle_command(arguments)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["verified"])
+        self.assertEqual(
+            payload["bundle_sha256"],
+            hashlib.sha256(bundle.read_bytes()).hexdigest(),
+        )
 
     def test_bundle_compaction_retains_latest_verifiable_state(self) -> None:
         for index in range(8):

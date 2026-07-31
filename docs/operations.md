@@ -152,6 +152,25 @@ checkpoint plus at least one event:
   --bundle <external-bundle.zip> --retain-events 25 --json
 ```
 
+Verify a bundle against the session that produced it before relying on it or
+removing it:
+
+```powershell
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> verify-bundle --session <id> `
+  --bundle <external-bundle.zip> --json
+```
+
+Authentication comes from the session, not from the archive. `compact` records
+the bundle's digest in a signed `compaction_checkpoint` event in the surviving
+ledger, and this command requires the bundle to match one of those. A bundle is
+a byte copy of the session directory and therefore carries a copy of the ledger
+key, so anything verified against the key it ships with proves only that the
+archive is self-consistent -- which a forger controls. Once the recording
+checkpoint has itself been compacted away, the session no longer holds the
+evidence that it produced those bytes and the command refuses rather than
+guessing.
+
 Do not remove the bundle until a newer complete bundle and retained state have
 both been verified. Schema migration remains forward-only with a verified copy;
 there is no destructive downgrade path.
