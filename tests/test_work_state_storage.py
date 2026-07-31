@@ -331,6 +331,55 @@ class WorkStateStorageTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "protect")
         self.assertTrue(object_path.is_file())
 
+    def test_an_unreadable_file_protects_its_own_session_not_the_whole_store(
+        self,
+    ) -> None:
+        """One legacy file used to pin every object in every project, forever.
+
+        Collection never repairs or quarantines evidence, so the same file was
+        rescanned on every later run and the store could never shrink again.
+        What such a file could name is bounded by the artifacts sitting beside
+        it in its own session, so that is what stays protected.
+        """
+        legacy_session = self.initialize("legacy")
+        legacy_artifact = self.base / "legacy-artifact.bin"
+        legacy_artifact.write_bytes(b"only the legacy session references this\n")
+        self.record("legacy", legacy_artifact)
+        legacy_digest = work_state._sha256_file(legacy_artifact)
+
+        orphan = self.base / "orphan.bin"
+        orphan.write_bytes(b"referenced by a session that is about to be collected\n")
+        collected_session = self.initialize("collected")
+        self.record("collected", orphan)
+        orphan_digest = work_state._sha256_file(orphan)
+
+        # A cp1252 receipt inside the legacy session only. The collected
+        # session's object is unrelated to it.
+        unreadable = next((legacy_session / "evidence").rglob("*.json")).with_name(
+            "receipt-legacy.json"
+        )
+        unreadable.write_bytes('{"note": "caf\xe9"}\n'.encode("cp1252"))
+
+        self.mark_complete(legacy_session)
+        self.mark_complete(collected_session)
+        stale = time.time() - (40 * 86400)
+        for path in (collected_session, *(self.data_root / "objects").rglob("*")):
+            if path.exists():
+                os.utime(path, (stale, stale))
+
+        report = work_state.garbage_collect_storage(
+            self.data_root, older_than_days=30, keep_last=0, apply=False
+        )
+
+        self.assertTrue(report["unscannable_evidence"])
+        decisions = {item["sha256"]: item for item in report["object_decisions"]}
+        self.assertEqual(decisions[legacy_digest]["decision"], "protect")
+        self.assertEqual(
+            decisions[orphan_digest]["decision"],
+            "delete",
+            "an unreadable file in another session must not pin this object",
+        )
+
     def test_a_partial_collection_does_not_exit_zero_saying_applied(self) -> None:
         """Continuing past a failure must not turn a loud abort into a quiet lie.
 

@@ -221,12 +221,52 @@ def _session_lock_status(session_dir: Path) -> str | None:
     return None
 
 
+def _digests_reachable_from(evidence: Path) -> set[str] | None:
+    """Hash every artifact under one session's evidence tree.
+
+    An unreadable receipt cannot be parsed, but the objects it could possibly
+    name are still bounded: every stored artifact is materialized inside the
+    session beside that receipt, so hashing what is there enumerates the
+    candidates without reading the file that failed.
+
+    Hashing rather than inode identity on purpose -- ``_copy_artifact_to_cas``
+    falls back to a real copy when the filesystem refuses a hard link, and that
+    fallback breaks ``(st_dev, st_ino)`` equality while preserving content.
+
+    ``None`` means the tree could not be walked, so nothing can be bounded.
+    """
+    digests: set[str] = set()
+    try:
+        candidates = sorted(evidence.rglob("*"))
+    except OSError:
+        return None
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            digests.add(_sha256_file(path))
+        except OSError:
+            return None
+    return digests
+
+
 def _collect_cas_references(
     session_directories: Sequence[Path],
-) -> tuple[set[str], list[str]]:
-    """Report referenced digests, and every evidence file that could not be read."""
+) -> tuple[set[str], list[str], set[str] | None]:
+    """Report referenced digests, unreadable evidence, and what it could name.
+
+    The third value bounds the damage of the second. It used to be absent, and
+    the caller answered an unreadable file by protecting every unreferenced
+    object in the whole store, for every project, permanently -- garbage
+    collection never repairs evidence, so the same file blocked every later run
+    too. ``None`` means a session's evidence could not be enumerated at all, in
+    which case there is nothing to bound and the caller must fall back to
+    protecting everything.
+    """
     references: set[str] = set()
     unscannable: list[str] = []
+    uncertain: set[str] = set()
+    unbounded = False
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
@@ -250,7 +290,9 @@ def _collect_cas_references(
             candidates = sorted(evidence.rglob("*.json"))
         except OSError:
             unscannable.append(str(evidence))
+            unbounded = True
             continue
+        session_unread = False
         for path in candidates:
             if path.is_symlink() or not path.is_file():
                 continue
@@ -264,7 +306,14 @@ def _collect_cas_references(
             # still depends on, so the caller is told what stayed unread.
             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 unscannable.append(str(path))
-    return references, unscannable
+                session_unread = True
+        if session_unread:
+            reachable = _digests_reachable_from(evidence)
+            if reachable is None:
+                unbounded = True
+            else:
+                uncertain |= reachable
+    return references, unscannable, (None if unbounded else uncertain)
 
 
 def _storage_session_directories(data_root: Path) -> list[tuple[Path, Path]]:
@@ -388,7 +437,9 @@ def garbage_collect_storage(
     retained_sessions = [
         path for _, path in sessions if path not in collected and path.exists()
     ]
-    references, unscannable_evidence = _collect_cas_references(retained_sessions)
+    references, unscannable_evidence, uncertain_digests = _collect_cas_references(
+        retained_sessions
+    )
     object_root = data_root / "objects" / "sha256"
     object_decisions: list[dict[str, object]] = []
     if object_root.is_dir():
@@ -406,7 +457,12 @@ def garbage_collect_storage(
                 decision, reason = "protect", "malformed-object-name"
             elif digest in references:
                 decision, reason = "protect", "referenced"
-            elif unscannable_evidence:
+            # Protect what the unreadable receipts could have named, not the
+            # whole store. The bare `if unscannable_evidence` this replaces let
+            # one legacy file in one session pin every unreferenced object in
+            # every project, and pin it forever, because collection never
+            # repairs evidence and every later run re-read the same file.
+            elif uncertain_digests is None or digest in uncertain_digests:
                 decision, reason = "protect", "unscannable-evidence"
             elif stat.st_mtime > cutoff:
                 decision, reason = "keep", "younger-than-age"
