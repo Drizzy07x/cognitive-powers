@@ -203,7 +203,7 @@ def _load_schema(path: str | Path | None) -> object | None:
     schema_path = Path(path).expanduser().resolve()
     try:
         value = json.loads(schema_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SkyvernEvidenceError(
             f"extraction schema is not valid JSON: {schema_path}"
         ) from error
@@ -453,7 +453,10 @@ def ingest(
         path = Path(value).expanduser().resolve()
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
+        # A response captured in UTF-16 or cp1252 raises UnicodeDecodeError, which
+        # is a ValueError and not a JSONDecodeError, so it escaped as a traceback
+        # the calling model could not parse instead of the documented error object.
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise SkyvernEvidenceError(f"{label} is not valid JSON: {path}") from error
 
     run = _require_run_shape(load_object(response_path, "run response"))
@@ -498,7 +501,7 @@ def handoff(
     receipt_path = Path(receipt_value).expanduser().resolve()
     try:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SkyvernEvidenceError(
             f"Skyvern receipt is not valid JSON: {receipt_path}"
         ) from error

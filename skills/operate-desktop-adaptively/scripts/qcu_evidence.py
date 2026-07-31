@@ -117,7 +117,10 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
         raise QcuEvidenceError(f"{label} must be a non-empty regular file: {path}")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # A transcript emitted in UTF-16 or cp1252 raises UnicodeDecodeError, which is
+    # a ValueError and not a JSONDecodeError, so it escaped as a traceback the
+    # calling model could not parse instead of the documented error object.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise QcuEvidenceError(f"{label} is not valid JSON: {path}") from error
     if not isinstance(value, dict):
         raise QcuEvidenceError(f"{label} must be a JSON object")
