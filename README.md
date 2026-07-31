@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Cognitive Powers" width="720">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img src="assets/logo.png" alt="Cognitive Powers" width="720">
+  </picture>
 </p>
 
 # Cognitive Powers
@@ -208,8 +211,23 @@ description plus `when_to_use` per skill, is held in context; a workflow body
 loads when it is used.
 
 The plugin's three agent roles register under plugin-scoped names such as
-`cognitive-powers:verifier`. The verifier declares a read-only tool set, so the
-host enforces the independence contract instead of merely stating it.
+`cognitive-powers:verifier`. None of them is granted `Agent`, so a worker cannot
+spawn its own workers and depth one is a property of the tool set rather than a
+request. The verifier withholds the edit tools and runs under `isolation:
+worktree`: it keeps `Bash`, because verification means running real checks, and
+`Bash` is exactly what a withheld-edit-tools list does not contain -- the
+disposable checkout is what makes the read-only claim true of your tree.
+
+The plugin also declares one MCP server, `cognitive-powers-evidence`, so a host
+that cannot shell out can still read the durable store: `inspect_evidence_storage`,
+`summarize_durable_session`, and `check_durable_session_schema`. Every published
+tool is an inspection. Mutation stays on `work_state.py`, where the ownership,
+lock, and independent-verifier gates live, and the server does not reimplement
+the read path either -- each tool runs the canonical subcommand and returns its
+JSON, because two implementations of one contract diverge and the one behind an
+MCP boundary is the one nobody would notice diverging. The tool table is the
+allowlist: a name that is not in it reaches no subprocess, so no argument a
+caller supplies can select a mutating subcommand.
 
 To find out whether an installed copy actually runs on your host rather than
 merely being packaged correctly, invoke `/verify-installation`. It executes the
