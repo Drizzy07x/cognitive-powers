@@ -62,7 +62,21 @@ One transformation at a time, each independently revertible:
 4. Collapse duplication only after the third occurrence, and only when the duplicates encode the same decision rather than the same shape.
 5. Push side effects such as I/O, logging and mutation to the edges.
 
-Re-run the tests after each step. Where no test exists, re-run the guard and diff the findings.
+Re-run the tests after each step; a red check reverts the step rather than patching forward. Where no test exists, re-run the guard and diff the findings.
+
+### Smell-to-move catalog
+
+Name the smell, apply its move, and say in the report which move fixed which smell:
+
+| Smell | Detect | Move |
+| --- | --- | --- |
+| Long function | One name covering several jobs | Extract function per job |
+| Feature envy | A function reading another module's data more than its own | Move the function to the data it envies |
+| Shotgun surgery | One conceptual change touching many files | Gather the scattered pieces into one owner |
+| Data clumps | The same group of values traveling together through signatures | Introduce a parameter object or extract the class they were hiding |
+| Primitive obsession | Raw strings and numbers carrying domain rules | Wrap the primitive in a value type that owns its rules |
+| Divergent change | One module edited for unrelated reasons | Split by reason to change |
+| Speculative generality | Hooks, parameters, or hierarchy no caller uses | Inline it, collapse it, or delete the unused parameter |
 
 ## 5. Report
 
@@ -114,3 +128,21 @@ Full catalogue with the smell-to-fix tables: [rules.md](references/rules.md). Re
 - Do not clean generated files, vendored dependencies, or migrations.
 - Style disputes with an existing formatter config always lose: the config wins.
 - If a refactor forces a public API change, stop and confirm first.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before the first transformation**
+- Scope bounded to named files; guard baseline captured.
+- Uncovered code has a characterization test, or the report will say the change is unverified.
+- Findings ranked; P3 cosmetics excluded unless a full pass was requested.
+
+**After each step**
+- Exactly one named move applied, independently revertible.
+- Checks re-run; a red check reverted the step.
+
+**Before claiming done**
+- Behaviour change and refactor never share a commit.
+- Report maps each move to the smell it fixed, with before/after guard metrics.
+- Deliberately unfixed findings listed with reasons.
