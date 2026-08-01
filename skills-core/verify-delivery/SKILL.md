@@ -31,6 +31,22 @@ Then report one mixed verdict: state whether delivery is complete, identify ever
 
 Read `../../skills/verify-delivery/SKILL.md` only when the claim spans several independent products, runtime hosts, review perspectives, or unclear evidence boundaries. A release label by itself does not justify escalation.
 
+## Construction checks
+
+For a code delivery, audit naming, defensive programming, and error handling
+in the diff: an identifier the change made misleading, an assertion reachable
+by user input, or a newly silent catch is a finding cited by line. Re-read the
+whole diff as its own pass, distinct from writing, and say so in the verdict.
+
 ## Verify
 
 Run meaningful current checks where possible. Missing tools, skipped checks, stale reports, and inspection alone are never a pass; return a concrete gap when evidence is insufficient.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop and confirm each item; name any
+unconfirmed item in the verdict. Before evidence: claims listed and mapped to
+what could falsify them. Before the verdict: each claim classified from
+current evidence; construction checks run on code. Before declaring complete:
+verdict bound to the exact revision reviewed; gaps carry the smallest next
+check.
