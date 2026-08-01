@@ -165,6 +165,10 @@
       "owner": "operate-desktop-adaptively"
     },
     {
+      "prompt": "Elimina el código comentado y los marcadores obsoletos de este archivo",
+      "owner": "refactor-cleanly"
+    },
+    {
       "prompt": "Realiza investigación comparativa reproducible con un preregistro congelado",
       "owner": "research-systematically"
     },
@@ -576,6 +580,40 @@
         {
           "prompt": "Claim the WPF action worked from a screenshot alone; instead operate and verify it with guarded QCU desktop evidence",
           "owner": "operate-desktop-adaptively",
+          "top_k": 1
+        }
+      ]
+    },
+    {
+      "name": "refactor-cleanly",
+      "positives": [
+        {
+          "prompt": "Clean up this module, its functions are long and deeply nested",
+          "top_k": 3
+        },
+        {
+          "prompt": "This legacy file is hard to follow, make it readable without changing behaviour",
+          "top_k": 3
+        },
+        {
+          "prompt": "Delete the commented-out code and the stale markers left in this file",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Restructure the persistence layer so the CLI can export a new format",
+          "owner": "solve-efficiently"
+        },
+        {
+          "prompt": "Verify the tests and Git state of this refactor branch against real evidence",
+          "owner": "verify-delivery"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Rewrite this module with new behaviour; instead restructure it for readability while its observable behaviour stays identical",
+          "owner": "refactor-cleanly",
           "top_k": 1
         }
       ]

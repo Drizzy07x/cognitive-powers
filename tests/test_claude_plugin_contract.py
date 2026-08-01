@@ -43,6 +43,7 @@ SPECIALIZED_SKILLS = {
     "explore-web-adaptively",
     "map-project",
     "operate-desktop-adaptively",
+    "refactor-cleanly",
     "research-systematically",
     "use-current-docs",
     "verify-installation",
