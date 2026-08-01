@@ -120,8 +120,36 @@ Give a fresh verifier the original objective, relevant diff, criterion, and rece
 
 The script rejects self-verification, malformed receipts, missing or changed artifacts, and evidence made stale by later source changes. A different identifier is a guardrail, not proof of cognitive independence; the workflow must actually use a fresh context.
 
+## Execution discipline
+
+Rules that hold across every criterion, checkable against the diff and the ledger:
+
+- **One authority per fact.** Before adding a constant, format, or rule, search for its existing owner. Finding two authorities for the same fact is itself a finding to record; adding a third closes completion until one owner remains.
+- **One concern per diff.** A packet's diff serves the concern its criterion names. Edits to unrelated modules split into their own packet or are reverted; coupled edits stay under one owner rather than being forced apart.
+- **Crash early.** An impossible state raises a domain error at the point of detection with the failing thing named. Code that limps forward past a detected impossibility fails review even when its tests pass.
+- **Suspect this repository first.** When a failure looks like a framework, library, or host bug, rule out this project's own code before claiming otherwise. An upstream-bug claim requires a minimal reproduction outside the project, recorded as evidence like any other.
+- **Tracer first.** For multi-criterion work, order criteria so the first receipt proves a thin end-to-end slice through every layer involved. Thicken behind proven wiring; do not perfect one layer while the connection to the next remains a guess.
+
 ## 5. Close only through the gate
 
 Run `complete` only after every criterion is verified. Any pending, failed, blocked, rejected, inconclusive, or stale criterion blocks completion without a retry limit or fail-open escape.
 
 Do not create commits, branches, PRs, security reviews, or external publications unless the user requested them.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before the first receipt**
+- Criteria are falsifiable and ordered so the first one proves end-to-end wiring.
+- State initialized outside the repository; resume reads state, not memory.
+
+**Before each criterion closes**
+- The receipt came from the tool, with real exit code and hashes.
+- The diff serves one concern and introduced no second authority for any fact.
+- A different verifier confirmed the evidence without a suggested verdict.
+
+**Before completing the session**
+- Every criterion verified; none pending, stale, or inconclusive.
+- Upstream-bug claims carry an out-of-project reproduction.
+- No commit, branch, or publication happened without an explicit request.
