@@ -39,6 +39,11 @@ an installation works, and one that needed installing first would be self-defeat
 & $python scripts/doctor.py --json                          # packaging, never executes a host CLI
 & $python scripts/doctor.py --validate-installation --json  # runs the components in a temp copy
 & $python scripts/run_skill_routing_benchmarks.py           # after any skill name/description edit
+
+# Readability findings. Exit 1 when any remain; a waived one is not reported.
+& $python hooks/clean_code_guard.py --scan hooks
+'{"tool_name":"Write","tool_input":{"file_path":"hooks/skill_router.py"}}' |
+    & $python hooks/clean_code_guard.py post-tool-use
 ```
 
 `$python` must be an explicit interpreter path. On Windows `python3` resolves to a Microsoft Store
@@ -63,6 +68,18 @@ both `hooks/skill_router.py` and the routing benchmark call it. A hook carrying 
 satisfy every checked-in case and rank something else at runtime — that split is what the module
 exists to prevent. Skill descriptions are the routing corpus: the benchmark scores the combined
 `description` + `when_to_use` text because that is what the host actually lists.
+
+**That match is lexical, so a description that names a sibling claims its vocabulary.** Ceding
+territory in prose — "not for X, that is `other-skill`" — puts `other-skill`'s words in this
+skill's own bag and wins the prompts it meant to hand over. Measured on `refactor-cleanly`: with
+two such clauses, one Spanish prompt misrouted and Spanish routing fell to 0.92; removing them
+returned 0 misroutes and 0.94. Separate siblings in the body, which the router never scores.
+
+**The routing benchmark measures disambiguation between siblings, not whether a skill fires at
+all.** Its prompts were written against the descriptions, so under-triggering is invisible to it by
+construction: 53 of 54 checked-in positives reach their own skill, and no natural-phrasing corpus
+exists in `benchmarks/skill_routing_cases.json` that could expose the gap. A green suite means no
+skill steals another's work; it is not evidence that any skill activates on real requests.
 
 **Four hooks, three shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
 (UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
@@ -113,11 +130,20 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
-- **Adding or removing a workflow moves four carriers.** The `skills/<name>/` directory,
+- **Adding or removing a workflow moves six carriers.** The `skills/<name>/` directory,
   `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
-  `scripts/verify_installed.py`, and the catalog in `skills-core/execute-durably/SKILL.md`. Add
-  routing cases to `benchmarks/skill_routing_cases.json` and rerun the routing benchmark: a new
-  description changes the ranking of prompts that were never about it.
+  `scripts/verify_installed.py`, the catalog in `skills-core/execute-durably/SKILL.md`, the
+  `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` corpus. The
+  last two are not optional extras: `run_skill_routing_benchmarks.py` raises `ValueError` when the
+  case names and the skill names are not the same set, and
+  `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
+  skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
+  skill rather than scoring it as perfect by omission. Then rerun the benchmark: a new description
+  changes the ranking of prompts that were never about it.
+- **Adding a hook moves three assertions in `tests/test_claude_plugin_contract.py`**: the number of
+  hook entries, the set of script names, and the subcommand table. Every hook takes its event as
+  `args[1]`, and the table reads that index directly, so a hook registered without one raises
+  `IndexError` instead of reporting a missing subcommand.
 - **This file is gated like the code.** `tests/test_documentation.py` resolves every
   repository-relative path and markdown link in `README.md`, `CLAUDE.md`, `THIRD_PARTY_NOTICES.md`
   and `docs/*.md`, and fails when a new root document is not listed in `ROOT_DOCUMENTS`. It cannot
