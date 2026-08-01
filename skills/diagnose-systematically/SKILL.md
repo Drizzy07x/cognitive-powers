@@ -8,6 +8,20 @@ when_to_use: Use for unclear, intermittent, or recurring defects and performance
 
 Find the cause through observable evidence. Preserve the request mode: diagnosis alone does not authorize a fix.
 
+## Rules of engagement
+
+Nine ordered rules govern every step below. Each is checkable against the investigation record:
+
+1. **Understand the system first.** Name the components involved and what each is supposed to do before any theory exists. A cause claim about a component whose contract was never stated is unsupported.
+2. **Make it fail.** A recorded reproduction command precedes every cause claim (section 1).
+3. **Look before theorizing.** Capture the actual state - logs, values, traces - before forming each hypothesis. Inferred state is not observed state.
+4. **Divide and conquer.** Bisect the path from input to symptom; record each split and its verdict (section 2).
+5. **Change one thing at a time.** One variable per experiment. A change that did not move the symptom is reverted before the next experiment starts.
+6. **Keep an audit trail.** Every attempt, exact change, and observed result is written down as it happens. Memory of what was tried is not a trail.
+7. **Check the plug.** Before suspecting code, verify the environment assumptions: right build, right branch, config actually loaded, dependency versions as believed. Each checked fact is listed.
+8. **Get a fresh view.** When stalled, re-derive the picture from the recorded evidence alone, ignoring the current favorite theory, or hand the evidence to a fresh reader without the theory attached.
+9. **A fix is proven, not declared.** The original reproduction passes after the fix, and where cheap to show, fails again when the fix is reverted (sections 4-5). An unexplained recovery is an unfixed defect.
+
 ## 1. Establish the signal
 
 Read the relevant project guidance, callers, tests, logs, and exact reported symptom. Build the smallest agent-runnable command that can detect that symptom. Read [feedback-loops.md](references/feedback-loops.md) when choosing or judging the signal.
@@ -43,3 +57,21 @@ If no correct test seam exists, state that limitation instead of adding a shallo
 ## 5. Close with evidence
 
 Re-run the original unminimized signal and the regression test. Remove tagged instrumentation and throwaway harnesses. Report the supported cause, the discriminating evidence, the checks run, and any surface that remains unverified.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before forming hypotheses**
+- Components named with their expected behavior.
+- Environment assumptions checked and listed before code was suspected.
+- Reproduction recorded; actual state captured, not inferred.
+
+**During the investigation**
+- One variable per experiment; unhelpful changes reverted.
+- The audit trail is written as it happens, not reconstructed after.
+
+**Before claiming the cause**
+- The evidence discriminates the cause from the plausible alternatives.
+- The original signal re-run; fix proven against it, not against the minimized copy only.
+- Instrumentation removed; unverified surfaces named.
