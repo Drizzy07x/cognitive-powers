@@ -101,6 +101,13 @@ Preserve user work and established project conventions. Prefer deterministic scr
 
 After each discovery, choose the next action that most reduces uncertainty. Stop exploring when the implementation path and verification target are both supported.
 
+### Design before code
+
+- Default to the strategic path: the design that keeps the next change cheap. Take the tactical shortcut only when the code is throwaway or the user explicitly traded durability for speed, and say which in the handoff. A change that adds a special case a deeper interface would absorb is the signal to redesign, not to patch.
+- Design a new public interface twice. Sketch two materially different shapes before choosing; the handoff names the rejected one and the reason in one line. Skipping the second sketch is allowed only when the interface has one plausible shape, and the handoff says so.
+- New public surface must hide more than it exposes. Reject a wrapper whose caller learns as much as writing the body inline would cost; prefer one deeper unit over several shallow ones.
+- For a non-trivial new routine, write the intent first as plain-language steps, then translate. A step that resists plain language is a design problem caught before it became code. Steps that survive translation become the routine's comments.
+
 ## 5. Verify before claiming
 
 Run the smallest meaningful check first, followed by broader checks in proportion to risk. Distinguish inspection, static checks, build success, behavioral tests, and runtime validation; none automatically proves the others.
@@ -110,3 +117,17 @@ Never say a command passed unless it ran successfully in the current work. Repor
 ## 6. Hand off compactly
 
 For a routine progress update or completion report, render a compact handoff directly: lead with the outcome, state material changes, give the exact checks and results, and name any remaining limitation. Invoke `communicate-efficiently` only when the user explicitly requests adaptive brevity, the communication is consequential enough that profile selection is genuinely ambiguous, or a provider-backed communication receipt is required. Omit a diary of routine tool calls.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the handoff, never silently past it.
+
+**Before writing code**
+- Outcome, request mode, constraints, and completion evidence named.
+- A new public interface was designed twice, or its single plausible shape stated.
+- Non-trivial routines drafted as intent-level steps first.
+
+**Before claiming done**
+- Every check reported actually ran in this session; skips named as unverified.
+- Tactical shortcuts declared with their trade-off.
+- The handoff leads with the outcome and names remaining limitations.

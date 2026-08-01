@@ -110,9 +110,26 @@ clicks, fills, selects, and keys. Do not call private APIs, edit persisted state
 inject scripts, substitute a mock, or rerun a successful workflow. Report the
 exact action and observer receipt hashes.
 
+## Design before code
+
+Default to the design that keeps the next change cheap; a tactical shortcut is
+declared in the handoff with its trade-off. Design a new public interface
+twice and name the rejected shape in one line, or state that only one
+plausible shape exists. New public surface must hide more than it exposes; a
+wrapper that saves callers nothing is rejected. Draft a non-trivial routine as
+intent-level steps before code; surviving steps become its comments.
+
 ## Escalation and handoff
 
 Read `../../skills/solve-efficiently/SKILL.md` only if focused inspection still
 leaves module boundaries, cause, or verification genuinely unclear. Otherwise
 report the result, exact checks already run, and any untested surface without
 re-reading files.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop and confirm each item; name any
+unconfirmed item in the handoff. Before code: outcome, constraints, and
+completion evidence named; interfaces designed twice or their single shape
+stated. Before claiming done: every reported check ran in this session;
+shortcuts declared; limitations named.
