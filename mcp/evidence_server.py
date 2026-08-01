@@ -35,7 +35,18 @@ WORK_STATE = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_stat
 
 SERVER_NAME = "cognitive-powers-evidence"
 SERVER_VERSION = "1.0.0"
-DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+# Negotiation is "answer with a version this server supports", not "agree with
+# whatever was asked". Echoing the request claimed support for every version a
+# client could name, including ones whose tool surface this file does not
+# implement -- the same shape of unearned assurance the rest of this plugin
+# exists to refuse. These four share the initialize/ping/tools surface used here.
+SUPPORTED_PROTOCOL_VERSIONS = (
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+DEFAULT_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 SUBPROCESS_TIMEOUT_SECONDS = 60.0
 
 # Only inspection subcommands are reachable. The map is the allowlist: a tool
@@ -208,7 +219,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
             identifier,
             {
                 "protocolVersion": requested
-                if isinstance(requested, str) and requested
+                if requested in SUPPORTED_PROTOCOL_VERSIONS
                 else DEFAULT_PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},

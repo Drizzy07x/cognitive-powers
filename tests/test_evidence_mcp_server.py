@@ -34,19 +34,40 @@ class EvidenceServerProtocolTests(unittest.TestCase):
         self.server.serve(source, sink)
         return [json.loads(line) for line in sink.getvalue().splitlines()]
 
-    def test_initialize_echoes_the_protocol_version_the_client_asked_for(self) -> None:
+    def test_initialize_agrees_only_to_a_version_this_server_supports(self) -> None:
+        """Negotiation answers with a version the server has; it does not agree.
+
+        Echoing the client's request claimed support for every version anyone
+        could name, including ones whose tool surface this file does not
+        implement.
+        """
         responses = self.exchange(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "initialize",
                 "params": {"protocolVersion": "2025-03-26"},
-            }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "initialize",
+                "params": {"protocolVersion": "1999-01-01"},
+            },
+            {"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}},
         )
-        result = responses[0]["result"]
-        self.assertEqual(result["protocolVersion"], "2025-03-26")
-        self.assertEqual(result["serverInfo"]["name"], "cognitive-powers-evidence")
-        self.assertIn("tools", result["capabilities"])
+        supported, unsupported, absent = (item["result"] for item in responses)
+        self.assertEqual(supported["protocolVersion"], "2025-03-26")
+        for result in (unsupported, absent):
+            self.assertEqual(
+                result["protocolVersion"], self.server.DEFAULT_PROTOCOL_VERSION
+            )
+        self.assertIn(
+            self.server.DEFAULT_PROTOCOL_VERSION,
+            self.server.SUPPORTED_PROTOCOL_VERSIONS,
+        )
+        self.assertEqual(supported["serverInfo"]["name"], "cognitive-powers-evidence")
+        self.assertIn("tools", supported["capabilities"])
 
     def test_a_notification_is_never_answered(self) -> None:
         self.assertEqual(
@@ -178,6 +199,12 @@ class EvidenceServerBoundaryTests(unittest.TestCase):
             report = response["result"]["structuredContent"]
             self.assertEqual(
                 Path(report["data_root"]).resolve(), Path(temporary).resolve()
+            )
+            # The specification asks a tool returning structured content to
+            # serialize the same object into a text block as well, so a client
+            # that reads only content still receives the result.
+            self.assertEqual(
+                json.loads(response["result"]["content"][0]["text"]), report
             )
 
 
