@@ -68,3 +68,16 @@ Do not turn an audit recommendation directly into an active capability. Advance 
 The lifecycle script emits a hashed transition receipt. It does not install, activate, retire, or roll back a skill itself.
 
 Every transition after the initial `observed` receipt must provide the immediately preceding receipt as `previous_receipt`. The script verifies its hash, capability identity, established state, next state, approved-transition marker, and chain fingerprint, then binds its fingerprint into the new receipt. For migration, an unchained schema-1 receipt may seed only the `observed → candidate` transition; later legacy receipts must be replayed from `observed` so an asserted `current_state` cannot bypass the lifecycle.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before assessing candidates**
+- Evidence is repeated observed procedure, not a recurring topic.
+- The installed surface was inventoried before proposing anything new.
+
+**Before recommending**
+- Each candidate is backed by named recurrences, not one striking task.
+- Overlap with an existing skill was checked and the verdict recorded.
+- Removals and updates carry the same evidence bar as additions.

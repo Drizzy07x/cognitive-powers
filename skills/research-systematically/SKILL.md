@@ -27,3 +27,15 @@ Ask a verifier who did not produce the research result to inspect the frozen pla
 ## 5. Report honestly
 
 Separate confirmed results, exploratory observations, rejected hypotheses, dead ends, pivots, deviations, and unanswered questions. Bind the report to the pre-registration and evidence hashes. Read [protocol.md](references/protocol.md) for the packet contract and examples.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before experimenting**
+- Question, hypotheses, falsifiers, and stopping rules frozen first.
+- Confirmatory and exploratory runs labeled before results exist.
+
+**Before reporting**
+- Every claim binds to evidence; dead ends and pivots recorded.
+- The verdict came from the independent pass, not the experimenter.

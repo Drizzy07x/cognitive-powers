@@ -39,3 +39,15 @@ For a product-level efficiency claim, invoke `verify-delivery` and follow its pa
 ## Hand off
 
 Report the result, exact checks and outcomes, and remaining limitations. Do not expose internal reasoning or a chronological diary. Expand immediately if the user asks for detail or the compact form creates ambiguity.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before composing**
+- Profile chosen by stakes and audience, not by habit.
+- Everything compression may drop is presentation, never evidence.
+
+**Before handing off**
+- Exact checks and results survive at every profile.
+- A receipt is claimed only when it is provider-backed.

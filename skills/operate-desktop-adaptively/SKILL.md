@@ -61,3 +61,15 @@ For a durable criterion, record the successful normalized receipt:
 ```
 
 Require a different verifier through `execute-durably`; QCU evidence is eligible to support behavioral verification but does not self-confirm a criterion. Report the expected window, action count, observation IDs, capture reliability, finish reason, and anything not exercised.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before acting on the desktop**
+- QCU already installed; live input starts only for the task, never on load.
+- The target surface confirmed in the foreground.
+
+**Before claiming the objective**
+- Evidence hashed from real actions with correct focus, no stale capture.
+- The objective verified explicitly; the session finished deliberately.

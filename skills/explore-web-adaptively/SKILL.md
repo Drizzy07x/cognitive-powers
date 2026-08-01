@@ -35,3 +35,15 @@ Invoke `verify-web-behavior` and establish a real red/green cycle. Skyvern outpu
 Use `execute-durably record-navigation` only for a criterion about discovery itself. Use `record-web` for the later Playwright evidence.
 
 Report the provider, API contract, run ID, final status, step count, side-effect scope, artifact hashes, generated candidate, and all unverified surfaces.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before exploring**
+- Skyvern already installed and authorized; nothing installed to proceed.
+- The exploration is bounded and its unknowns named.
+
+**Before handing off**
+- Artifacts normalized and hashed; discovery labeled as discovery.
+- Behavioral claims deferred to a Playwright reproduction.

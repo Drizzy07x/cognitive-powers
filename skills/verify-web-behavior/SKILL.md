@@ -43,3 +43,16 @@ Re-run the original unminimized flow and the smallest affected suite. Record a s
 Report the tested browser projects, exact selectors, pass/fail/flaky counts, trace availability, source state, and anything not exercised. Never claim cross-browser, visual, accessibility, console-error, or persistence coverage unless corresponding assertions actually ran.
 
 A `visual_design_evidence` receipt can prove that a declared review ran against exact renders and a passing browser receipt. Because it sets `behavioralVerificationEligible=false` and `subjectiveQualityProven=false`, it cannot independently establish user-flow correctness or objective aesthetic quality.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before running**
+- Playwright already configured in the project; nothing was installed.
+- The smallest test that can show the behavior was selected.
+
+**Before claiming the behavior**
+- Evidence captured at the public user-visible seam.
+- Failures diagnosed from the trace, not from the test title.
+- Flaky retries reported separately from clean passes.

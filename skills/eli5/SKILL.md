@@ -77,3 +77,15 @@ evidence you cannot point to is not complete -- shorten it until it is.
   `communicate-efficiently`.
 - Do not recommend adopting a technique as though the explanation established
   that it works here.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before explaining**
+- The source was read fully; the explanation covers it, not its title.
+
+**Before delivering**
+- What the source demonstrates is separated from interpretation.
+- No claim exceeds the boundary of the source.
+- Plain language did not change any technical meaning.

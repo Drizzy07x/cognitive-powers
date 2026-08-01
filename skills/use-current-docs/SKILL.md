@@ -48,3 +48,15 @@ For the normalized payload schema, cache rules, and durable recording, read [evi
 ## 4. Verify the implementation
 
 Use retrieved docs to choose an implementation, then prove behavior with a relevant test, build, or runtime observation. Do not claim success from documentation retrieval alone.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before retrieving**
+- The installed dependency version established from the repository, not assumed.
+
+**Before applying**
+- Retrieved documentation matches that version, and its date is recorded.
+- Local code and tests stayed authoritative for project behavior.
+- Externally drifted contracts confirmed against the source, not recalled.

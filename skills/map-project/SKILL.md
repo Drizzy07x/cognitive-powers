@@ -64,3 +64,15 @@ Read [domain-glossary.md](references/domain-glossary.md) when repeated ambiguity
 Confirm every referenced path and command exists, parent/child guidance does not conflict, and no child merely duplicates its parent. Report files created or updated, whether structural placement came from CodeGraph or lexical heuristics, and any centrality or runtime behavior that remained unmeasured.
 
 State the filename written and the host that reads it. A file the running host does not load is not project memory, however well written.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before writing memory**
+- The instruction filename the host actually reads was resolved first.
+- The tree was measured; distinct domains justify hierarchy.
+
+**Before claiming done**
+- Every recorded fact is one future tasks cannot cheaply infer from the tree.
+- Locations chosen conservatively; the hierarchy was verified.
