@@ -581,6 +581,36 @@ def _validated_durable_evidence(
     return value, executor
 
 
+def _stop_warning(
+    session_id: str, data_root: Path, error: str | None
+) -> dict[str, Any]:
+    """Shape the warning for a session whose latest edit no receipt covers."""
+    detail = f" ({error})" if error else ""
+    message = (
+        f"Cognitive Powers session {session_id!r} recorded file-changing tool use "
+        f"under {str(data_root)!r}, "
+        "but no current, hash-bound validation receipt covers the latest "
+        f"edit{detail}."
+    )
+    output: dict[str, Any] = {"systemMessage": message}
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        # Claude Code shows systemMessage to the user only; the agent never
+        # sees it. Without this the warning names a gap the one party able to
+        # close it cannot read. additionalContext reaches the agent and, unlike
+        # decision=block, leaves the hook fail-open.
+        output["hookSpecificOutput"] = {
+            "hookEventName": "Stop",
+            "additionalContext": (
+                f"{message} Resolve it by producing a real command receipt with "
+                "work_state.py run or run-green, confirming that criterion "
+                "through work_state.py verify with a different verifier, then "
+                "recording it with selective_hooks.py record-validation. Do not "
+                "claim the criterion is complete until that receipt exists."
+            ),
+        }
+    return output
+
+
 def stop(payload: dict[str, Any]) -> None:
     roots = _roots()
     session_id = _session_id(payload)
@@ -611,30 +641,7 @@ def stop(payload: dict[str, Any]) -> None:
     )
     if current:
         return
-    detail = f" ({error})" if error else ""
-    message = (
-        f"Cognitive Powers session {session_id!r} recorded file-changing tool use "
-        f"under {str(data_root)!r}, "
-        "but no current, hash-bound validation receipt covers the latest "
-        f"edit{detail}."
-    )
-    output: dict[str, Any] = {"systemMessage": message}
-    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
-        # Claude Code shows systemMessage to the user only; the agent never
-        # sees it. Without this the warning names a gap the one party able to
-        # close it cannot read. additionalContext reaches the agent and, unlike
-        # decision=block, leaves the hook fail-open.
-        output["hookSpecificOutput"] = {
-            "hookEventName": "Stop",
-            "additionalContext": (
-                f"{message} Resolve it by producing a real command receipt with "
-                "work_state.py run or run-green, confirming that criterion "
-                "through work_state.py verify with a different verifier, then "
-                "recording it with selective_hooks.py record-validation. Do not "
-                "claim the criterion is complete until that receipt exists."
-            ),
-        }
-    print(json.dumps(output, ensure_ascii=False))
+    print(json.dumps(_stop_warning(session_id, data_root, error), ensure_ascii=False))
 
 
 def record_validation(

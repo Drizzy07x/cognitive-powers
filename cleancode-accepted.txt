@@ -1,0 +1,52 @@
+# Findings argued away, one `path:line:rule` per line. `#` starts a comment.
+# Read by clean_code_guard.py in --scan mode only. Acceptance is per finding
+# rather than per file so the next defect written into the same file is still
+# reported. An entry with no reason above it is a bug in this file.
+
+# The rules module measures 430 lines only because `ruff format` expanded it
+# from 365, and this repository's formatter config wins over a style dispute by
+# its own rule. Splitting it would need a third module holding Finding and the
+# limits, purely to keep the language-specific halves from importing each
+# other in a cycle: more installed surface to satisfy a threshold the
+# formatter moved.
+hooks/clean_code_rules.py:1:file-length
+
+# The fixture that proves the orphan-marker rule fires has to contain an
+# unticketed marker, and the scanner reads physical lines, so it cannot tell
+# this one is quoted test data. Ticketing it would test the opposite rule; the
+# neighbouring TICKETED_SOURCE already covers that direction.
+tests/test_clean_code_guard.py:39:orphan-marker
+
+# The rule counts a function from `def` to its last line, so a docstring is
+# charged against the body. Both of these are under the limit as code -- 12 and
+# 17 lines -- and carry long docstrings because each records the defect that
+# made it necessary, which is what this repository asks a comment to do.
+# Demoting them to comments above the `def` would satisfy the counter and lose
+# them from help(); extracting a helper called once would be a false
+# abstraction bought with the same prose still present.
+hooks/skill_router.py:78:function-length
+hooks/skill_router.py:105:function-length
+
+# Documented design, not a defect: CLAUDE.md, "Three hooks, two shapes", makes
+# semantic_index advisory in full and silent on every error. Both sites now
+# carry a comment saying so. Handling either one would turn a cache miss into a
+# startup message, which is the behaviour the contract exists to prevent.
+hooks/semantic_index.py:166:swallowed-error
+hooks/semantic_index.py:204:swallowed-error
+
+# refresh() is a flat sequence of guard clauses, each returning a distinct
+# skip reason; the count is the number of ways an optional provider can be
+# absent, not nesting. The two extractions that would shorten it are both
+# barred here: pulling the precondition block out would call shutil.which a
+# second time, which reorders a side effect, and pulling the stamp block out
+# would move the two except blocks this task was told to leave alone.
+hooks/semantic_index.py:128:branch-count
+hooks/semantic_index.py:128:function-length
+
+# A false positive, and the rule cannot avoid it: the line is prose ending
+# "...decision=block, leaves the hook fail-open", and `decision=block` has the
+# shape of an assignment. It is a why-comment recording which host mechanism
+# was rejected and what it would have cost, which is the kind this repository
+# asks for. Only this line is accepted, so genuinely commented-out code added
+# to the same file is still reported.
+hooks/selective_hooks.py:600:commented-code

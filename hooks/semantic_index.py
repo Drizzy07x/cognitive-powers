@@ -89,6 +89,26 @@ def _timeout() -> float:
     return value
 
 
+def _git_output(argv: list[str], root: Path, runner) -> str | None:
+    """Return one git query's stdout, or None when it fails for any reason."""
+    try:
+        completed = runner(
+            argv,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=STAMP_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout or ""
+
+
 def _index_stamp(root: Path, runner) -> str | None:
     """Return a cheap signature of the worktree, or None when unavailable.
 
@@ -98,24 +118,11 @@ def _index_stamp(root: Path, runner) -> str | None:
     """
     parts = []
     for argv in (["git", "rev-parse", "HEAD"], ["git", "status", "--porcelain"]):
-        try:
-            completed = runner(
-                argv,
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=STAMP_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
+        output = _git_output(argv, root, runner)
+        if output is None:
             return None
-        if completed.returncode != 0:
-            return None
-        parts.append(completed.stdout or "")
-    digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
-    return digest
+        parts.append(output)
+    return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
 
 
 def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]:
@@ -151,6 +158,11 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
         try:
             if stamp_path.read_text(encoding="utf-8").strip() == stamp:
                 return {"status": "current", "reason": "worktree unchanged"}
+        # Silence is this hook's contract, not an oversight: CLAUDE.md,
+        # "Three hooks, two shapes", makes semantic_index advisory in full.
+        # An unreadable stamp means the index is refreshed again, which is the
+        # harmless direction; reporting it would spend a startup message on a
+        # cache miss.
         except (OSError, UnicodeDecodeError):
             pass
 
@@ -186,9 +198,29 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
     if stamp is not None:
         try:
             stamp_path.write_text(stamp, encoding="utf-8")
+        # Same contract as above (CLAUDE.md, "Three hooks, two shapes"). The
+        # refresh already succeeded, so failing to record the stamp costs one
+        # redundant rebuild next time and nothing else.
         except OSError:
             pass
     return {"status": "refreshed", "root": str(root)}
+
+
+def _startup_message(outcome: dict[str, Any]) -> str | None:
+    """Return the startup line this outcome deserves, or None for silence.
+
+    Quiet on the ordinary paths. A refreshed index changes what navigation is
+    allowed to trust, so that one is worth a line; a missing optional provider
+    is not.
+    """
+    if outcome["status"] == "refreshed":
+        return "Cognitive Powers refreshed the semantic index for this project."
+    if outcome["status"] in {"error", "timeout"}:
+        return (
+            "Cognitive Powers could not refresh the semantic index: "
+            f"{outcome['reason']}. Navigation falls back to lexical search."
+        )
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -201,33 +233,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:  # noqa: BLE001 - advisory hook must not fail closed
         outcome = {"status": "error", "reason": str(error)}
 
-    # Quiet on the ordinary paths. A refreshed index changes what navigation is
-    # allowed to trust, so that one is worth a line; a missing optional
-    # provider is not.
-    if outcome["status"] == "refreshed":
+    message = _startup_message(outcome)
+    if message is not None:
         print(
             json.dumps(
-                {
-                    "systemMessage": (
-                        "Cognitive Powers refreshed the semantic index "
-                        "for this project."
-                    ),
-                    "suppressOutput": True,
-                },
-                ensure_ascii=False,
-            )
-        )
-    elif outcome["status"] in {"error", "timeout"}:
-        print(
-            json.dumps(
-                {
-                    "systemMessage": (
-                        "Cognitive Powers could not refresh the semantic index: "
-                        f"{outcome['reason']}. Navigation falls back to lexical "
-                        "search."
-                    ),
-                    "suppressOutput": True,
-                },
+                {"systemMessage": message, "suppressOutput": True},
                 ensure_ascii=False,
             )
         )

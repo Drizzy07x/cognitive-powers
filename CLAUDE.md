@@ -9,6 +9,14 @@ Cognitive Powers is a plugin that ships from **one source tree to two hosts**: C
 `.claude-plugin/plugin.json` + `skills/` + `hooks/hooks.claude.json`. Both manifests declare the
 same version, and `doctor.py` reports `versionsAligned: false` when they drift.
 
+**The two skill trees are not mirrors.** `skills/` holds all seventeen workflows. `skills-core/`
+holds only the three routers Codex installs — `solve-efficiently`, `execute-durably`,
+`verify-delivery` — with their own `SKILL.md` and `agents/openai.yaml`, which differ from the
+`skills/` copies and are gated separately. Codex reaches the other fourteen by reading
+`skills/<name>/SKILL.md` under the plugin root; that is why `hooks/skill_router.py` names a Skill
+tool id on Claude Code and a file path on Codex, and why the catalog in
+`skills-core/execute-durably/SKILL.md` has to list every specialized workflow by path.
+
 Everything is Python standard library. `ruff` is the only dependency, dev-only and hash-pinned in
 `requirements-dev.txt`. Do not add a runtime dependency: several components exist to report whether
 an installation works, and one that needed installing first would be self-defeating.
@@ -16,7 +24,7 @@ an installation works, and one that needed installing first would be self-defeat
 ## Commands
 
 ```powershell
-# The canonical gate. 25 commands: the unittest suite, ruff, twelve benchmark runners,
+# The canonical gate. 25 commands: the unittest suite, ruff, eleven benchmark runners,
 # packaging contracts, and doctor. The receipt MUST land outside the repo.
 & $python scripts/validate_all.py --offline --json-output <path-outside-repo>.json
 
@@ -44,6 +52,10 @@ design. `skippedTests` is recorded per command because a skipped assertion is on
 Two runners are deliberately outside the gate and fail locally without their provider:
 `run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
 
+`docs/operations.md` is the runbook for everything the gate does not do: lock and state-schema
+recovery, durable resume across a compaction, verifying an installed release, the release
+checklist, and running the controller A/B without growing the working tree.
+
 ## Architecture
 
 **The routing decision has one implementation.** `scripts/skill_routing.py` holds `decide()`, and
@@ -52,11 +64,15 @@ satisfy every checked-in case and rank something else at runtime — that split 
 exists to prevent. Skill descriptions are the routing corpus: the benchmark scores the combined
 `description` + `when_to_use` text because that is what the host actually lists.
 
-**Three hooks, two shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
+**Four hooks, three shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
 (UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
 is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
 indistinguishable from a session that changed nothing. When editing it, ask what an early return
-makes invisible.
+makes invisible. `hooks/clean_code_guard.py` (PostToolUse on writes) is the third shape: advisory
+by default, exit 2 under `CLEAN_CODE_GUARD_STRICT`, with the measurable rules isolated in
+`hooks/clean_code_rules.py` — pure analysis, no I/O, no process control. Waivers in
+`cleancode-accepted.txt` are per `path:line:rule`, never per file, and hook mode ignores them: the
+file being edited right now is the one where a stale waiver would hide the next defect.
 
 **Durable state lives outside the repository**, at `~/.codex/cognitive-powers` on both hosts
 (historical name, deliberately shared so one machine keeps one store), overridable with
@@ -65,6 +81,12 @@ is in `work_state_core/durability.py` (ledger, HMAC chain, recovery) and `storag
 addressed objects, garbage collection). `_default_data_root()` in `selective_hooks.py` must stay
 byte-identical to `resolve_data_root()` in `durability.py`: if they diverge, receipts land outside
 the root the Stop gate checks and it rejects work that is in fact complete.
+
+**`agents/` ships three subagents** (`executor`, `test-writer`, `verifier`) whose frontmatter
+withholds `Agent` from the tool set. The depth-one rule is enforced by what the tools allow, not by
+what the prompt asks for — a worker able to spawn workers breaks it whatever its instructions say.
+`verifier` adds `disallowedTools` and `isolation: worktree` for the same reason: the agent that
+produced a result cannot be the one confirming it.
 
 **Fail closed, and say what failed.** Corruption, unreadable evidence, unknown schema versions and
 torn writes raise a domain error rather than guessing or tracebacking. `UnicodeDecodeError` is a
@@ -87,10 +109,20 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
 
 ## Invariants worth knowing before you edit
 
-- **All sixteen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
+- **All seventeen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
+- **Adding or removing a workflow moves four carriers.** The `skills/<name>/` directory,
+  `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
+  `scripts/verify_installed.py`, and the catalog in `skills-core/execute-durably/SKILL.md`. Add
+  routing cases to `benchmarks/skill_routing_cases.json` and rerun the routing benchmark: a new
+  description changes the ranking of prompts that were never about it.
+- **This file is gated like the code.** `tests/test_documentation.py` resolves every
+  repository-relative path and markdown link in `README.md`, `CLAUDE.md`, `THIRD_PARTY_NOTICES.md`
+  and `docs/*.md`, and fails when a new root document is not listed in `ROOT_DOCUMENTS`. It cannot
+  catch a wrong count in prose — 1.7.3 shipped three such claims — so counts stated here are worth
+  rechecking against the tree before trusting them.
 - **Every skill needs `agents/openai.yaml`** with a 25–64 character `short_description` and a
   `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines; the host truncates
   `description` + `when_to_use` at 1,536 characters in the listing.

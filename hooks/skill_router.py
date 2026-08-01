@@ -131,45 +131,94 @@ def _message(name: str, claude_code: bool) -> str:
     )
 
 
-def suggest(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return a structured outcome; never raise."""
+def _unavailable() -> dict[str, Any] | None:
+    """Report the two conditions under which routing does not run at all."""
     if os.environ.get("COGNITIVE_POWERS_DISABLE_ROUTER"):
         return {"status": "disabled", "reason": "disabled by environment"}
     if not ROUTING_AVAILABLE:
         return {"status": "skipped", "reason": "skill_routing is unavailable"}
+    return None
+
+
+def _unparsable_warning(unparsable: set[str]) -> str | None:
+    """Name the skills that did not parse, or return None when every one did.
+
+    Silence is this hook's ordinary output, so a catalogue that failed to load
+    looks exactly like a prompt that matched nothing. Naming the skills that
+    did not parse is the only way a broken install stops being invisible.
+    """
+    if not unparsable:
+        return None
+    several = len(unparsable) > 1
+    return (
+        "Cognitive Powers: "
+        + ", ".join(sorted(unparsable))
+        + " could not be read and "
+        + ("were" if several else "was")
+        + " left out of skill routing. Check the frontmatter of "
+        + ("those skills" if several else "that skill")
+        + "; a single-line description is required."
+    )
+
+
+def _decided(
+    outcome: dict[str, Any], warning: str | None, claude_code: bool
+) -> dict[str, Any]:
+    """Attach the host-shaped message and any warning to a routing outcome."""
+    if outcome["status"] != "suggested":
+        return {**outcome, "warning": warning} if warning else outcome
+    message = _message(str(outcome["skill"]), claude_code)
+    return {**outcome, "message": message, "warning": warning}
+
+
+def _resolved_catalogue() -> tuple[dict[str, str], set[str], bool] | None:
+    """Resolve the host and read its catalogue, or None when nothing parses.
+
+    The host lookup stays inside the same try as the load: a failure to resolve
+    the root and a failure to read what is under it are the same silence to
+    this hook, and separating them would let one of the two escape.
+    """
+    try:
+        root, claude_code = _resolve_host()
+        descriptions, unparsable = load_parsable_skill_descriptions(root)
+    except (OSError, ValueError):
+        return None
+    if not descriptions:
+        return None
+    return descriptions, unparsable, claude_code
+
+
+def suggest(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a structured outcome; never raise."""
+    unavailable = _unavailable()
+    if unavailable is not None:
+        return unavailable
 
     prompt = _prompt(payload)
     if prompt is None:
         return {"status": "skipped", "reason": "no usable prompt"}
 
-    try:
-        root, claude_code = _resolve_host()
-        descriptions, unparsable = load_parsable_skill_descriptions(root)
-    except (OSError, ValueError):
-        return {"status": "skipped", "reason": "skill descriptions are unreadable"}
-    if not descriptions:
+    catalogue = _resolved_catalogue()
+    if catalogue is None:
         return {"status": "skipped", "reason": "skill descriptions are unreadable"}
 
-    # Silence is this hook's ordinary output, so a catalogue that failed to load
-    # looks exactly like a prompt that matched nothing. Naming the skills that
-    # did not parse is the only way a broken install stops being invisible.
-    warning = (
-        "Cognitive Powers: "
-        + ", ".join(sorted(unparsable))
-        + " could not be read and "
-        + ("was" if len(unparsable) == 1 else "were")
-        + " left out of skill routing. Check the frontmatter of "
-        + ("that skill" if len(unparsable) == 1 else "those skills")
-        + "; a single-line description is required."
-        if unparsable
-        else None
-    )
-
+    descriptions, unparsable, claude_code = catalogue
+    warning = _unparsable_warning(unparsable)
     outcome = decide(prompt, descriptions)
-    if outcome["status"] != "suggested":
-        return {**outcome, "warning": warning} if warning else outcome
-    message = _message(str(outcome["skill"]), claude_code)
-    return {**outcome, "message": message, "warning": warning}
+    return _decided(outcome, warning, claude_code)
+
+
+def _router_output(outcome: dict[str, Any], warning: str | None) -> dict[str, Any]:
+    """Shape the host payload: a suggestion, a warning, or both."""
+    output: dict[str, Any] = {"suppressOutput": True}
+    if outcome["status"] == "suggested":
+        output["hookSpecificOutput"] = {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": outcome["message"],
+        }
+    if warning:
+        output["systemMessage"] = warning
+    return output
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -189,15 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     if outcome["status"] != "suggested" and not warning:
         return 0
 
-    output: dict[str, Any] = {"suppressOutput": True}
-    if outcome["status"] == "suggested":
-        output["hookSpecificOutput"] = {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": outcome["message"],
-        }
-    if warning:
-        output["systemMessage"] = warning
-    print(json.dumps(output, ensure_ascii=False))
+    print(json.dumps(_router_output(outcome, warning), ensure_ascii=False))
     return 0
 
 
