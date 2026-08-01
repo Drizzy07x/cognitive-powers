@@ -43,6 +43,20 @@
             ]
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python_executable}",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/clean_code_guard.py",
+              "post-tool-use"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
