@@ -25,6 +25,20 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 SKILL_TREES = ("skills", "skills-core")
 
+# The same spelling means different things in the two places. Inside a skill,
+# `scripts/<file>` is relative to that skill; at the root it is relative to the
+# repository, which is why the two surfaces need separate checks rather than one
+# shared rule.
+REPOSITORY_PATH = re.compile(
+    r'(?<![A-Za-z0-9_/."-])((?:scripts|tests|hooks|mcp|skills|skills-core'
+    r"|benchmarks|ci|agents|integrations)/[A-Za-z0-9_./-]+"
+    r"\.(?:py|json|md|ps1|js))"
+)
+# CHANGELOG.md is deliberately absent: it is a historical record, and entries
+# describing a removed script must keep naming it. Requiring existence there
+# would make the gate demand that history be rewritten.
+ROOT_DOCUMENTS = ("README.md", "CLAUDE.md", "THIRD_PARTY_NOTICES.md")
+
 
 def _skill_directory(document: Path) -> Path:
     """The skills/<name> directory a document belongs to.
@@ -89,6 +103,84 @@ class SkillPathReferenceTests(unittest.TestCase):
                 # A path that ends a sentence carries the period into the
                 # capture; "<" cannot appear at all, the class excludes it, so
                 # only the placeholder check is live.
+                reference = reference.rstrip(".,;:")
+                if not reference or "..." in reference:
+                    continue
+                with self.subTest(document=document.name, reference=reference):
+                    self.assertTrue(
+                        (PLUGIN_ROOT / reference).exists(),
+                        f"{document.relative_to(PLUGIN_ROOT)} points at "
+                        f"<plugin-root>/{reference}, which does not exist",
+                    )
+
+    def test_relative_markdown_links_resolve(self) -> None:
+        for document in self._documents():
+            for target in MARKDOWN_LINK.findall(document.read_text(encoding="utf-8")):
+                target = target.split("#")[0].strip()
+                if not target or target.startswith(("http://", "https://", "mailto:")):
+                    continue
+                with self.subTest(document=document.name, target=target):
+                    self.assertTrue(
+                        (document.parent / target).exists(),
+                        f"{document.relative_to(PLUGIN_ROOT)} links to {target}",
+                    )
+
+
+class RootDocumentReferenceTests(unittest.TestCase):
+    """The root documents were the half of the surface nothing watched.
+
+    Skill documents have been gated since the third live instance of a
+    mis-spelled script path. The root ones were not, and they are where the
+    operator-facing instructions live: three claims that this repository's own
+    gates contradict shipped in 1.7.3 -- a skill-invocability rule stated
+    backwards with a count that did not add up, an enforcement the packaging
+    never had, and a corpus size less than half the real one. Those were prose
+    rather than paths, so this cannot catch them; what it does catch is the
+    cheaper and more common drift, a document naming a file that moved or went
+    away, which is exactly what removing dead weight produces.
+    """
+
+    def _documents(self) -> list[Path]:
+        return [
+            PLUGIN_ROOT / name
+            for name in ROOT_DOCUMENTS
+            if (PLUGIN_ROOT / name).is_file()
+        ] + sorted((PLUGIN_ROOT / "docs").glob("*.md"))
+
+    def test_every_root_document_is_covered(self) -> None:
+        """A gate that names its own inputs can shrink without anyone noticing."""
+        covered = {document.name for document in self._documents()}
+        present = {
+            path.name
+            for path in (
+                *PLUGIN_ROOT.glob("*.md"),
+                *(PLUGIN_ROOT / "docs").glob("*.md"),
+            )
+        }
+        self.assertEqual(
+            present - covered,
+            {"CHANGELOG.md"},
+            "a root document is neither covered here nor the changelog; add it "
+            "to ROOT_DOCUMENTS or state why it is exempt",
+        )
+
+    def test_repository_relative_paths_exist(self) -> None:
+        for document in self._documents():
+            for reference in REPOSITORY_PATH.findall(
+                document.read_text(encoding="utf-8")
+            ):
+                with self.subTest(document=document.name, reference=reference):
+                    self.assertTrue(
+                        (PLUGIN_ROOT / reference).exists(),
+                        f"{document.relative_to(PLUGIN_ROOT)} names {reference}, "
+                        "which is not in this repository",
+                    )
+
+    def test_plugin_root_paths_exist(self) -> None:
+        for document in self._documents():
+            for reference in PLUGIN_ROOT_PATH.findall(
+                document.read_text(encoding="utf-8")
+            ):
                 reference = reference.rstrip(".,;:")
                 if not reference or "..." in reference:
                     continue

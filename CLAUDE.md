@@ -1,0 +1,112 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Cognitive Powers is a plugin that ships from **one source tree to two hosts**: Codex reads
+`.codex-plugin/plugin.json` + `skills-core/` + `hooks/hooks.json`; Claude Code reads
+`.claude-plugin/plugin.json` + `skills/` + `hooks/hooks.claude.json`. Both manifests declare the
+same version, and `doctor.py` reports `versionsAligned: false` when they drift.
+
+Everything is Python standard library. `ruff` is the only dependency, dev-only and hash-pinned in
+`requirements-dev.txt`. Do not add a runtime dependency: several components exist to report whether
+an installation works, and one that needed installing first would be self-defeating.
+
+## Commands
+
+```powershell
+# The canonical gate. 25 commands: the unittest suite, ruff, twelve benchmark runners,
+# packaging contracts, and doctor. The receipt MUST land outside the repo.
+& $python scripts/validate_all.py --offline --json-output <path-outside-repo>.json
+
+# One module, one class, or one test
+& $python -m unittest tests.test_work_state_storage
+& $python -m unittest tests.test_plugin_hooks.PluginHookTests.test_post_tool_use_reads_stdin_appends_and_hashes_changed_file
+
+& $python -m ruff check .
+& $python -m ruff format --check .
+
+& $python scripts/validate_skills.py --strict-quality
+& $python scripts/doctor.py --json                          # packaging, never executes a host CLI
+& $python scripts/doctor.py --validate-installation --json  # runs the components in a temp copy
+& $python scripts/run_skill_routing_benchmarks.py           # after any skill name/description edit
+```
+
+`$python` must be an explicit interpreter path. On Windows `python3` resolves to a Microsoft Store
+stub that exits without running Python — the reason `python_executable` is required user config with
+no default.
+
+Reading the receipt: `offlinePassed` is whether the 25 commands succeeded. `passed` additionally
+requires a clean worktree and a stable source identity, so it is `false` on any dirty tree by
+design. `skippedTests` is recorded per command because a skipped assertion is one that did not run.
+
+Two runners are deliberately outside the gate and fail locally without their provider:
+`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
+
+## Architecture
+
+**The routing decision has one implementation.** `scripts/skill_routing.py` holds `decide()`, and
+both `hooks/skill_router.py` and the routing benchmark call it. A hook carrying its own copy could
+satisfy every checked-in case and rank something else at runtime — that split is what the module
+exists to prevent. Skill descriptions are the routing corpus: the benchmark scores the combined
+`description` + `when_to_use` text because that is what the host actually lists.
+
+**Three hooks, two shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
+(UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
+is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
+indistinguishable from a session that changed nothing. When editing it, ask what an early return
+makes invisible.
+
+**Durable state lives outside the repository**, at `~/.codex/cognitive-powers` on both hosts
+(historical name, deliberately shared so one machine keeps one store), overridable with
+`COGNITIVE_POWERS_DATA`. `skills/execute-durably/scripts/work_state.py` is the CLI; the real logic
+is in `work_state_core/durability.py` (ledger, HMAC chain, recovery) and `storage.py` (content-
+addressed objects, garbage collection). `_default_data_root()` in `selective_hooks.py` must stay
+byte-identical to `resolve_data_root()` in `durability.py`: if they diverge, receipts land outside
+the root the Stop gate checks and it rejects work that is in fact complete.
+
+**Fail closed, and say what failed.** Corruption, unreadable evidence, unknown schema versions and
+torn writes raise a domain error rather than guessing or tracebacking. `UnicodeDecodeError` is a
+`ValueError`, not an `OSError` — a handler guarding only `OSError` lets a half-written file escape.
+
+**`mcp/evidence_server.py`** publishes read-only inspections of that store over MCP. It shells out
+to the canonical `work_state.py` subcommand rather than reimplementing the read path, and its tool
+table is the allowlist: a name not in it reaches no subprocess. Mutation stays on the CLI.
+
+**The controller A/B harness** (`scripts/controller_ab_*.py`, `live_ab_runner*.py`,
+`prepare_controller_ab_homes.py`) is the only part that calls a provider. `controller_ab_fixtures.py`
+*generates* the fixture trees and the `hidden_check.py` / `quality_check.py` evaluators in-process —
+nothing under `benchmarks/` is read as evaluator material — and refuses to materialize inside the
+repo. `INSTALLED_SURFACE_DIRECTORIES` / `INSTALLED_SURFACE_FILES` in `live_ab_runner.py` define what
+counts as the shipped runtime surface; the A/B homes copy exactly that.
+
+`benchmarks/controller_ab_protocol.json` freezes the design and its `not-proven` state. Evidence
+scope is promotion-only, so a pilot-only run proves nothing by construction. The control arm is
+`forced-solo` of the same build, not "no plugin".
+
+## Invariants worth knowing before you edit
+
+- **All sixteen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
+  workflows delegate to the specialized ones by name, and Claude Code hides a
+  `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
+  Asserted by `tests/test_claude_plugin_contract.py`.
+- **Every skill needs `agents/openai.yaml`** with a 25–64 character `short_description` and a
+  `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines; the host truncates
+  `description` + `when_to_use` at 1,536 characters in the listing.
+- **Version carriers move only through `scripts/bump_version.py`.** Write the `CHANGELOG.md`
+  section first — the bump refuses to run without it, and the publisher derives release notes from
+  it. Tags are immutable: every correction is a new version, because the plugin cache on both hosts
+  is keyed by version and a same-version cache is never refreshed in place.
+- **`source.sha256` identifies a commit, not a checkout.** Text is folded to LF and filenames
+  composed to NFC before hashing (`sha256-text-normalized-v3`), so platforms agree. Digests from
+  different schemes are not comparable and are rejected rather than reported as a content change.
+- **A test that mocks the integration under test proves nothing.** This has bitten twice: a
+  `subprocess.run` mock hid that prepared A/B homes could not work on any host, and a hand-listed
+  CLI gate silently shrank to half the shipped scripts. Prefer enumerating the real surface.
+
+## Style
+
+Comments explain **why a defect was possible**, not what a line does — read a few before writing
+one. The `CHANGELOG.md` entries follow the same rule and are the best available record of intent.
+Match each file's existing voice; keep diffs scoped.
