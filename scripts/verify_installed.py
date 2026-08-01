@@ -35,7 +35,7 @@ EXIT_INVENTORY = 12
 EXIT_HOST = 13
 ALLOWED_EXTRAS = {".codex-marketplace-install.json"}
 EXPECTED_SKILLS = ["execute-durably", "solve-efficiently", "verify-delivery"]
-CLAUDE_WORKFLOW_COUNT = 17
+CLAUDE_WORKFLOW_COUNT = 19
 SUPPORTED_HOSTS = ("codex", "claude-code")
 EXPECTED_REPOSITORY_SOURCES = {
     "Drizzy07x/cognitive-powers",

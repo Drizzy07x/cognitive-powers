@@ -1,6 +1,6 @@
 ---
 name: refactor-cleanly
-description: Refactor existing code for readability and maintainability - naming, function size, nesting depth, duplication, comments, error handling and test clarity - without changing observable behaviour. Use this skill when the code already works and the cost is comprehension: cleanup requests, files described as messy, legacy or hard to follow, dead code and stale comments, or when a change lands in a function that is long, deeply nested or duplicated.
+description: Refactor existing code for readability and maintainability - naming, function size, nesting depth, duplication, comments, error handling and test clarity - without changing observable behaviour. Use this skill when the code already works and the cost is comprehension: cleanup requests, files described as messy or hard to follow, dead code and stale comments, or when a change lands in a function that is long, deeply nested or duplicated.
 when_to_use: Use when the code already works and only its readability is at stake: a long function, deep nesting, a misleading name, duplicated logic that has diverged, dead code, or a stale marker left behind.
 ---
 
