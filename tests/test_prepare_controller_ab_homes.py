@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -195,9 +196,26 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
             plugin_identity = {"source_sha256": "d" * 64}
             host_identity = {"version": "codex-test"}
 
+            issued: list[tuple[str, tuple[str, ...]]] = []
+
+            def fake_codex(codex: str, home, *arguments: str) -> str:
+                issued.append((home.name, arguments))
+                if arguments[:2] == ("plugin", "add"):
+                    # Stand in for what the CLI does on a successful install.
+                    (
+                        home
+                        / "plugins"
+                        / "cache"
+                        / homes.MARKETPLACE_NAME
+                        / homes.PLUGIN_NAME
+                        / "1.0"
+                    ).mkdir(parents=True)
+                return ""
+
             with (
                 mock.patch.object(homes, "_git_identity", return_value=source_git),
                 mock.patch.object(homes, "_login_status", return_value="chatgpt"),
+                mock.patch.object(homes, "_run_codex", side_effect=fake_codex),
                 mock.patch.object(
                     homes,
                     "validate_arm_plugins",
@@ -223,6 +241,81 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
                 canonical_source=plugin_source.resolve(),
             )
             self.assertEqual(receipt["source_git"], source_git)
+            # The preparation used to build plugins/cache/... and a config entry
+            # by hand. Codex resolves installations from marketplace snapshots,
+            # so that home reported no marketplaces and no plugins and the arms
+            # could never validate. Pin the commands, not just the outcome:
+            # nothing else in this suite can reach the real CLI.
+            marketplace = str(output.resolve() / homes.MARKETPLACE_DIRECTORY)
+            for arm in ("baseline", "candidate"):
+                self.assertIn(
+                    (arm, ("plugin", "marketplace", "add", marketplace)), issued
+                )
+                self.assertIn(
+                    (
+                        arm,
+                        (
+                            "plugin",
+                            "add",
+                            f"{homes.PLUGIN_NAME}@{homes.MARKETPLACE_NAME}",
+                        ),
+                    ),
+                    issued,
+                )
+
+    def test_both_arms_install_from_one_marketplace(self) -> None:
+        """Two marketplace roots would be two chances for the arms to differ."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = root / "marketplace" / homes.PLUGIN_PAYLOAD_DIRECTORY
+            payload.mkdir(parents=True)
+            homes._write_marketplace(payload, root / "marketplace")
+            manifest = json.loads(
+                (
+                    root / "marketplace" / ".agents" / "plugins" / "marketplace.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(manifest["name"], homes.MARKETPLACE_NAME)
+        entry = manifest["plugins"][0]
+        self.assertEqual(entry["name"], homes.PLUGIN_NAME)
+        # The payload sits in a subdirectory so the tree Codex installs is the
+        # runtime surface alone; a marketplace rooted at the plugin itself would
+        # install its own manifest alongside it.
+        self.assertEqual(
+            entry["source"], {"source": "local", "path": f"./{payload.name}"}
+        )
+
+    def test_an_install_that_produces_no_cache_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_home = root / "source-home"
+            plugin_source = root / "source"
+            source_home.mkdir()
+            (source_home / "auth.json").write_text("{}\n", encoding="utf-8")
+            (source_home / "AGENTS.md").write_text("test\n", encoding="utf-8")
+            self._write_runtime_source(plugin_source)
+            (plugin_source / ".codex-plugin" / "plugin.json").write_text(
+                '{"version":"1.0"}\n', encoding="utf-8"
+            )
+
+            with (
+                mock.patch.object(
+                    homes,
+                    "_git_identity",
+                    return_value={"head": "a" * 40, "status_sha256": "b" * 64},
+                ),
+                mock.patch.object(homes, "_run_codex", return_value=""),
+                self.assertRaisesRegex(homes.HomePreparationError, "did not install"),
+            ):
+                homes.prepare_homes(
+                    source_home=source_home,
+                    plugin_source=plugin_source,
+                    output_root=root / "homes",
+                    model="gpt-test",
+                    reasoning_effort="medium",
+                    codex="codex",
+                )
 
 
 if __name__ == "__main__":

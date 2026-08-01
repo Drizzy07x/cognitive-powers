@@ -44,6 +44,12 @@ SENSITIVE_DEVELOPMENT_PATHS = (
     "scripts/controller_ab_fixtures.py",
     "scripts/live_ab_runner.py",
 )
+# Both arms install from one marketplace so the two homes cannot differ in what
+# they installed or in the root they recorded installing it from.
+MARKETPLACE_NAME = "personal"
+PLUGIN_NAME = "cognitive-powers"
+MARKETPLACE_DIRECTORY = "marketplace"
+PLUGIN_PAYLOAD_DIRECTORY = "plugin"
 
 
 def _sha256(path: Path) -> str:
@@ -152,6 +158,75 @@ def _copy_plugin(
     }
 
 
+def _run_codex(codex: str, home: Path, *arguments: str) -> str:
+    """Run one Codex command against a prepared home, or fail the preparation."""
+    try:
+        executable = resolve_codex_executable(codex)
+    except ValueError as error:
+        raise HomePreparationError(str(error)) from error
+    environment = dict(os.environ)
+    environment["CODEX_HOME"] = str(home)
+    try:
+        completed = subprocess.run(
+            [executable, *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+        )
+    except OSError as error:
+        raise HomePreparationError(
+            f"cannot execute the Codex CLI for {home}: {error}"
+        ) from error
+    output = (completed.stdout + completed.stderr).strip()
+    if completed.returncode != 0:
+        raise HomePreparationError(
+            f"codex {' '.join(arguments)} failed in {home}: {output}"
+        )
+    return output
+
+
+def _write_marketplace(source: Path, root: Path) -> None:
+    """Publish the copied runtime surface as a local marketplace named personal.
+
+    Codex resolves installed plugins from configured marketplace snapshots, so a
+    hand-built cache directory and a config entry naming it are not an
+    installation: `codex plugin list` reported nothing and the arms could not be
+    validated. The marketplace root keeps the plugin in a subdirectory of its
+    own so the tree Codex installs is exactly the runtime surface, with the
+    manifest that published it left outside.
+    """
+    manifest = root / ".agents" / "plugins" / "marketplace.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "name": MARKETPLACE_NAME,
+                "interface": {"displayName": "Cognitive Powers"},
+                "plugins": [
+                    {
+                        "name": PLUGIN_NAME,
+                        "source": {
+                            "source": "local",
+                            "path": f"./{source.name}",
+                        },
+                        "policy": {
+                            "installation": "AVAILABLE",
+                            "authentication": "ON_INSTALL",
+                        },
+                        "category": "Productivity",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _login_status(codex: str, home: Path) -> str:
     # Resolve the shim before spawning and fold every launch failure into the
     # domain error: a bare "codex" reached CreateProcess on Windows, which only
@@ -215,23 +290,42 @@ def prepare_homes(
     config = _minimal_config(model, reasoning_effort)
     homes: dict[str, Path] = {}
     try:
+        marketplace_root = output_root / MARKETPLACE_DIRECTORY
+        payload = marketplace_root / PLUGIN_PAYLOAD_DIRECTORY
+        payload.parent.mkdir(parents=True)
+        surface = _copy_plugin(
+            plugin_source,
+            payload,
+            max_files=max_plugin_files,
+            max_bytes=max_plugin_bytes,
+            allow_large_excluded_trees=allow_large_excluded_trees,
+        )
+        _write_marketplace(payload, marketplace_root)
         surfaces: dict[str, dict[str, Any]] = {}
         for arm in ("baseline", "candidate"):
             home = output_root / arm
-            cache = (
-                home / "plugins" / "cache" / "personal" / "cognitive-powers" / version
-            )
-            cache.parent.mkdir(parents=True)
+            home.mkdir(parents=True)
             shutil.copy2(source_home / "auth.json", home / "auth.json")
             shutil.copy2(source_home / "AGENTS.md", home / "AGENTS.md")
             (home / "config.toml").write_text(config, encoding="utf-8")
-            surfaces[arm] = _copy_plugin(
-                plugin_source,
-                cache,
-                max_files=max_plugin_files,
-                max_bytes=max_plugin_bytes,
-                allow_large_excluded_trees=allow_large_excluded_trees,
+            # Let the CLI do the installing. Writing the cache directory and a
+            # config entry by hand produced a home Codex reported as having no
+            # marketplaces and no plugins, because it resolves installations
+            # from marketplace snapshots rather than from the directory shape.
+            _run_codex(
+                codex, home, "plugin", "marketplace", "add", str(marketplace_root)
             )
+            _run_codex(
+                codex, home, "plugin", "add", f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
+            )
+            installed = (
+                home / "plugins" / "cache" / MARKETPLACE_NAME / PLUGIN_NAME / version
+            )
+            if not installed.is_dir():
+                raise HomePreparationError(
+                    f"Codex did not install the plugin into {installed}"
+                )
+            surfaces[arm] = surface
             homes[arm] = home
         if surfaces["baseline"] != surfaces["candidate"]:
             raise HomePreparationError("experiment runtime surfaces differ")
