@@ -11,7 +11,7 @@ Cognitive Powers is a Codex and Claude Code plugin for executing non-trivial wor
 
 One source tree packages both hosts. Codex loads `.codex-plugin/plugin.json` and
 `skills-core/`; Claude Code loads `.claude-plugin/plugin.json` and `skills/`.
-Both expose the same three core workflows and the same thirteen specialized ones.
+Both expose the same three core workflows and the same sixteen specialized ones.
 Only the invocation prefix differs: Codex uses `$name`, Claude Code uses
 `/name`. See [Install in Claude Code](#install-in-claude-code).
 
@@ -71,7 +71,7 @@ assignment's exact declared check. A write that legitimately changes nothing
 uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
 and a successful required check; an empty `completed` write is rejected.
 
-The two hosts reach the other thirteen specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all sixteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
+The two hosts reach the other sixteen specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all nineteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
 
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
@@ -204,7 +204,7 @@ every platform. On Windows, `python3` resolves to the Microsoft Store alias in
 Hooks are invoked in exec form, so this path is passed as an argument vector and
 is never expanded by a shell.
 
-Claude may load any of the sixteen workflows when its trigger contract matches,
+Claude may load any of the nineteen workflows when its trigger contract matches,
 and every one of them stays directly invocable as `/solve-efficiently`,
 `/map-project`, `/verify-web-behavior`, and so on. Only the listing text, a
 description plus `when_to_use` per skill, is held in context; a workflow body
