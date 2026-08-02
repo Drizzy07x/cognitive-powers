@@ -56,13 +56,14 @@ Check it after changing a manifest, a hook configuration, or skill frontmatter:
 
 `versionsAligned` must be `true`. A `host-version-drift` finding means the two
 manifests disagree and the release is not coherent. For Claude Code the report
-also lists `modelInvocableSkills`, which must contain all sixteen workflows, and
+also lists `modelInvocableSkills`, which must list every installed workflow with
+none held back, and
 `userInvocableOnlySkills`, which must stay empty. The core workflows delegate to
 the specialized ones by name, and Claude Code hides a
 `disable-model-invocation` skill from the model entirely, so a workflow that
 moved into the second list could never be reached by the delegation that names
 it. `tests/test_claude_plugin_contract.py` asserts both lists; the cost of the
-sixteen descriptions Claude loads on every task is the deliberate price of that
+nineteen descriptions Claude loads on every task is the deliberate price of that
 reachability.
 
 `requiredUserConfig` lists values Claude Code prompts for when the plugin is

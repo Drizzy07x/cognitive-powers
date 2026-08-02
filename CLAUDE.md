@@ -9,10 +9,10 @@ Cognitive Powers is a plugin that ships from **one source tree to two hosts**: C
 `.claude-plugin/plugin.json` + `skills/` + `hooks/hooks.claude.json`. Both manifests declare the
 same version, and `doctor.py` reports `versionsAligned: false` when they drift.
 
-**The two skill trees are not mirrors.** `skills/` holds all seventeen workflows. `skills-core/`
+**The two skill trees are not mirrors.** `skills/` holds all nineteen workflows. `skills-core/`
 holds only the three routers Codex installs — `solve-efficiently`, `execute-durably`,
 `verify-delivery` — with their own `SKILL.md` and `agents/openai.yaml`, which differ from the
-`skills/` copies and are gated separately. Codex reaches the other fourteen by reading
+`skills/` copies and are gated separately. Codex reaches the other sixteen by reading
 `skills/<name>/SKILL.md` under the plugin root; that is why `hooks/skill_router.py` names a Skill
 tool id on Claude Code and a file path on Codex, and why the catalog in
 `skills-core/execute-durably/SKILL.md` has to list every specialized workflow by path.
@@ -77,7 +77,7 @@ returned 0 misroutes and 0.94. Separate siblings in the body, which the router n
 
 **The routing benchmark measures disambiguation between siblings, not whether a skill fires at
 all.** Its prompts were written against the descriptions, so under-triggering is invisible to it by
-construction: 53 of 54 checked-in positives reach their own skill, and no natural-phrasing corpus
+construction: 59 of 60 checked-in positives reach their own skill, and no natural-phrasing corpus
 exists in `benchmarks/skill_routing_cases.json` that could expose the gap. A green suite means no
 skill steals another's work; it is not evidence that any skill activates on real requests.
 
@@ -126,7 +126,7 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
 
 ## Invariants worth knowing before you edit
 
-- **All seventeen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
+- **All nineteen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
@@ -145,13 +145,17 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
   `args[1]`, and the table reads that index directly, so a hook registered without one raises
   `IndexError` instead of reporting a missing subcommand.
 - **This file is gated like the code.** `tests/test_documentation.py` resolves every
-  repository-relative path and markdown link in `README.md`, `CLAUDE.md`, `THIRD_PARTY_NOTICES.md`
-  and `docs/*.md`, and fails when a new root document is not listed in `ROOT_DOCUMENTS`. It cannot
-  catch a wrong count in prose — 1.7.3 shipped three such claims — so counts stated here are worth
-  rechecking against the tree before trusting them.
+  repository-relative path and markdown link in the six `ROOT_DOCUMENTS` (`README.md`, `CLAUDE.md`,
+  `THIRD_PARTY_NOTICES.md`, and the three community documents) plus `docs/*.md`, and fails when a
+  new root document is not listed there. It cannot catch a wrong count in prose — 1.7.3 shipped
+  three such claims — so counts stated here are worth rechecking against the tree before trusting
+  them.
 - **Every skill needs `agents/openai.yaml`** with a 25–64 character `short_description` and a
-  `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines; the host truncates
-  `description` + `when_to_use` at 1,536 characters in the listing.
+  `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines, and past 180 lines
+  `--strict-quality` demands a `references/` directory. The host truncates `description` +
+  `when_to_use` at 1,536 characters in the listing. Since 1.8.0 every workflow closes with
+  DO-CONFIRM pause-point checklists (ten items or fewer); a new skill ships with its own, and
+  `docs/extraction-matrix.md` records where the 1.8.0 rules came from.
 - **Version carriers move only through `scripts/bump_version.py`.** Write the `CHANGELOG.md`
   section first — the bump refuses to run without it, and the publisher derives release notes from
   it. Tags are immutable: every correction is a new version, because the plugin cache on both hosts
