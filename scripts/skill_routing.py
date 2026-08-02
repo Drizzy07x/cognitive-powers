@@ -327,6 +327,13 @@ SPANISH_TERMS = {
     "relacionada": "unrelated",
     "relacionado": "unrelated",
     "reproduccion": "reproduction",
+    # research-systematically declares both, and without them the only Spanish
+    # case that names its verdict arrived with four untranslated content words
+    # inflating the norm it was scored against, so it ranked first and drew no
+    # suggestion at all. "callejones sin salida" stays out: it only means dead
+    # ends as a fixed phrase, and keying the noun alone would translate alleys.
+    "independiente": "independent",
+    "veredicto": "verdict",
     "suministrada": "supplied",
     "suministrado": "supplied",
     "tecnica": "technical",

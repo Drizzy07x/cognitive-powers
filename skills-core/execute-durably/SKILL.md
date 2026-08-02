@@ -1,6 +1,6 @@
 ---
 name: execute-durably
-description: Execute long or compaction-prone work with external state and evidence receipts. Use for resumable multi-turn work with several observable criteria; abstain from focused single-pass tasks.
+description: Execute long or compaction-prone work with external state and evidence receipts. Use when the work will take a while and the thread is likely to be lost: resumable multi-turn work with several observable criteria; abstain from focused single-pass tasks.
 ---
 
 # Execute Durably

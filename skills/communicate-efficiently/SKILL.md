@@ -1,7 +1,7 @@
 ---
 name: communicate-efficiently
 description: Select and apply the shortest reporting profile, compact, normal, or explicit, that still preserves evidence in a progress update, answer, or handoff. Compresses presentation, never evidence.
-when_to_use: Use when the user explicitly asks for adaptive brevity or a set verbosity, when a handoff is consequential enough that profile choice is genuinely ambiguous, or when a reusable communication receipt is required. Skip routine progress notes and completion reports.
+when_to_use: Use when the user asks for a compact technical handoff, for adaptive brevity, or for a set verbosity, when a handoff is consequential enough that profile choice is genuinely ambiguous, or when a reusable communication receipt is required. Skip routine progress notes and completion reports.
 ---
 
 # Communicate Efficiently

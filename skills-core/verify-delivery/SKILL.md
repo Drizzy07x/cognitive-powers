@@ -1,6 +1,6 @@
 ---
 name: verify-delivery
-description: Audit an already-completed delivery against real evidence. Use when asked to review an existing completion claim, tests, Git state, readiness, or benchmark; never while implementing a change.
+description: Audit an already-completed delivery against real evidence. Use when asked to review finished work or double-check whether something just finished actually works, and for completion claims, tests, Git state, readiness, or a benchmark; never while implementing a change.
 ---
 
 # Verify Delivery
