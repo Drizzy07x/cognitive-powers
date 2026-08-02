@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plugin": "cognitive-powers",
-  "meta_version": 3,
+  "meta_version": 4,
   "labels": {
     "semantic:graphify": "Graphify-Labs/graphify@abff1b1ca4052fcf9d955c5f6a034088723f4536",
     "memory:memu": "NevaMind-AI/memU@0245de9710f8f73a8b21361442ac3dfd6c7829c7",
@@ -223,8 +223,8 @@
       "source": "https://github.com/adewale/skill-eval-harness",
       "commit": "2297000ffa91b63266e15c50fab6bfbd1f14441e",
       "license": "MIT",
-      "status": "candidate",
-      "decision": "under-evaluation",
+      "status": "approved",
+      "decision": "adapt-pattern",
       "capabilities": ["activation-matrix", "repeated-run-statistics", "skill-ablation"],
       "files": []
     },
@@ -234,8 +234,8 @@
       "source": "https://github.com/skill-bench/skill-eval-action",
       "commit": "32cb44e77cf3147ebbe140a953065e0ac89eddb6",
       "license": "MIT",
-      "status": "candidate",
-      "decision": "under-evaluation",
+      "status": "approved",
+      "decision": "adapt-pattern",
       "capabilities": ["ci-eval-gating", "rubric-grading"],
       "files": []
     }
