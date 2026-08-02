@@ -48,17 +48,31 @@ class ControllerAbProtocolTests(unittest.TestCase):
         self.assertEqual(design["declared_total_fixture_count"], 80)
         self.assertEqual(design["declared_total_session_count"], 480)
 
-    def test_readme_names_the_current_protocol_and_abstains_from_old_claims(
+    def test_documentation_names_the_current_protocol_and_abstains_from_old_claims(
         self,
     ) -> None:
+        """The abstention has to be published wherever the protocol is.
+
+        docs/evidence.md owns the evaluation protocol since the README became
+        a reading path. A superseded protocol version that stays documented as
+        current is exactly the drift this checks, so the assertion follows the
+        prose instead of the filename.
+        """
         protocol_version = self.protocol["protocol_id"].rsplit("-v", 1)[1]
-        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn(f"Protocol v{protocol_version} freezes", readme)
+        # Whitespace-collapsed: these are prose fragments in a hard-wrapped
+        # document, and the sentence that carries the abstention is longer than
+        # a line. Matching the raw text made a paragraph reflow -- which changes
+        # nothing about what is published -- fail as though the abstention had
+        # been dropped.
+        evidence = " ".join(
+            (PLUGIN_ROOT / "docs" / "evidence.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn(f"Protocol v{protocol_version} freezes", evidence)
         self.assertIn(
             "Protocols v1-v17 and their incomplete or invalid preflights",
-            readme,
+            evidence,
         )
-        self.assertIn(f"not reusable for v{protocol_version} claims", readme)
+        self.assertIn(f"not reusable for v{protocol_version} claims", evidence)
 
     def test_modes_categories_and_arms_are_frozen(self) -> None:
         design = self.protocol["design"]

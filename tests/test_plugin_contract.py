@@ -266,25 +266,51 @@ class PluginContractTests(unittest.TestCase):
                     placeholders.append(path.relative_to(PLUGIN_ROOT).as_posix())
         self.assertEqual(placeholders, [])
 
-    def test_readme_exposes_reproducible_entrypoints_and_limitations(self) -> None:
-        text = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
-        required_sections = [
-            "## Quickstart: three flows",
-            "## Doctor",
-            "## Capability matrix",
-            "## Evaluation protocol",
-            "## Live evidence limitations",
-        ]
-        for section in required_sections:
-            self.assertIn(section, text)
-        self.assertIn("scripts/validate_all.py --offline", text)
-        self.assertIn("scripts/doctor.py --validate-installation", text)
-        self.assertIn("repos/Drizzy07x/cognitive-powers/contents/install.ps1", text)
-        self.assertIn("| Out-String", text)
-        self.assertIn("cognitive-powers@cognitive-powers", text)
-        self.assertIn("codex plugin add cognitive-powers@personal --json", text)
-        self.assertIn("codex plugin list --json", text)
-        self.assertIn("No product screenshots are claimed", text)
+    def test_documentation_exposes_entrypoints_and_limitations(self) -> None:
+        """Each entrypoint and abstention stays published, and stays reachable.
+
+        All of these were asserted against README.md while the README was the
+        whole operator surface. Splitting that surface across docs/ changes
+        which file owns a fragment, not whether it exists, so the check follows
+        the content. The link assertion is the part the single-file version got
+        for free: prose nobody can navigate to from the front door is
+        indistinguishable from prose that was deleted.
+        """
+        surfaces = {
+            "README.md": (
+                "## Quickstart: three flows",
+                "repos/Drizzy07x/cognitive-powers/contents/install.ps1",
+                "| Out-String",
+                "cognitive-powers@cognitive-powers",
+            ),
+            "docs/features.md": ("## Capability matrix",),
+            "docs/evidence.md": (
+                "## Doctor",
+                "## Evaluation protocol",
+                "## Live evidence limitations",
+                "scripts/validate_all.py --offline",
+                "scripts/doctor.py --validate-installation",
+                "No product screenshots are claimed",
+            ),
+            "docs/operations.md": (
+                "codex plugin add cognitive-powers@personal --json",
+                "codex plugin list --json",
+            ),
+        }
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        for relative, fragments in surfaces.items():
+            text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+            for fragment in fragments:
+                with self.subTest(document=relative, fragment=fragment):
+                    self.assertIn(fragment, text)
+            if relative == "README.md":
+                continue
+            with self.subTest(document=relative, reachable=True):
+                self.assertIn(
+                    f"]({relative})",
+                    readme,
+                    f"README.md does not link to {relative}",
+                )
 
     def test_private_github_installer_is_fail_closed_and_version_pinned(self) -> None:
         installer = (PLUGIN_ROOT / "install.ps1").read_text(encoding="utf-8")

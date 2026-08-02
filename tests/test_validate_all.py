@@ -118,10 +118,10 @@ class ValidateAllTests(unittest.TestCase):
             workflow.index("python scripts/validate_all.py --offline"),
         )
 
-        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+        evidence = (PLUGIN_ROOT / "docs" / "evidence.md").read_text(encoding="utf-8")
         self.assertIn(
             "& $python -m pip install --require-hashes -r requirements-dev.txt",
-            readme,
+            evidence,
         )
 
     def test_ci_covers_cross_platform_lock_and_canonical_validation(self) -> None:
@@ -325,9 +325,9 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("steps.receipt-upload.outcome", workflow[summary_step:])
         self.assertIn("--publication-outcome", workflow[summary_step:])
 
-        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("receipt_uploaded=false", readme)
-        self.assertIn("does not mean release-ready", readme)
+        evidence = (PLUGIN_ROOT / "docs" / "evidence.md").read_text(encoding="utf-8")
+        self.assertIn("receipt_uploaded=false", evidence)
+        self.assertIn("does not mean release-ready", evidence)
 
     def test_release_witness_uses_same_offline_command_contract(self) -> None:
         signature = [
@@ -335,8 +335,18 @@ class ValidateAllTests(unittest.TestCase):
         ]
         self.assertEqual(signature, list(release_witness.EXPECTED_OFFLINE_COMMANDS))
 
-    def test_readme_offline_list_matches_orchestrator(self) -> None:
-        lines = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+    def test_documented_offline_list_matches_orchestrator(self) -> None:
+        """The published command list has to be the list that actually runs.
+
+        It lived in the README until the README became a reading path; the
+        gate follows the content to docs/evidence.md rather than pinning the
+        prose to the file it happened to start in.
+        """
+        lines = (
+            (PLUGIN_ROOT / "docs" / "evidence.md")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         declared: list[tuple[str, ...]] = []
         saw_canonical_surface = False
         in_validate_block = False
