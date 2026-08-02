@@ -118,19 +118,36 @@ def execute(
 
     def _one(index: int) -> None:
         arm, case, repetition = work[index]
-        run = runner(
-            case,
-            arm,
-            repetition,
-            plugin_root=plugin_root,
-            workspace_root=base / arm.name,
-            python_executable=python_executable,
-            installed=installed,
-            model=model,
-            max_cost_usd=max_cost_usd,
-            timeout_seconds=timeout_seconds,
-            claude_executable=claude_executable,
-        )
+        try:
+            run = runner(
+                case,
+                arm,
+                repetition,
+                plugin_root=plugin_root,
+                workspace_root=base / arm.name,
+                python_executable=python_executable,
+                installed=installed,
+                model=model,
+                max_cost_usd=max_cost_usd,
+                timeout_seconds=timeout_seconds,
+                claude_executable=claude_executable,
+            )
+        except Exception as error:  # noqa: BLE001 - one case must not end a matrix
+            # A run that could not be spawned is one missing observation, not a
+            # reason to discard the two hundred already paid for. It becomes an
+            # incomplete observation carrying the failure, which keeps it out of
+            # every denominator while leaving the gap visible in the report.
+            run = Run(
+                case_id=case.case_id,
+                arm=arm.name,
+                repetition=repetition,
+                stream="",
+                stderr=f"{type(error).__name__}: {error}",
+                exit_code=-1,
+                duration_seconds=0.0,
+                stopped_early=False,
+                timed_out=False,
+            )
         reading = read(run.stream, installed)
         observation = observe(
             case,

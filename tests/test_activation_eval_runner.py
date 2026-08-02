@@ -898,6 +898,52 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(observed, [case.case_id for case in cases])
         self.assertEqual(payload["run"]["workers"], 4)
 
+    def test_one_case_that_explodes_does_not_end_the_matrix(self) -> None:
+        cases = [make_case(case_id=f"c{index}") for index in range(4)]
+
+        def flaky(case, arm, repetition, **kwargs):
+            if case.case_id == "c2":
+                raise OSError("workspace is on fire")
+            return Run(
+                case_id=case.case_id,
+                arm=arm.name,
+                repetition=repetition,
+                stream=stream(
+                    hook_response(INDEX_TEXT),
+                    hook_response(STANDING_TEXT),
+                    skill_call("diagnose-systematically"),
+                    result(),
+                ),
+                stderr="",
+                exit_code=0,
+                duration_seconds=0.1,
+                stopped_early=False,
+                timed_out=False,
+            )
+
+        payload = runner.execute(
+            cases=cases,
+            arms=[ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=Path(tempfile.mkdtemp(prefix="cp-boom-")),
+            runner=flaky,
+            workers=2,
+        )
+        self.assertEqual(len(payload["observations"]), 4)
+        arm = payload["arms"][0]
+        # Three scored, one absent from the denominator with its reason stated.
+        self.assertEqual(arm["shouldFire"]["complete"], 3)
+        self.assertEqual(arm["shouldFire"]["passRate"], 1.0)
+        self.assertIn("workspace is on fire", json.dumps(arm["shouldFire"]["reasons"]))
+
     def test_workers_outside_the_ceiling_are_refused(self) -> None:
         for workers in (0, runner.MAX_WORKERS + 1):
             with self.subTest(workers=workers), self.assertRaises(runner.RunnerError):
