@@ -17,8 +17,10 @@ holds only the three routers Codex installs — `solve-efficiently`, `execute-du
 tool id on Claude Code and a file path on Codex, and why the catalog in
 `skills-core/execute-durably/SKILL.md` has to list every specialized workflow by path.
 
-Everything is Python standard library. `ruff` is the only dependency, dev-only and hash-pinned in
-`requirements-dev.txt`. Do not add a runtime dependency: several components exist to report whether
+Everything is Python standard library, and 3.11 is the floor: CI runs 3.11 and 3.13, and the
+`python_executable` user config states the same minimum, so a 3.12-only construct passes on the
+machine that wrote it and fails half the matrix. `ruff` is the only dependency, dev-only and
+hash-pinned in `requirements-dev.txt`. Do not add a runtime dependency: several components exist to report whether
 an installation works, and one that needed installing first would be self-defeating.
 
 ## Commands
@@ -27,6 +29,9 @@ an installation works, and one that needed installing first would be self-defeat
 # The canonical gate. 25 commands: the unittest suite, ruff, eleven benchmark runners,
 # packaging contracts, and doctor. The receipt MUST land outside the repo.
 & $python scripts/validate_all.py --offline --json-output <path-outside-repo>.json
+
+# The whole unittest suite, the way the gate's `tests` command runs it
+& $python -m unittest discover -s tests -v
 
 # One module, one class, or one test
 & $python -m unittest tests.test_work_state_storage
@@ -53,6 +58,13 @@ no default.
 Reading the receipt: `offlinePassed` is whether the 25 commands succeeded. `passed` additionally
 requires a clean worktree and a stable source identity, so it is `false` on any dirty tree by
 design. `skippedTests` is recorded per command because a skipped assertion is one that did not run.
+
+**A green local gate is not the full gate.** `.github/workflows/validate.yml` runs those same
+commands across three operating systems, both Python versions, and two lockfile-pinned Codex CLIs
+under `ci/`. The release path is layered on top of that: manifest reproducibility and witness on
+every push, the real install/upgrade/rollback nightly or on dispatch, the whole path only on a tag.
+Nine of the thirteen 1.7.1-era defects lived in steps a tag push alone ran, and the layering exists
+so that class of masking cannot re-form.
 
 Two runners are deliberately outside the gate and fail locally without their provider:
 `run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
@@ -94,8 +106,9 @@ file being edited right now is the one where a stale waiver would hide the next 
 **Durable state lives outside the repository**, at `~/.codex/cognitive-powers` on both hosts
 (historical name, deliberately shared so one machine keeps one store), overridable with
 `COGNITIVE_POWERS_DATA`. `skills/execute-durably/scripts/work_state.py` is the CLI; the real logic
-is in `work_state_core/durability.py` (ledger, HMAC chain, recovery) and `storage.py` (content-
-addressed objects, garbage collection). `_default_data_root()` in `selective_hooks.py` must stay
+sits beside it in `skills/execute-durably/scripts/work_state_core/` — `durability.py` (ledger, HMAC
+chain, recovery), `storage.py` (content-addressed objects, garbage collection), and
+`mutation_probe.py`, which the gate runs directly rather than through the CLI. `_default_data_root()` in `selective_hooks.py` must stay
 byte-identical to `resolve_data_root()` in `durability.py`: if they diverge, receipts land outside
 the root the Stop gate checks and it rejects work that is in fact complete.
 
@@ -113,6 +126,12 @@ torn writes raise a domain error rather than guessing or tracebacking. `UnicodeD
 to the canonical `work_state.py` subcommand rather than reimplementing the read path, and its tool
 table is the allowlist: a name not in it reaches no subprocess. Mutation stays on the CLI.
 
+**`scripts/orchestration_policy.py` is what the A/B measures.** It selects execution intensity and
+the conservative host-agent plan from a request's declared signals, and `solve-efficiently` evaluates
+an explicit planning packet through it. Reading the harness below without reading this one leaves the
+experiment with no subject: the arms differ in what this module is allowed to return, not in what the
+runner does.
+
 **The controller A/B harness** (`scripts/controller_ab_*.py`, `live_ab_runner*.py`,
 `prepare_controller_ab_homes.py`) is the only part that calls a provider. `controller_ab_fixtures.py`
 *generates* the fixture trees and the `hidden_check.py` / `quality_check.py` evaluators in-process —
@@ -123,6 +142,17 @@ counts as the shipped runtime surface; the A/B homes copy exactly that.
 `benchmarks/controller_ab_protocol.json` freezes the design and its `not-proven` state. Evidence
 scope is promotion-only, so a pilot-only run proves nothing by construction. The control arm is
 `forced-solo` of the same build, not "no plugin".
+
+**`integrations/catalog.json` records what may be taken from an outside source, and how.** Every
+external repository the project has looked at is a `source` with a `kind`, a `status`, and a
+`decision` that constrains the use: `external-only` and `external-adapter` never vendor code,
+`adapt-pattern` and `clean-room-pattern` take the idea and not the implementation, and
+`discovery-only`, `rejected`, and `benchmark-reference-only` take neither. Check it before importing
+an upstream idea — the decision was already made once. `scripts/external_catalog.py validate` runs in
+the gate and holds `VALID_TRANSITIONS`, so a status cannot be quietly promoted to justify a change
+already written. Its `kind: "provider"` rows are what `scripts/doctor.py` reports, and it reports
+them as declarations: `networkProbed` and `executablesProbed` stay false and `availabilityUnknown`
+stays true, because a provider named in a catalog is not a provider present on the host.
 
 ## Invariants worth knowing before you edit
 
@@ -139,7 +169,13 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
   `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
   skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
   skill rather than scoring it as perfect by omission. Then rerun the benchmark: a new description
-  changes the ranking of prompts that were never about it.
+  changes the ranking of prompts that were never about it. A Spanish case whose content words
+  `SPANISH_TERMS` in `scripts/skill_routing.py` cannot translate ranks first yet draws no
+  suggestion — that is how 1.8.0 shipped four silent cases — and the 0.93 Spanish floor now fails
+  the benchmark on it, which makes the lexicon a carrier too. Its own rules are test-enforced:
+  every translation must land on a word some listing declares (skill names count), no key may be
+  spelled like an English word unless the mapping is identity, and no Spanish stopword may be
+  spelled like an English content word.
 - **Adding a hook moves three assertions in `tests/test_claude_plugin_contract.py`**: the number of
   hook entries, the set of script names, and the subcommand table. Every hook takes its event as
   `args[1]`, and the table reads that index directly, so a hook registered without one raises
@@ -150,12 +186,19 @@ scope is promotion-only, so a pilot-only run proves nothing by construction. The
   new root document is not listed there. It cannot catch a wrong count in prose — 1.7.3 shipped
   three such claims — so counts stated here are worth rechecking against the tree before trusting
   them.
+- **`docs/compatibility.md` is generated, not written.** The `compatibility-contract` command in the
+  gate re-derives it from `compatibility-contract.json` with `--check`, so a hand edit fails
+  validation rather than surviving as documentation. Change the contract; the table follows. The
+  same holds for its `unknown` cells: they mean no receipt was bound to that commit, and editing one
+  to `pass` states the opposite of what the matrix is for.
 - **Every skill needs `agents/openai.yaml`** with a 25–64 character `short_description` and a
   `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines, and past 180 lines
   `--strict-quality` demands a `references/` directory. The host truncates `description` +
-  `when_to_use` at 1,536 characters in the listing. Since 1.8.0 every workflow closes with
-  DO-CONFIRM pause-point checklists (ten items or fewer); a new skill ships with its own, and
-  `docs/extraction-matrix.md` records where the 1.8.0 rules came from.
+  `when_to_use` at 1,536 characters in the listing. Every workflow closes with DO-CONFIRM
+  pause-point checklists, and since 1.8.1 `validate_skills.py` enforces that structurally in plain
+  mode: the section, the DO-CONFIRM opener, and ten items per block are errors, not conventions.
+  The `skills-core/` routers owe the heading and opener only — their checklists are compressed
+  prose by design. `docs/extraction-matrix.md` records where the 1.8.0 rules came from.
 - **Version carriers move only through `scripts/bump_version.py`.** Write the `CHANGELOG.md`
   section first — the bump refuses to run without it, and the publisher derives release notes from
   it. Tags are immutable: every correction is a new version, because the plugin cache on both hosts
