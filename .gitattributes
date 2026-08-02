@@ -3,6 +3,12 @@
 # in scripts/storage_policy.py.
 * text=auto eol=lf
 
+# A shell script checked out with CRLF fails at its shebang: the kernel reads
+# the carriage return as part of the interpreter name and reports the whole
+# line as not found. text=auto above would already do this, but the failure is
+# silent enough at review time to be worth stating rather than inheriting.
+*.sh text eol=lf
+
 # Binary content is hashed exactly and must never be translated.
 *.png binary
 *.ico binary
