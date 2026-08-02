@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plugin": "cognitive-powers",
-  "meta_version": 1,
+  "meta_version": 2,
   "labels": {
     "semantic:graphify": "Graphify-Labs/graphify@abff1b1ca4052fcf9d955c5f6a034088723f4536",
     "memory:memu": "NevaMind-AI/memU@0245de9710f8f73a8b21361442ac3dfd6c7829c7",
@@ -204,6 +204,17 @@
       "status": "rejected",
       "decision": "benchmark-reference-only",
       "capabilities": ["capability-evolution"],
+      "files": []
+    },
+    {
+      "name": "daymade/claude-code-skills",
+      "kind": "pattern",
+      "source": "https://github.com/daymade/claude-code-skills",
+      "commit": "619ab223e42d163ec32d3918aaed1afec7c7bebd",
+      "license": "MIT",
+      "status": "approved",
+      "decision": "adapt-pattern",
+      "capabilities": ["skill-authoring", "trigger-evaluation"],
       "files": []
     }
   ]

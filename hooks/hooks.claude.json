@@ -13,6 +13,20 @@
             "timeout": 150
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python_executable}",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/skill_activation.py",
+              "session-start"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

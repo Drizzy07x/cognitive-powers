@@ -211,6 +211,7 @@ class ClaudeHookTests(unittest.TestCase):
                 "clean_code_guard.py",
                 "selective_hooks.py",
                 "semantic_index.py",
+                "skill_activation.py",
                 "skill_router.py",
             },
         )
@@ -232,7 +233,7 @@ class ClaudeHookTests(unittest.TestCase):
             for entry in group
             for hook in entry["hooks"]
         ]
-        self.assertEqual(len(entries), 5)
+        self.assertEqual(len(entries), 6)
         for hook in entries:
             self.assertEqual(hook["type"], "command")
             # Shell-form commands reject ${user_config.*}; exec form is required.
@@ -262,6 +263,7 @@ class ClaudeHookTests(unittest.TestCase):
                 "clean_code_guard.py": {"post-tool-use"},
                 "selective_hooks.py": {"post-tool-use", "stop"},
                 "semantic_index.py": {"session-start"},
+                "skill_activation.py": {"session-start"},
                 "skill_router.py": {"user-prompt-submit"},
             },
         )

@@ -100,7 +100,16 @@ class SkillRouterHookTests(unittest.TestCase):
                 skill = PLUGIN_ROOT / "skills" / str(outcome["skill"]) / "SKILL.md"
                 self.assertTrue(skill.is_file(), skill)
 
-    def test_ordinary_work_stays_silent(self) -> None:
+    def test_ordinary_work_draws_no_named_suggestion(self) -> None:
+        """What this protects is the naming, which is the part that can be wrong.
+
+        It used to assert total silence, and that was the same assertion while
+        the hook had one payload. It now has two, and only one of them makes a
+        claim about the prompt: naming a workflow for ordinary work is the
+        noise that teaches the agent to stop reading the channel, so it stays
+        gated. The standing instruction claims nothing and is not gated,
+        because the measured defect was a check that never happened at all.
+        """
         for prompt in ORDINARY_PROMPTS:
             with self.subTest(prompt=prompt):
                 completed = run_hook(
@@ -108,7 +117,11 @@ class SkillRouterHookTests(unittest.TestCase):
                 )
 
                 self.assertEqual(completed.returncode, 0, completed.stderr)
-                self.assertEqual(completed.stdout, "")
+                context = json.loads(completed.stdout)["hookSpecificOutput"][
+                    "additionalContext"
+                ]
+                self.assertEqual(context, router.FORCED_EVAL)
+                self.assertNotIn("matches the", context)
 
     def test_explicit_skill_request_fires_regardless_of_wording(self) -> None:
         outcome = router.suggest({"user_input": "use solve-efficiently here"})
@@ -313,6 +326,58 @@ class SkillRouterHookTests(unittest.TestCase):
 
         self.assertIn("map-project", outcome["warning"])
         self.assertIn("solve-efficiently", outcome["warning"])
+
+    def test_the_standing_instruction_survives_an_abstaining_ranking(self) -> None:
+        """The ranking abstains far more often than it is wrong.
+
+        Against prompts written independently of the skill descriptions it
+        named the right workflow three times in ten and said nothing five
+        times. A silent hook leaves the agent with no signal that a catalogue
+        exists at all, so the instruction is not conditional on a winner.
+        """
+        outcome = router.suggest({"user_input": ORDINARY_PROMPTS[0]})
+        self.assertEqual(outcome["status"], "below-threshold")
+
+        output = router._router_output(outcome, None)
+        context = output["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(context, router.FORCED_EVAL)
+
+    def test_a_named_match_carries_the_instruction_and_the_suggestion(self) -> None:
+        prompt, expected = next(iter(STRONG_MATCHES.items()))
+        outcome = router.suggest({"user_input": prompt})
+        self.assertEqual(outcome["status"], "suggested")
+
+        context = router._router_output(outcome, None)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertTrue(context.startswith(router.FORCED_EVAL))
+        self.assertIn(expected, context)
+
+    def test_an_unreadable_catalogue_points_the_agent_at_nothing(self) -> None:
+        # Injected on every prompt, so an instruction to consult an index that
+        # never loaded would be a standing order to check a thing that is not
+        # there. The warning is the honest channel for that state.
+        with mock.patch.object(
+            router,
+            "load_parsable_skill_descriptions",
+            return_value=({}, ["map-project", "solve-efficiently"]),
+        ):
+            outcome = router.suggest({"user_input": "anything at all"})
+
+        self.assertEqual(outcome["status"], "skipped")
+        output = router._router_output(outcome, outcome.get("warning"))
+        self.assertNotIn("hookSpecificOutput", output)
+
+    def test_the_injection_stays_inside_its_prompt_budget(self) -> None:
+        # Paid on every prompt in the session, including the short ones, so
+        # the ceiling is part of the contract rather than a preference.
+        self.assertLessEqual(len(router.FORCED_EVAL), 400)
+        prompt = next(iter(STRONG_MATCHES))
+        outcome = router.suggest({"user_input": prompt})
+        context = router._router_output(outcome, None)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertLessEqual(len(context), 700)
 
     def test_an_empty_catalogue_is_not_treated_as_a_clean_load(self) -> None:
         with mock.patch.object(

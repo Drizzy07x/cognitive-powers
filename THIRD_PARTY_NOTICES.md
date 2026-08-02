@@ -2,14 +2,14 @@
 
 ## Cognitive Powers 1.2 architecture and optional-provider sources
 
-Cognitive Powers 1.2 contains original Python contracts informed by public interfaces and design patterns from the 18 repositories fixed in `integrations/catalog.json`. The catalog records each audited commit, observed license, adoption decision, and capability boundary.
+Cognitive Powers 1.2 contains original Python contracts informed by public interfaces and design patterns from every repository fixed in `integrations/catalog.json`. The catalog records each audited commit, observed license, adoption decision, and capability boundary.
 
 No source code, runtime, model, database, marketplace, plugin collection, generated graph, memory store, or hosted service from those repositories is bundled. Optional adapters only detect or invoke software that the user has already installed or configured. Discovery-only entries never authorize installation or copying.
 
 - Graphify (MIT) and memU (Apache-2.0) are optional provider boundaries.
 - Context Mode (Elastic-2.0), Nacos (Apache-2.0), Ruflo (MIT), and Obsidian Skills (MIT) are detection or future-adapter boundaries.
 - LobeHub (LobeHub Community License) supplied clean-room architectural ideas only.
-- Agent Skills, CowAgent, Khazix Skills, Claude Plugins Official, vibe-coding-cn, AI-Research-SKILLs, MemOS, and Superpowers informed independently implemented contracts.
+- Agent Skills, CowAgent, Khazix Skills, Claude Plugins Official, vibe-coding-cn, AI-Research-SKILLs, MemOS, Superpowers, and Claude Code Skills informed independently implemented contracts.
 - VoltAgent and Composio awesome lists are discovery metadata only. Composio's audited revision had no detected repository license and is rejected for content adoption.
 - Evolver (GPL-3.0-or-later) is a benchmark reference only; no code or integration is included.
 

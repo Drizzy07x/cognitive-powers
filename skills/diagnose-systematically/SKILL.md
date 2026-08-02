@@ -1,7 +1,7 @@
 ---
 name: diagnose-systematically
 description: Find the cause of a defect through observable evidence: build a runnable signal, reproduce, minimize, form falsifiable hypotheses, instrument, and prove the fix with regression evidence.
-when_to_use: Use for unclear, intermittent, or recurring defects and performance regressions whose cause is not already demonstrated. Diagnosis alone does not authorize a fix; implement one only when the user asked for it.
+when_to_use: Use when something does not work and there is no idea why yet: a feature where nothing happens at all, a click that does nothing, something that stopped working, a crash, an error with no obvious cause, an intermittent or flaky failure, a slowdown, or a wrong result. Use for unclear, intermittent, or recurring defects and performance regressions whose cause is not already demonstrated. Diagnosis alone does not authorize a fix; implement one only when the user asked for it.
 ---
 
 # Diagnose Systematically

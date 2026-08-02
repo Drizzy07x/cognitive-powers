@@ -327,6 +327,13 @@ SPANISH_TERMS = {
     "relacionada": "unrelated",
     "relacionado": "unrelated",
     "reproduccion": "reproduction",
+    # research-systematically declares both, and without them the only Spanish
+    # case that names its verdict arrived with four untranslated content words
+    # inflating the norm it was scored against, so it ranked first and drew no
+    # suggestion at all. "callejones sin salida" stays out: it only means dead
+    # ends as a fixed phrase, and keying the noun alone would translate alleys.
+    "independiente": "independent",
+    "veredicto": "verdict",
     "suministrada": "supplied",
     "suministrado": "supplied",
     "tecnica": "technical",
@@ -430,7 +437,16 @@ def tokenize(text: str) -> list[str]:
     return tokens
 
 
-def _parse_skill_file(skill_file: Path) -> tuple[str, str]:
+def _listing(description: str, trigger: str) -> str:
+    """Return the text the host lists, which is the text routing must score.
+
+    Claude Code appends when_to_use to description in the skill listing, so
+    scoring the description alone would measure something the model never sees.
+    """
+    return f"{description} {trigger}" if trigger else description
+
+
+def _parse_skill_file(skill_file: Path) -> tuple[str, str, str]:
     # utf-8-sig, not utf-8: PowerShell 5.1 writes a BOM by default, and a BOM
     # made the anchored frontmatter match fail, which used to abort the whole
     # load and leave the router permanently and invisibly silent.
@@ -451,19 +467,13 @@ def _parse_skill_file(skill_file: Path) -> tuple[str, str]:
         # so the skill would rank against two junk characters instead of its
         # text. That is a broken skill, not a low-scoring one.
         raise ValueError(f"description is not a single-line scalar: {skill_file}")
-    # Rank the text the host actually lists. Claude Code appends
-    # when_to_use to description in the skill listing, so scoring the
-    # description alone would measure something the model never sees.
     trigger_match = re.search(
         r"^when_to_use:\s*(.+?)\s*$", match.group(1), re.MULTILINE
     )
-    if trigger_match is not None:
-        # Stripped outside the f-string: a backslash inside a replacement
-        # field is a syntax error before Python 3.12, and the support
-        # matrix still declares 3.11.
-        trigger = trigger_match.group(1).strip(" \"'")
-        description = f"{description} {trigger}"
-    return name, description
+    # Stripped outside the f-string: a backslash inside a replacement field is
+    # a syntax error before Python 3.12, and the support matrix declares 3.11.
+    trigger = trigger_match.group(1).strip(" \"'") if trigger_match else ""
+    return name, description, trigger
 
 
 def load_skill_descriptions(root: Path) -> dict[str, str]:
@@ -475,10 +485,10 @@ def load_skill_descriptions(root: Path) -> dict[str, str]:
     """
     descriptions: dict[str, str] = {}
     for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
-        name, description = _parse_skill_file(skill_file)
+        name, description, trigger = _parse_skill_file(skill_file)
         if name in descriptions:
             raise ValueError(f"duplicate skill name: {name}")
-        descriptions[name] = description
+        descriptions[name] = _listing(description, trigger)
     return descriptions
 
 
@@ -493,15 +503,37 @@ def load_parsable_skill_descriptions(root: Path) -> tuple[dict[str, str], list[s
     unparsable: list[str] = []
     for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
         try:
-            name, description = _parse_skill_file(skill_file)
+            name, description, trigger = _parse_skill_file(skill_file)
         except (OSError, UnicodeDecodeError, ValueError):
             unparsable.append(skill_file.parent.name)
             continue
         if name in descriptions:
             unparsable.append(skill_file.parent.name)
             continue
-        descriptions[name] = description
+        descriptions[name] = _listing(description, trigger)
     return descriptions, unparsable
+
+
+def load_skill_triggers(root: Path) -> dict[str, str]:
+    """Return each skill's triggering condition for the session-start index.
+
+    Resilient like ``load_parsable_skill_descriptions`` and for the same
+    reason: an index that refused to render because one skill was malformed
+    would hide the other eighteen. ``when_to_use`` is preferred because it
+    states when the workflow applies, which is what an index entry is for;
+    a skill without one falls back to its description rather than appearing
+    as a bare name the model cannot match anything against.
+    """
+    triggers: dict[str, str] = {}
+    for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
+        try:
+            name, description, trigger = _parse_skill_file(skill_file)
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        if name in triggers:
+            continue
+        triggers[name] = trigger or description
+    return triggers
 
 
 def _idf(documents: Sequence[Sequence[str]]) -> dict[str, float]:
