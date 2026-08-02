@@ -476,6 +476,38 @@ class PluginContractTests(unittest.TestCase):
             "ruff.toml must parse against the lowest python the matrix declares",
         )
 
+    def test_ruff_refuses_to_run_at_a_version_the_pin_does_not_name(self) -> None:
+        """The pinned checker and the checker that runs have to be one version.
+
+        `ruff format --check` is a gate command and the formatter's output moves
+        between releases, so a contributor whose interpreter carries a different
+        ruff than requirements-dev.in pins either reformats files CI will reject
+        or is told the tree is dirty when it is not. required-version makes ruff
+        refuse the mismatch rather than quietly produce a different answer.
+
+        That puts the version in two files, which is the shape a pin fails in:
+        bumping the requirement and leaving the toml behind would make every
+        checkout refuse to lint. They are compared here so the bump has to move
+        both.
+        """
+        requirement = re.search(
+            r"^ruff==(\d+\.\d+\.\d+)\s*$",
+            (PLUGIN_ROOT / "requirements-dev.in").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(requirement, "requirements-dev.in pins no ruff version")
+        required = re.search(
+            r'^\s*required-version\s*=\s*"==(\d+\.\d+\.\d+)"\s*$',
+            (PLUGIN_ROOT / "ruff.toml").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(required, "ruff.toml declares no exact required-version")
+        self.assertEqual(
+            required.group(1),
+            requirement.group(1),
+            "ruff.toml and requirements-dev.in name different ruff versions",
+        )
+
     def test_tag_ci_requires_exact_release_witness(self) -> None:
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"

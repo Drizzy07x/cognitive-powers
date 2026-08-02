@@ -4,3 +4,13 @@
 # lowest entry of the python axis in .github/workflows/validate.yml;
 # test_plugin_contract asserts the two agree.
 target-version = "py311"
+
+# The formatter's output is version-sensitive, and `ruff format --check` is a
+# gate command. requirements-dev.txt hash-pins the version, but nothing made the
+# ruff that actually runs be that one: an interpreter with a different ruff on it
+# reformats files this pin would leave alone, so the gate passes locally and
+# fails in CI, or the reverse. Ruff refuses to start on a mismatch instead.
+# Bumping requirements-dev.in without bumping this is caught by
+# test_plugin_contract, because two spellings of one pin is how a pin stops
+# pinning.
+required-version = "==0.15.21"
