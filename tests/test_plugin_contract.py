@@ -282,10 +282,17 @@ class PluginContractTests(unittest.TestCase):
         indistinguishable from prose that was deleted.
         """
         surfaces = {
+            # Both installers, named as a file run from a checkout. The pinned
+            # fragments used to be the one-liner that fetched install.ps1 alone
+            # and ran it as a scriptblock -- so this gate held the README to a
+            # command that completed the transaction and then rolled it back,
+            # because a scriptblock has no $PSScriptRoot and the verifier was
+            # never fetched. A documentation gate can pin a broken command as
+            # firmly as a working one; what it cannot do is notice.
             "README.md": (
                 "## Quickstart: three flows",
-                "repos/Drizzy07x/cognitive-powers/contents/install.ps1",
-                "| Out-String",
+                "./cognitive-powers/install.ps1",
+                "./cognitive-powers/install.sh",
                 "cognitive-powers@cognitive-powers",
             ),
             "docs/features.md": ("## Capability matrix",),

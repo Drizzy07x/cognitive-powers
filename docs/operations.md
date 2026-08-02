@@ -200,10 +200,15 @@ otherwise -- if any step fails. A recovery copy that had to be used is preserved
 and named in the failure message, and a later run recognizes it and resumes the
 upgrade from it rather than refusing it.
 
-Run either script from its own checkout. The canonical verifier is resolved
-beside the script (`$PSScriptRoot` and `${BASH_SOURCE[0]}` respectively), so a
-copy moved away from `scripts/verify_installed.py` has no postcondition to run
-and the transaction rolls back.
+Run either script as a file from its own checkout. The canonical verifier is
+resolved beside the script (`$PSScriptRoot` and `${BASH_SOURCE[0]}`
+respectively), and both refuse in preflight when it is not there, before the
+profile is read or changed. A copy fetched on its own has no postcondition to
+run, and until 1.8.1 that was discovered only at the end: the whole transaction
+completed and was then rolled back, reporting an empty-string parameter binding
+rather than a verifier that was never fetched.
+
+Pass `-Help` or `--help` for the options and the interpreter override.
 
 Where PowerShell supplies something the shell does not, `install.sh` marks the
 substitution with a `DIVERGENCE` comment and says why it is safe. The ones worth
@@ -211,7 +216,7 @@ knowing at the console:
 
 | PowerShell | POSIX port | Consequence |
 |---|---|---|
-| `python` | `$COGNITIVE_POWERS_PYTHON`, then `python3`, then `python` | PEP 394 makes a bare `python` absent on most distributions; set the variable to pin an interpreter. |
+| `python` | `python3`, then `python` | PEP 394 makes a bare `python` absent on most distributions. `COGNITIVE_POWERS_PYTHON` overrides the choice and is honoured by both scripts, so one documented variable pins the interpreter on either host. |
 | `ConvertFrom-Json` | the preflight-verified interpreter | The interpreter is proven runnable before the first document is parsed, in the position `install.ps1` already proves it. |
 | `GetFolderPath("LocalApplicationData")` | `${XDG_DATA_HOME:-$HOME/.local/share}` | The same directory .NET reports on Unix, so a recovery marketplace written by either script is recognized by both. |
 | `[IO.Path]::GetFullPath` | `cd` plus `pwd -P` | Resolves symlinks rather than normalizing lexically, which is what a symlinked `$TMPDIR` or `$HOME` requires. |
