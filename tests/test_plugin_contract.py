@@ -61,7 +61,12 @@ class PluginContractTests(unittest.TestCase):
                 re.MULTILINE,
             )
         }
-        for relative in ("README.md", "docs/operations.md", "install.ps1"):
+        for relative in (
+            "README.md",
+            "docs/operations.md",
+            "install.ps1",
+            "install.sh",
+        ):
             text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
             for found in pattern.findall(text):
                 # Rollback instructions legitimately name an older release.

@@ -45,6 +45,7 @@ def build_tree(root: Path, *, old: str = "1.7.1", new: str = "1.7.2") -> None:
     (root / "install.ps1").write_text(
         f'[string]$ReleaseRef = "v{old}"\n', encoding="utf-8"
     )
+    (root / "install.sh").write_text(f'release_ref="v{old}"\n', encoding="utf-8")
     (root / "README.md").write_text(
         f"Install with ?ref=v{old} and resolve `v{old}` first.\n"
         f"To roll back run the installer with -ReleaseRef v1.5.2\n"
@@ -90,6 +91,10 @@ class BumpVersionTests(unittest.TestCase):
             self.assertIn(
                 '[string]$ReleaseRef = "v1.7.2"',
                 (root / "install.ps1").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                'release_ref="v1.7.2"',
+                (root / "install.sh").read_text(encoding="utf-8"),
             )
             readme = (root / "README.md").read_text(encoding="utf-8")
             self.assertIn("?ref=v1.7.2", readme)

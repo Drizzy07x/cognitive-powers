@@ -123,6 +123,24 @@ def _apply(root: Path, version: str) -> list[str]:
         _write(root, "install.ps1", updated)
         changed.append("install.ps1")
 
+    # The POSIX installer is a second carrier of the same default. A port that
+    # is not bumped installs the previous release while reporting the new one,
+    # which is the stale-tag failure the 1.7.1 era produced repeatedly -- and it
+    # would be invisible on the platform most contributors bump from.
+    posix_installer = _read(root, "install.sh")
+    updated, count = re.subn(
+        r'(^release_ref=")v\d+\.\d+\.\d+(")',
+        rf"\g<1>v{version}\g<2>",
+        posix_installer,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count != 1:
+        raise BumpError("install.sh carries no default release ref")
+    if updated != posix_installer:
+        _write(root, "install.sh", updated)
+        changed.append("install.sh")
+
     sentinel = "\0cp-rollback-target\0"
     for relative in ("README.md", "docs/operations.md"):
         text = _read(root, relative)
@@ -162,6 +180,9 @@ def check(root: Path) -> dict[str, object]:
     installer = _read(root, "install.ps1")
     if f'[string]$ReleaseRef = "v{version}"' not in installer:
         problems.append("install.ps1 default release ref is stale")
+    posix_installer = _read(root, "install.sh")
+    if f'release_ref="v{version}"' not in posix_installer:
+        problems.append("install.sh default release ref is stale")
     rollback = rollback_target(root, version)
     readme = _read(root, "README.md")
     if f"-ReleaseRef {rollback}" not in readme:
