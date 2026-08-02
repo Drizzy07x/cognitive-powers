@@ -10,9 +10,17 @@ begins.
 Advisory in full, like ``semantic_index.py`` and unlike the Stop gate in
 ``selective_hooks.py``: it never blocks a prompt and stays silent on every
 error. A suggestion that fires on ordinary work would train the agent to ignore
-the channel, so the decision errs toward silence -- but silence is a failure
-too, and this file used to reach it for a third of the prompts the plugin is
-for.
+the channel, so the named suggestion still errs toward silence -- but silence
+is a failure too, and this file used to reach it for a third of the prompts the
+plugin is for.
+
+That is why the hook now carries two payloads rather than one. The named
+suggestion is a claim about this prompt and stays rare. The standing
+instruction is not a claim about anything: it fires whenever the catalogue was
+readable, because the measured defect is a check that never happens. Against
+prompts written independently of the skill descriptions, the ranking named the
+right workflow three times in ten and said nothing five times, and a ranking
+that abstains cannot be corrected by the agent that never knew it ran.
 
 Reading the payload, rendering the message, and honouring the disable switch
 are all this hook does. Which skill to name, and whether to name one at all,
@@ -35,6 +43,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 try:
+    from plugin_host import resolve_host
     from skill_routing import decide, load_parsable_skill_descriptions
 
     ROUTING_AVAILABLE = True
@@ -42,6 +51,24 @@ except ImportError:  # A broken install must not fail the turn.
     ROUTING_AVAILABLE = False
 
 MAX_STDIN_BYTES = 2 * 1024 * 1024
+
+# Named suggestion and standing instruction are two different jobs on one
+# event. The suggestion fires only for a clear winner, which is right for a
+# claim about this prompt; the instruction fires whenever the catalogue is
+# readable, because the failure this hook was losing to is not a wrong
+# suggestion but no check at all -- three right workflows in ten natural
+# requests, five of them silent. Kept to roughly a hundred tokens: it is paid
+# on every prompt, and an instruction that costs more than the check it asks
+# for would be the wrong trade on the short requests that dominate a session.
+FORCED_EVAL = (
+    "Cognitive Powers: before acting, check this session's workflow index for "
+    "a trigger condition matching this request. Name the workflows that apply "
+    "and follow them first. If none apply, say so in one clause and continue."
+)
+# The two statuses that mean the descriptions were read. Everything else --
+# a disabled router, an unusable prompt, an unreadable catalogue -- has nothing
+# to point the agent at.
+CATALOGUE_READ = frozenset({"suggested", "below-threshold"})
 
 
 def _read_payload() -> dict[str, Any]:
@@ -73,33 +100,6 @@ def _prompt(payload: dict[str, Any]) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return value
-
-
-def _resolve_host() -> tuple[Path, bool]:
-    """Return the plugin root and whether the host is Claude Code.
-
-    One question, answered once. These used to be two independent lookups --
-    the root by validated precedence here, the host by a bare
-    ``CLAUDE_PLUGIN_ROOT`` test inside ``_message`` -- so a stale or partial
-    ``CLAUDE_PLUGIN_ROOT`` made the root resolve from ``PLUGIN_ROOT`` while
-    the message still named a Skill-tool id, reinstating on Codex the exact
-    defect the per-host wording exists to remove.
-
-    ``PLUGIN_ROOT`` is tried first because ``selective_hooks._roots`` does,
-    and two hooks of one plugin resolving different installs in one session is
-    the condition its own docstring calls out as fatal to the Stop gate.
-    """
-    for variable in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT"):
-        value = os.environ.get(variable)
-        if not value:
-            continue
-        try:
-            root = Path(value).expanduser().resolve()
-        except OSError:
-            continue
-        if (root / "skills").is_dir():
-            return root, variable == "CLAUDE_PLUGIN_ROOT"
-    return PLUGIN_ROOT, False
 
 
 def _message(name: str, claude_code: bool) -> str:
@@ -179,7 +179,7 @@ def _resolved_catalogue() -> tuple[dict[str, str], set[str], bool] | None:
     this hook, and separating them would let one of the two escape.
     """
     try:
-        root, claude_code = _resolve_host()
+        root, claude_code = resolve_host(PLUGIN_ROOT)
         descriptions, unparsable = load_parsable_skill_descriptions(root)
     except (OSError, ValueError):
         return None
@@ -208,13 +208,28 @@ def suggest(payload: dict[str, Any]) -> dict[str, Any]:
     return _decided(outcome, warning, claude_code)
 
 
-def _router_output(outcome: dict[str, Any], warning: str | None) -> dict[str, Any]:
-    """Shape the host payload: a suggestion, a warning, or both."""
-    output: dict[str, Any] = {"suppressOutput": True}
+def _injected(outcome: dict[str, Any]) -> str | None:
+    """Return the context to inject, or None when the catalogue never loaded.
+
+    A readable catalogue is the precondition for both parts. Telling the agent
+    to consult an index that failed to load would spend a turn's attention on
+    a defect it cannot act on, and it would do so on every prompt.
+    """
+    if outcome["status"] not in CATALOGUE_READ:
+        return None
     if outcome["status"] == "suggested":
+        return f"{FORCED_EVAL} {outcome['message']}"
+    return FORCED_EVAL
+
+
+def _router_output(outcome: dict[str, Any], warning: str | None) -> dict[str, Any]:
+    """Shape the host payload: injected context, a warning, or both."""
+    output: dict[str, Any] = {"suppressOutput": True}
+    context = _injected(outcome)
+    if context is not None:
         output["hookSpecificOutput"] = {
             "hookEventName": "UserPromptSubmit",
-            "additionalContext": outcome["message"],
+            "additionalContext": context,
         }
     if warning:
         output["systemMessage"] = warning
@@ -231,11 +246,14 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:  # noqa: BLE001 - advisory hook must not fail closed
         return 0
 
-    # Silence is the ordinary path. Only a clear winner is worth spending the
-    # agent's attention on -- or a catalogue that could not be read, which is
-    # the one silence that means the hook is broken rather than unmatched.
+    # Silence is no longer the ordinary path, and that is the change: a
+    # readable catalogue always earns the standing instruction, because the
+    # measured failure was the check never happening rather than happening
+    # wrongly. Silence is now reserved for the states with nothing to say --
+    # disabled, no usable prompt, or a catalogue that did not load, the last of
+    # which speaks through the warning instead.
     warning = outcome.get("warning")
-    if outcome["status"] != "suggested" and not warning:
+    if outcome["status"] not in CATALOGUE_READ and not warning:
         return 0
 
     print(json.dumps(_router_output(outcome, warning), ensure_ascii=False))

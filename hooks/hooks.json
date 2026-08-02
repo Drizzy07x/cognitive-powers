@@ -10,6 +10,17 @@
             "timeout": 150
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/skill_activation.py\" session-start",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\skill_activation.py\" session-start",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
