@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Stateful offline fake for Codex plugin/marketplace installer tests."""
+"""Stateful offline fake for Codex plugin/marketplace installer tests.
+
+Roots are reported with forward slashes. On POSIX that is what str() already
+returns, so nothing changes there; on Windows it is the one spelling both
+installers can consume, because PowerShell accepts either separator while a
+backslash inside a bash string is an escape rather than a path component. The
+alternative was a second fake that differed only in that detail, which is how
+two fixtures drift into testing two different contracts.
+"""
 
 from __future__ import annotations
 
@@ -54,10 +62,10 @@ def main(argv: list[str]) -> int:
                 if revision == state.get("previous_commit")
                 else "release_root"
             )
-            root = str(Path(state[root_key]).resolve())
+            root = Path(state[root_key]).resolve().as_posix()
             source_value = source + "@" + revision
         else:
-            root = str(Path(source).resolve())
+            root = Path(source).resolve().as_posix()
             source_value = source
         state.setdefault("marketplaces", []).append(
             {

@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.ps1"
+INSTALLER_SH = ROOT / "install.sh"
 FAKE = ROOT / "tests" / "fixtures" / "fake_codex_cli.py"
 FAKE_GH = ROOT / "tests" / "fixtures" / "fake_gh_cli.py"
 
@@ -34,14 +36,17 @@ class InstallerProfileLocationTests(unittest.TestCase):
         self.assertNotIn('GetFolderPath("LocalApplicationData")', source)
 
 
-# The installer is a PowerShell 7 script. CI runners ship pwsh, so its absence
-# was reported as ten broken tests rather than an unexercised suite; a machine
-# without it must say so once, and say what it did not cover.
-@unittest.skipUnless(
-    shutil.which("pwsh") is not None,
-    "PowerShell 7 (pwsh) is not installed; install.ps1 cannot be exercised",
-)
-class InstallTransactionTests(unittest.TestCase):
+class InstallTransactionScenarios:
+    """Every scenario both installers owe, written once.
+
+    install.sh is a port, and a port is only worth having if it is held to the
+    same contract. Two files of near-identical scenarios would drift the moment
+    one of them gained a case, and the drift would look like coverage. The
+    concrete classes below supply only what genuinely differs: how the script is
+    invoked, how a shim is spelled on this platform, and where the host puts the
+    recovery directory.
+    """
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
@@ -96,7 +101,28 @@ class InstallTransactionTests(unittest.TestCase):
         )
         # The transaction harness exercises rollback and ordering.  The canonical
         # verifier has its own real-Git fixture tests, so isolate this boundary.
-        self.shim("python", windows="@exit /b 0\r\n", posix="#!/bin/sh\nexit 0\n")
+        self.write_python_shim()
+
+    def write_python_shim(self, exit_code: int | None = None) -> None:
+        """Stand in for the interpreter the installer runs.
+
+        install.ps1 uses it twice, for the version preflight and the final
+        verifier, so a flat `exit 0` isolates the verifier without breaking
+        anything. install.sh also parses every JSON document with it, so the
+        same flat shim would make the port fail for a reason the PowerShell path
+        cannot have; the bash class overrides this to keep a real interpreter and
+        stub only the verifier.
+        """
+        if exit_code is None:
+            exit_code = 0
+        self.shim(
+            "python",
+            windows=f"@exit /b {exit_code}\r\n",
+            posix=f"#!/bin/sh\nexit {exit_code}\n",
+        )
+
+    def resolve_on_path(self, name: str, search: str) -> str | None:
+        return shutil.which(name, path=search)
 
     def shim(self, name: str, *, windows: str, posix: str) -> None:
         """Write one fake CLI that really shadows the real one on this platform.
@@ -162,14 +188,10 @@ class InstallTransactionTests(unittest.TestCase):
                 posix=f"#!/bin/sh\nexit {gh_exit}\n",
             )
         if python_exit is not None:
-            self.shim(
-                "python",
-                windows=f"@exit /b {python_exit}\r\n",
-                posix=f"#!/bin/sh\nexit {python_exit}\n",
-            )
+            self.write_python_shim(python_exit)
         env = self.installer_environment()
         return subprocess.run(
-            ["pwsh", "-NoProfile", "-File", str(INSTALLER), "-ReleaseRef", "v1.6.0"],
+            self.installer_argv(),
             env=env,
             capture_output=True,
             text=True,
@@ -193,7 +215,11 @@ class InstallTransactionTests(unittest.TestCase):
                 "CODEX_HOME": str(self.base / "codex-home"),
             }
         )
+        env.update(self.extra_environment())
         return env
+
+    def extra_environment(self) -> dict[str, str]:
+        return {}
 
     def read_state(self) -> dict:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -208,14 +234,17 @@ class InstallTransactionTests(unittest.TestCase):
         """
         search = str(self.bin) + os.pathsep + os.environ["PATH"]
         for name in ("codex", "gh", "git", "python"):
-            resolved = shutil.which(name, path=search)
+            resolved = self.resolve_on_path(name, search)
             with self.subTest(command=name):
                 self.assertIsNotNone(resolved, f"{name} resolves to nothing")
-                self.assertEqual(
-                    Path(resolved).parent,
-                    self.bin,
-                    f"{name} resolves to {resolved}, outside the fixture",
-                )
+                self.assert_inside_fixture_bin(name, resolved)
+
+    def assert_inside_fixture_bin(self, name: str, resolved: str) -> None:
+        self.assertEqual(
+            Path(resolved).parent,
+            self.bin,
+            f"{name} resolves to {resolved}, outside the fixture",
+        )
 
     def test_tag_preflight_fails_before_profile_query_or_mutation(self) -> None:
         self.state()
@@ -257,27 +286,9 @@ class InstallTransactionTests(unittest.TestCase):
                     )
                 )
 
-    def local_application_data(self) -> Path:
-        # install.ps1 locates recovery marketplaces through GetFolderPath.
-        # Where that lands differs by platform and .NET version, and modeling
-        # it here guessed wrong twice -- so ask the same pwsh, under the same
-        # profile overrides run_installer uses, and let the platform answer.
-        completed = subprocess.run(
-            [
-                "pwsh",
-                "-NoProfile",
-                "-Command",
-                '[Environment]::GetFolderPath("LocalApplicationData", "Create")',
-            ],
-            env=self.installer_environment(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=True,
-        )
-        return Path(completed.stdout.strip())
-
     def test_preflight_accepts_the_previous_rollback_marketplace(self) -> None:
+        if self.recovery_scenario_skip:
+            self.skipTest(self.recovery_scenario_skip)
         # A failed transaction restores from a recovery marketplace under
         # LocalApplicationData and preserves it. That state is the installer's
         # own product, so the next run must proceed and re-point it at the new
@@ -354,7 +365,7 @@ class InstallTransactionTests(unittest.TestCase):
         )
         recovery = [m for m in state["marketplaces"] if m["name"] == "cognitive-powers"]
         self.assertEqual(len(recovery), 1)
-        self.assertEqual(recovery[0]["root"], str(self.previous_root.resolve()))
+        self.assertEqual(recovery[0]["root"], self.previous_root.resolve().as_posix())
         self.assertEqual(
             recovery[0]["marketplaceSource"]["source"],
             "Drizzy07x/cognitive-powers@" + "b" * 40,
@@ -412,6 +423,197 @@ class InstallTransactionTests(unittest.TestCase):
             and args[3] == "Drizzy07x/cognitive-powers"
         )
         self.assertEqual(marketplace_add[marketplace_add.index("--ref") + 1], "a" * 40)
+
+
+# The installer is a PowerShell 7 script. CI runners ship pwsh, so its absence
+# was reported as ten broken tests rather than an unexercised suite; a machine
+# without it must say so once, and say what it did not cover.
+@unittest.skipUnless(
+    shutil.which("pwsh") is not None,
+    "PowerShell 7 (pwsh) is not installed; install.ps1 cannot be exercised",
+)
+class InstallTransactionTests(InstallTransactionScenarios, unittest.TestCase):
+    """The PowerShell installer.
+
+    The name is load-bearing: scripts/run_compatibility_scenarios.py names two
+    of these tests by their fully qualified path to bind the corrupt-state and
+    legacy-copy cells, so renaming the class silently empties those scenarios.
+    """
+
+    recovery_scenario_skip = ""
+
+    def installer_argv(self) -> list[str]:
+        return [
+            "pwsh",
+            "-NoProfile",
+            "-File",
+            str(INSTALLER),
+            "-ReleaseRef",
+            "v1.6.0",
+        ]
+
+    def local_application_data(self) -> Path:
+        # install.ps1 locates recovery marketplaces through GetFolderPath.
+        # Where that lands differs by platform and .NET version, and modeling
+        # it here guessed wrong twice -- so ask the same pwsh, under the same
+        # profile overrides run_installer uses, and let the platform answer.
+        completed = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-Command",
+                '[Environment]::GetFolderPath("LocalApplicationData", "Create")',
+            ],
+            env=self.installer_environment(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        return Path(completed.stdout.strip())
+
+
+@unittest.skipUnless(
+    shutil.which("bash") is not None,
+    "bash is not installed; install.sh cannot be exercised",
+)
+class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
+    """The POSIX installer, held to the same scenarios.
+
+    Every shim is extensionless and carries a shebang, on every platform: bash
+    resolves PATH the POSIX way and never consults PATHEXT, so a .cmd shim is
+    invisible to it and the runner's own git and gh would answer instead. That
+    is the failure this suite already learned once on the PowerShell side, where
+    Windows-only .cmd shims left Linux and macOS measuring the real binaries.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # install.sh reads XDG_DATA_HOME first, which is the same directory
+        # .NET reports as LocalApplicationData on Unix. Setting it exercises the
+        # platform's own rule instead of a guess, and keeps the recovery
+        # directory inside the fixture rather than in the developer's profile.
+        self.xdg_data_home = self.base / "xdg"
+        self.xdg_data_home.mkdir(exist_ok=True)
+
+    @property
+    def recovery_scenario_skip(self) -> str:
+        if os.name != "nt":
+            return ""
+        # install.sh recognizes a recovery marketplace only at an absolute POSIX
+        # path, which is the only kind that exists on the hosts it targets. The
+        # fixture's roots are drive-letter paths here, so this one scenario
+        # would be asserting against a path shape the script is right to refuse.
+        # Everything before and after it in the transaction still runs.
+        return (
+            "install.sh recognizes recovery marketplaces by absolute POSIX path; "
+            "the Windows fixture supplies drive-letter paths"
+        )
+
+    def installer_argv(self) -> list[str]:
+        return ["bash", INSTALLER_SH.as_posix(), "--release-ref", "v1.6.0"]
+
+    def shim(self, name: str, *, windows: str, posix: str) -> None:
+        path = self.bin / name
+        path.write_text(posix, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
+
+    def write_python_shim(self, exit_code: int | None = None) -> None:
+        # install.sh parses every JSON document with this interpreter, so it
+        # cannot be replaced wholesale the way the PowerShell harness replaces
+        # it. Only the canonical verifier is stubbed -- the boundary this suite
+        # means to isolate -- and both PEP 394 names are written, because the
+        # script prefers python3 and falls back to python.
+        for name in ("python", "python3"):
+            if exit_code is None:
+                body = (
+                    "#!/bin/sh\n"
+                    'case "${1:-}" in\n'
+                    "  *verify_installed.py) exit 0 ;;\n"
+                    "esac\n"
+                    f'exec "{Path(sys.executable).as_posix()}" "$@"\n'
+                )
+            else:
+                body = f"#!/bin/sh\nexit {exit_code}\n"
+            path = self.bin / name
+            path.write_text(body, encoding="utf-8", newline="\n")
+            path.chmod(0o755)
+
+    def resolve_on_path(self, name: str, search: str) -> str | None:
+        # shutil.which applies PATHEXT on Windows and so cannot see an
+        # extensionless shim; bash can, and bash is what resolves these names
+        # when the installer runs. Ask the shell that will actually do it.
+        completed = subprocess.run(
+            ["bash", "-c", 'command -v "$1"', "bash", name],
+            env={**os.environ, "PATH": search},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        return completed.stdout.strip() or None
+
+    def assert_inside_fixture_bin(self, name: str, resolved: str) -> None:
+        # bash answers in its own path vocabulary, which on Windows is a POSIX
+        # spelling of a drive-letter path. Comparing that to a WindowsPath
+        # compares two notations, not two locations, so let bash canonicalize
+        # the fixture directory too and compare like with like.
+        completed = subprocess.run(
+            ["bash", "-c", 'cd "$1" && pwd -P', "bash", self.bin.as_posix()],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(
+            str(PurePosixPath(resolved).parent),
+            completed.stdout.strip(),
+            f"{name} resolves to {resolved}, outside the fixture",
+        )
+
+    def extra_environment(self) -> dict[str, str]:
+        return {"XDG_DATA_HOME": self.xdg_data_home.as_posix()}
+
+    def local_application_data(self) -> Path:
+        return self.xdg_data_home
+
+    def test_release_ref_pattern_is_enforced_before_anything_runs(self) -> None:
+        """PowerShell rejects a malformed ref at parameter binding; sh cannot.
+
+        [ValidatePattern] means install.ps1 never reaches its body with a ref
+        that is not vX.Y.Z. install.sh has to apply the same rule itself, and it
+        has to apply it before the preflight, because $expected_version is a
+        substring of this value: a ref that is not a tag would be verified
+        against whatever the substring happened to be.
+        """
+        self.state()
+        for candidate in ("1.6.0", "v1.6", "main", "v1.6.0; rm -rf /"):
+            with self.subTest(release_ref=candidate):
+                result = subprocess.run(
+                    ["bash", INSTALLER_SH.as_posix(), "--release-ref", candidate],
+                    env=self.installer_environment(),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=120,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.read_state()["log"], [])
+
+    def test_both_installers_declare_the_same_default_release_ref(self) -> None:
+        """A second installer is a second place for the tag to go stale.
+
+        bump_version.py moves both, and this is the assertion that fails if a
+        future carrier is added to one and not the other -- the failure mode the
+        1.7.1-era stale-tag defects all shared.
+        """
+        powershell = INSTALLER.read_text(encoding="utf-8")
+        posix = INSTALLER_SH.read_text(encoding="utf-8")
+        declared = re.search(r'\[string\]\$ReleaseRef = "(v[\d.]+)"', powershell)
+        ported = re.search(r'^release_ref="(v[\d.]+)"$', posix, re.MULTILINE)
+        self.assertIsNotNone(declared)
+        self.assertIsNotNone(ported)
+        self.assertEqual(declared.group(1), ported.group(1))
 
 
 if __name__ == "__main__":

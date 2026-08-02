@@ -344,6 +344,19 @@ class VerifyInstalledTests(unittest.TestCase):
         self.assertIn("--installed-root", script)
         self.assertIn("$installedMarketplaceRoot", script)
 
+    def test_posix_install_script_runs_the_same_postcondition(self) -> None:
+        """The port owes the verifier too, and owes it the resolved root.
+
+        A postcondition that verifies a path the host reported rather than the
+        marketplace root the installation actually landed in would pass while
+        checking something else, so the resolved variable is named here for the
+        same reason it is named for the PowerShell script.
+        """
+        script = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_installed.py", script)
+        self.assertIn("--installed-root", script)
+        self.assertIn('--source-root "$installed_root"', script)
+
 
 if __name__ == "__main__":
     unittest.main()
