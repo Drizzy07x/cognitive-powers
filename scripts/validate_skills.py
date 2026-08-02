@@ -15,6 +15,54 @@ FRONTMATTER_PATTERN = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTA
 LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 MAX_SKILL_LINES = 500
 PLACEHOLDER_MARKER = "[" + "TODO:"
+PAUSE_POINT_HEADING = re.compile(r"(?m)^## Pause points\s*$")
+BOLD_BLOCK_HEADER = re.compile(r"(?m)^\*\*[^*\n]+\*\*\s*$")
+CHECKLIST_ITEM = re.compile(r"(?m)^- ")
+MAX_CHECKLIST_ITEMS = 10
+
+
+def _pause_point_section(text: str) -> str | None:
+    match = PAUSE_POINT_HEADING.search(text)
+    if match is None:
+        return None
+    remainder = text[match.end() :]
+    following = re.search(r"(?m)^## ", remainder)
+    return remainder[: following.start()] if following else remainder
+
+
+def _pause_point_errors(relative: str, text: str, compressed: bool) -> list[str]:
+    """Hold the 1.8.0 checklist contract structurally.
+
+    It was the one 1.8.0 invariant enforced by nothing: a new skill with no
+    pause points passed the whole gate. Presence and the ten-item cap are
+    facts about the file, like the line cap above; judgment about item quality
+    stays out of plain mode. The core routers carry the contract as compressed
+    prose by design, so they owe the heading and the DO-CONFIRM line only.
+    """
+    section = _pause_point_section(text)
+    if section is None:
+        return [f"{relative}: missing '## Pause points' section"]
+    errors: list[str] = []
+    if not re.search(r"(?m)^DO-CONFIRM", section):
+        errors.append(f"{relative}: pause points must open with a DO-CONFIRM line")
+    if compressed:
+        return errors
+    headers = list(BOLD_BLOCK_HEADER.finditer(section))
+    if not headers:
+        errors.append(f"{relative}: pause points declare no checklist blocks")
+    for index, header in enumerate(headers):
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(section)
+        block = section[header.start() : end]
+        items = len(CHECKLIST_ITEM.findall(block))
+        label = header.group(0).strip()
+        if items == 0:
+            errors.append(f"{relative}: pause-point block {label} has no items")
+        elif items > MAX_CHECKLIST_ITEMS:
+            errors.append(
+                f"{relative}: pause-point block {label} exceeds "
+                f"{MAX_CHECKLIST_ITEMS} items"
+            )
+    return errors
 
 
 def _frontmatter(text: str, relative: Path) -> tuple[dict[str, str], list[str]]:
@@ -90,6 +138,11 @@ def validate(plugin_root: Path) -> list[str]:
             )
         if len(text.splitlines()) > MAX_SKILL_LINES:
             errors.append(f"{relative.as_posix()}: exceeds {MAX_SKILL_LINES} lines")
+        errors.extend(
+            _pause_point_errors(
+                relative.as_posix(), text, relative.parts[0] == "skills-core"
+            )
+        )
 
         for markdown in sorted(skill_file.parent.rglob("*.md")):
             markdown_text = markdown.read_text(encoding="utf-8")
