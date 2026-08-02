@@ -34,6 +34,25 @@ from activation_core.session import default_python  # noqa: E402
 
 DEFAULT_CASES = EVALS_ROOT / "cases"
 DEFAULT_ARTIFACTS = EVALS_ROOT / "artifacts"
+MINIMUM_CASES_PER_SKILL = 3
+
+
+def _under_covered(cases, installed: frozenset[str]) -> list[tuple[str, int]]:
+    """Workflows carrying too few should-fire prompts to be worth a rate.
+
+    Counts single-workflow cases only. A multi-workflow case exercises a
+    composition rather than the workflow on its own, so counting it here would
+    let two workflows cover each other and leave both untested alone.
+    """
+    counts = dict.fromkeys(installed, 0)
+    for case in cases:
+        if len(case.expect) == 1:
+            counts[case.expect[0]] = counts.get(case.expect[0], 0) + 1
+    return sorted(
+        (name, count)
+        for name, count in counts.items()
+        if count < MINIMUM_CASES_PER_SKILL
+    )
 
 
 def _installed_workflows() -> frozenset[str]:
@@ -124,12 +143,17 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(arms)} arm(s), {args.reps} repetition(s) "
             f"-> {invocations} host invocations"
         )
-        uncovered = sorted(
-            installed
-            - {name for case in cases if case.should_fire for name in case.expect}
-        )
-        if uncovered:
-            print(f"workflows with no should-fire case: {', '.join(uncovered)}")
+        thin = _under_covered(cases, installed)
+        if thin:
+            # A workflow measured by one prompt is a workflow whose rate is one
+            # prompt's opinion. Reported as unmeasured rather than scored,
+            # because a new workflow nobody wrote cases for would otherwise
+            # appear in the corpus as silently absent.
+            print(
+                "workflows with fewer than "
+                f"{MINIMUM_CASES_PER_SKILL} should-fire cases: "
+                + ", ".join(f"{name} ({count})" for name, count in thin)
+            )
             return 1
         return 0
 

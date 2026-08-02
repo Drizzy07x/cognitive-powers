@@ -240,5 +240,52 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual([item.case_id for item in chosen], ["a", "quiet"])
 
 
+class ShippedCorpusTests(unittest.TestCase):
+    """The corpus that actually ships, checked against the tree it measures."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+        from skill_routing import load_skill_triggers
+
+        self.installed = frozenset(load_skill_triggers(PLUGIN_ROOT))
+        self.cases = load_corpus(PLUGIN_ROOT / "evals" / "cases", self.installed)
+
+    def test_every_workflow_carries_at_least_three_should_fire_prompts(self) -> None:
+        # A workflow measured by one prompt has a rate that is one prompt's
+        # opinion. This is the seventh carrier a new workflow moves.
+        sys.path.insert(0, str(PLUGIN_ROOT / "evals"))
+        from run_activation_eval import MINIMUM_CASES_PER_SKILL, _under_covered
+
+        self.assertEqual(_under_covered(self.cases, self.installed), [])
+        self.assertGreaterEqual(MINIMUM_CASES_PER_SKILL, 3)
+
+    def test_the_negative_pool_is_large_enough_to_bind(self) -> None:
+        negatives = [case for case in self.cases if not case.should_fire]
+        self.assertGreaterEqual(len(negatives), 15)
+        # Near misses are the ones with a named sibling to stay out of; a pool
+        # of pure off-domain trivia cannot fail in the way that matters.
+        self.assertGreaterEqual(sum(1 for case in negatives if case.forbid), 8)
+
+    def test_both_languages_are_represented_in_both_polarities(self) -> None:
+        for polarity in ("should-fire", "should-not-fire"):
+            for lang in ("en", "es"):
+                with self.subTest(polarity=polarity, lang=lang):
+                    self.assertTrue(
+                        any(
+                            case.polarity == polarity and case.lang == lang
+                            for case in self.cases
+                        )
+                    )
+
+    def test_the_quick_suite_covers_every_workflow(self) -> None:
+        # The reduced suite is what a pull request runs. One that skipped a
+        # workflow would let that workflow regress without any check failing,
+        # which is the gap this whole mission exists to close.
+        quick = select(self.cases, quick=True)
+        covered = {name for case in quick for name in case.expect}
+        self.assertEqual(sorted(self.installed - covered), [])
+        self.assertTrue(any(not case.should_fire for case in quick))
+
+
 if __name__ == "__main__":
     unittest.main()

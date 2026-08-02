@@ -176,7 +176,7 @@ stays true, because a provider named in a catalog is not a provider present on t
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
-- **Adding or removing a workflow moves six carriers.** The `skills/<name>/` directory,
+- **Adding or removing a workflow moves seven carriers.** The `skills/<name>/` directory,
   `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
   `scripts/verify_installed.py`, the catalog in `skills-core/execute-durably/SKILL.md`, the
   `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` corpus. The
@@ -184,7 +184,10 @@ stays true, because a provider named in a catalog is not a provider present on t
   case names and the skill names are not the same set, and
   `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
   skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
-  skill rather than scoring it as perfect by omission. Then rerun the benchmark: a new description
+  skill rather than scoring it as perfect by omission. The seventh is
+  `evals/cases/should-fire.yaml`: `run_activation_eval.py --validate-only` exits 1 when a workflow
+  has fewer than three should-fire prompts, so a new workflow that nobody wrote prompts for is
+  reported as unmeasured rather than silently scoring nothing. Then rerun the benchmark: a new description
   changes the ranking of prompts that were never about it. A Spanish case whose content words
   `SPANISH_TERMS` in `scripts/skill_routing.py` cannot translate ranks first yet draws no
   suggestion — that is how 1.8.0 shipped four silent cases — and the 0.93 Spanish floor now fails
