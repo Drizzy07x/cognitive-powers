@@ -22,7 +22,7 @@ from typing import Any, Callable, Sequence
 from . import fixtures
 from .arms import Arm, arm as get_arm
 from .cases import Case
-from .scoring import Observation, observe, score_arm
+from .scoring import Observation, bottom_skills, compare, observe, score_arm
 from .session import Run, run_case
 from .transcript import read
 
@@ -181,6 +181,14 @@ def execute(
         )
         for arm in arms
     ]
+    # The delta against the no-injection control is the number this experiment
+    # exists for, so it is attached to the arm rather than computed only in a
+    # separate comparison block the Markdown never reads. It was advertised as
+    # a column before it was computed, which printed a dash on every row.
+    deltas = {row["arm"]: row["activationDelta"] for row in compare(scored)["arms"]}
+    for entry in scored:
+        entry["activationDelta"] = deltas.get(entry["arm"])
+        entry["bottomSkills"] = bottom_skills(entry)
 
     return {
         "schemaVersion": 1,

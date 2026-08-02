@@ -821,6 +821,10 @@ class OrchestrationTests(unittest.TestCase):
         by_arm = {entry["arm"]: entry for entry in payload["arms"]}
         self.assertEqual(by_arm["none"]["shouldFire"]["passRate"], 0.0)
         self.assertEqual(by_arm["full"]["shouldFire"]["passRate"], 1.0)
+        # The delta is attached to the arm, so the rendered table has it.
+        self.assertEqual(by_arm["full"]["activationDelta"], 1.0)
+        self.assertEqual(by_arm["none"]["activationDelta"], 0.0)
+        self.assertIn("+100 pts", as_markdown(payload))
 
     def test_the_gate_fails_an_arm_it_could_not_measure(self) -> None:
         payload = {
