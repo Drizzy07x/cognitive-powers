@@ -8,7 +8,7 @@
     "max_collision_similarity": 0.72,
     "min_suggestion_rate": 0.85,
     "min_quiet_rate": 1.0,
-    "min_spanish_rate": 0.8,
+    "min_spanish_rate": 0.93,
     "max_misrouted": 3
   },
   "quiet": [

@@ -375,6 +375,26 @@ SPANISH_TERMS = {
     "sencillo": "simply",
     "sencilla": "simply",
     "llano": "plain",
+    # 1.8.0 vocabulary. The two workflows it added shipped with Spanish cases
+    # but no lexicon entries, so all four ranked first and drew no suggestion:
+    # every content word that mattered arrived as an unseen token, inflating
+    # the query norm it should have been scoring against. "superficiales" is
+    # keyed only in the plural because the singular is an English adjective --
+    # the "actual"/"simple" class above -- and "red" (red de pruebas) is
+    # absent for the same reason: an English prompt about the color would be
+    # rewritten. "heredado" lands on the one word only legacy-safe-changes
+    # declares, through its name, since 1.7.4 ceded it from refactor-cleanly.
+    "superficiales": "shallow",
+    "reenvia": "pass",
+    "reenvian": "pass",
+    "abstraccion": "abstraction",
+    "interno": "internals",
+    "interna": "internals",
+    "filtra": "leaking",
+    "filtrar": "leaking",
+    "heredado": "legacy",
+    "heredada": "legacy",
+    "cobertura": "coverage",
 }
 
 
