@@ -25,6 +25,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -34,7 +35,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import clean_code_rules as rules  # noqa: E402
 
-WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"})
+# apply_patch names its targets inside the patch body, not in tool_input, so a
+# hook reading only file_path exited clean for every event on the host where
+# apply_patch is the primary edit tool. Same format selective_hooks parses.
+PATCH_PATH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.MULTILINE)
 REPORT_FOOTER = (
     "Fix the ones that change comprehension cost. Say which you skipped and why."
 )
@@ -107,26 +112,41 @@ def read_event() -> dict:
         return {}
 
 
-def target_path(event: dict) -> Path | None:
+def candidate_paths(event: dict) -> list[str]:
+    tool_input = event.get("tool_input") or {}
+    raw_path = tool_input.get("file_path")
+    candidates = [raw_path] if isinstance(raw_path, str) and raw_path else []
+    if event.get("tool_name") == "apply_patch":
+        for key in ("patch", "content", "input"):
+            value = tool_input.get(key)
+            if isinstance(value, str):
+                candidates.extend(PATCH_PATH.findall(value))
+    return list(dict.fromkeys(candidates))
+
+
+def target_paths(event: dict) -> list[Path]:
     if event.get("tool_name") not in WRITE_TOOLS:
-        return None
-    raw_path = (event.get("tool_input") or {}).get("file_path")
-    if not raw_path:
-        return None
-    path = Path(raw_path)
-    if not rules.is_supported(path) or is_ignored(path, rules.ignore_patterns()):
-        return None
-    return path
+        return []
+    patterns = rules.ignore_patterns()
+    return [
+        path
+        for path in map(Path, candidate_paths(event))
+        if rules.is_supported(path) and not is_ignored(path, patterns)
+    ]
 
 
 def run_hook() -> int:
-    path = target_path(read_event())
-    if path is None:
+    # One patch can name several files; a deleted target has no source to read
+    # and file_findings returns nothing for it, which is the right silence.
+    limits = rules.load_limits()
+    reports = [
+        render_report(path, findings)
+        for path in target_paths(read_event())
+        if (findings := file_findings(path, limits))
+    ]
+    if not reports:
         return 0
-    findings = file_findings(path, rules.load_limits())
-    if not findings:
-        return 0
-    return emit_hook_result(render_report(path, findings))
+    return emit_hook_result("\n".join(reports))
 
 
 def accepted_entry(line: str) -> str:

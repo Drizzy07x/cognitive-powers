@@ -166,6 +166,30 @@ class CleanCodeHookTests(unittest.TestCase):
         self.assertIn("swallowed-error", result.stderr)
         self.assertEqual(result.stdout.strip(), "")
 
+    def patch_event(self, body: str) -> str:
+        return json.dumps({"tool_name": "apply_patch", "tool_input": {"patch": body}})
+
+    def test_apply_patch_targets_come_from_the_patch_body(self) -> None:
+        """The Codex manifest matched apply_patch while the hook read only
+        file_path, which the patch payload never carries - so the hook exited
+        clean for every event on the host where apply_patch is the primary
+        edit tool."""
+        offender = self.write_offender()
+        clean = self.base / "clean.py"
+        clean.write_text("def total(rows):\n    return sum(rows)\n", encoding="utf-8")
+        body = f"*** Update File: {offender}\n@@\n-old\n+new\n*** Add File: {clean}\n"
+        result = self.run_guard(self.patch_event(body))
+        self.assertEqual(result.returncode, 0)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("swallowed-error", context)
+        self.assertIn(offender.name, context)
+        self.assertNotIn(clean.name, context)
+
+    def test_apply_patch_deleted_target_stays_silent(self) -> None:
+        result = self.run_guard(self.patch_event("*** Delete File: gone.py\n"))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
 
 class CleanCodeScanTests(unittest.TestCase):
     """Scan mode, including the acceptance list that hook mode deliberately skips."""
