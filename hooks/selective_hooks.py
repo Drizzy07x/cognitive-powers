@@ -32,6 +32,7 @@ LOCK_TIMEOUT_SECONDS = 5.0
 SUPPORTED_TOOLS = {
     "apply_patch",
     "edit",
+    "multiedit",
     "notebookedit",
     "write",
     "bash",

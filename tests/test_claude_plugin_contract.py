@@ -216,8 +216,14 @@ class ClaudeHookTests(unittest.TestCase):
         )
 
     def test_post_tool_use_matches_claude_file_tools(self) -> None:
+        # MultiEdit is absent from current hosts but present in the versions the
+        # compatibility matrix still spans; the guard entry beside this one
+        # already matched it, and a tool one PostToolUse hook treats as a write
+        # while its neighbour ignores it is how a ledger silently loses edits.
         matcher = self.hooks["PostToolUse"][0]["matcher"]
-        self.assertEqual(set(matcher.split("|")), {"Edit", "Write", "NotebookEdit"})
+        self.assertEqual(
+            set(matcher.split("|")), {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+        )
 
     def test_every_hook_uses_exec_form_against_the_bundled_script(self) -> None:
         entries = [
@@ -397,7 +403,7 @@ class ClaudeAgentTests(unittest.TestCase):
                 self.assertTrue(fields.get("description"))
 
     def test_a_workflow_that_declares_itself_read_only_is_held_to_it(self) -> None:
-        """These four state a read-only boundary in their own description.
+        """These five state a read-only boundary in their own description.
 
         Until the frontmatter carried it, that boundary was a sentence the model
         was asked to respect while the edit tools stayed in the pool. The field
@@ -405,6 +411,7 @@ class ClaudeAgentTests(unittest.TestCase):
         """
         for name in (
             "audit-capabilities",
+            "design-review",
             "eli5",
             "verify-delivery",
             "verify-installation",

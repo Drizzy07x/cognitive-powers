@@ -170,6 +170,24 @@ class PluginHookTests(unittest.TestCase):
         )
         self.assertEqual(events[1]["previousEventHash"], events[0]["eventHash"])
 
+    def test_multiedit_appends_a_ledger_event(self) -> None:
+        """A tool one PostToolUse hook records and its neighbour drops is how a
+        MultiEdit-only session read as 'nothing was edited' at the stop gate."""
+        source = self.repo / "src" / "example.py"
+        source.parent.mkdir()
+        source.write_text("new\n", encoding="utf-8")
+        payload = self.payload("MultiEdit")
+        payload["toolInput"] = {"file_path": "src/example.py", "edits": []}
+        result = self.run_hook("post-tool-use", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["tool"], "MultiEdit")
+        self.assertEqual(events[0]["files"][0]["path"], "src/example.py")
+
     def test_partial_or_invalid_stdin_never_blocks_and_writes_nothing(self) -> None:
         for raw in ("{", "[]", json.dumps({"sessionId": "x"})):
             result = subprocess.run(
