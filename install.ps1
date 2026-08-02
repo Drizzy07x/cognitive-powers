@@ -99,9 +99,31 @@ function Read-CodexJsonBestEffort {
     }
 }
 
+function Assert-Verifier {
+    # The postcondition needs a file that ships beside this script, and its
+    # absence is knowable now -- so it is checked here, for the same reason
+    # Assert-Python runs here: discovered at the end instead, it is reported as
+    # a failed installation and a rollback rather than as a missing file.
+    #
+    # $PSScriptRoot is empty when this source is run as a scriptblock instead of
+    # as a file, which is what the README's one-liner did. The whole transaction
+    # then completed and Join-Path threw "Cannot bind argument to parameter
+    # 'Path' because it is an empty string" -- so the installation was rolled
+    # back and the reported cause named an empty string rather than a verifier
+    # that was never fetched. CI ran the script as a file and never saw it.
+    if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        throw "This installer has no script path of its own, so the canonical verifier beside it cannot be located. Run install.ps1 as a file from its own checkout rather than as a scriptblock or piped source."
+    }
+    $verifier = Join-Path $PSScriptRoot "scripts/verify_installed.py"
+    if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) {
+        throw "The canonical verifier is missing at '$verifier'. Run install.ps1 from a complete checkout of the release."
+    }
+}
+
 Assert-Command "gh"
 Assert-Command "codex"
 Assert-Python "python"
+Assert-Verifier
 Invoke-Checked "gh" @("auth", "status", "--hostname", "github.com")
 Invoke-Checked "gh" @("auth", "setup-git", "--hostname", "github.com")
 Invoke-Checked "gh" @("api", "repos/$repository/git/ref/tags/$releaseRef", "--silent")

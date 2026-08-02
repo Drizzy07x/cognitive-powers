@@ -287,9 +287,23 @@ if [ -z "$python_command" ]; then
     die "Required command 'python3' was not found in PATH."
 fi
 
+verifier="$script_root/scripts/verify_installed.py"
+
+assert_verifier() {
+    # Checked here rather than at the point of use, for the same reason
+    # assert_python runs here: the postcondition needs a file that ships beside
+    # this script, its absence is knowable before anything is touched, and
+    # discovered at the end instead it is reported as a failed installation and
+    # a rollback rather than as a missing file.
+    if [ ! -f "$verifier" ]; then
+        die "The canonical verifier is missing at '$verifier'. Run install.sh from a complete checkout of the release."
+    fi
+}
+
 assert_command "gh"
 assert_command "codex"
 assert_python
+assert_verifier
 run_checked gh auth status --hostname github.com || die "Command failed: gh auth status"
 run_checked gh auth setup-git --hostname github.com || die "Command failed: gh auth setup-git"
 run_checked gh api "repos/$repository/git/ref/tags/$release_ref" --silent ||
@@ -622,7 +636,7 @@ transact() {
     fi
     installed_root="$(canonical_path "$installed_root")"
 
-    if ! run_checked "$python_command" "$script_root/scripts/verify_installed.py" \
+    if ! run_checked "$python_command" "$verifier" \
         --source-root "$installed_root" \
         --installed-root "$installed_root" \
         --tag "$release_ref"; then

@@ -179,7 +179,7 @@ class InstallTransactionScenarios:
         }
 
     def run_installer(
-        self, *, gh_exit=0, python_exit=None
+        self, *, gh_exit=0, python_exit=None, script=None
     ) -> subprocess.CompletedProcess[str]:
         if gh_exit:
             self.shim(
@@ -191,7 +191,7 @@ class InstallTransactionScenarios:
             self.write_python_shim(python_exit)
         env = self.installer_environment()
         return subprocess.run(
-            self.installer_argv(),
+            self.installer_argv(script),
             env=env,
             capture_output=True,
             text=True,
@@ -245,6 +245,30 @@ class InstallTransactionScenarios:
             self.bin,
             f"{name} resolves to {resolved}, outside the fixture",
         )
+
+    def test_missing_verifier_fails_before_profile_query_or_mutation(self) -> None:
+        """The postcondition's own file is a preflight fact, not a late surprise.
+
+        Both installers resolve scripts/verify_installed.py beside themselves, so
+        a copy moved away from its checkout has no postcondition to run. Left
+        until the end, that is discovered only after the profile was mutated and
+        is reported as a failed installation and a rollback -- which is what the
+        README's PowerShell one-liner produced for every user who ran it, since a
+        scriptblock has no script path and fetching install.ps1 alone never
+        brought the verifier along. Its absence is knowable before anything is
+        touched, so nothing may be touched before it is checked.
+        """
+        stray = self.base / "stray"
+        stray.mkdir()
+        copy = stray / self.installer_path().name
+        shutil.copy2(self.installer_path(), copy)
+        self.state()
+
+        result = self.run_installer(script=copy)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read_state()["log"], [])
+        self.assertIn("verif", (result.stdout + result.stderr).casefold())
 
     def test_tag_preflight_fails_before_profile_query_or_mutation(self) -> None:
         self.state()
@@ -442,15 +466,54 @@ class InstallTransactionTests(InstallTransactionScenarios, unittest.TestCase):
 
     recovery_scenario_skip = ""
 
-    def installer_argv(self) -> list[str]:
+    def installer_path(self) -> Path:
+        return INSTALLER
+
+    def installer_argv(self, script: Path | None = None) -> list[str]:
         return [
             "pwsh",
             "-NoProfile",
             "-File",
-            str(INSTALLER),
+            str(script or INSTALLER),
             "-ReleaseRef",
             "v1.6.0",
         ]
+
+    def test_scriptblock_source_fails_before_profile_query_or_mutation(self) -> None:
+        """The exact shape the README documented, and what it actually did.
+
+        `[scriptblock]::Create($source)` leaves $PSScriptRoot empty, so the
+        installer completed the whole transaction and then died on
+        `Join-Path $PSScriptRoot` with "Cannot bind argument to parameter 'Path'
+        because it is an empty string". The catch rolled the installation back,
+        so the documented Windows command installed nothing and blamed an empty
+        string for it. CI invoked the file directly and never reproduced it.
+
+        The failure now happens in preflight and names what is missing. Both
+        halves matter: an empty log proves nothing was mutated, and the message
+        proves the operator is told about the verifier rather than about a
+        parameter binding.
+        """
+        self.state()
+        command = (
+            "$source = Get-Content -Raw -LiteralPath "
+            f"'{INSTALLER.as_posix()}'; "
+            "& ([scriptblock]::Create($source)) -ReleaseRef v1.6.0"
+        )
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-Command", command],
+            env=self.installer_environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read_state()["log"], [])
+        self.assertIn("no script path of its own", output)
+        self.assertNotIn("empty string", output)
 
     def local_application_data(self) -> Path:
         # install.ps1 locates recovery marketplaces through GetFolderPath.
@@ -510,8 +573,16 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
             "the Windows fixture supplies drive-letter paths"
         )
 
-    def installer_argv(self) -> list[str]:
-        return ["bash", INSTALLER_SH.as_posix(), "--release-ref", "v1.6.0"]
+    def installer_path(self) -> Path:
+        return INSTALLER_SH
+
+    def installer_argv(self, script: Path | None = None) -> list[str]:
+        return [
+            "bash",
+            (script or INSTALLER_SH).as_posix(),
+            "--release-ref",
+            "v1.6.0",
+        ]
 
     def shim(self, name: str, *, windows: str, posix: str) -> None:
         path = self.bin / name
