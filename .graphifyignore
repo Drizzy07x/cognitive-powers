@@ -1,0 +1,14 @@
+# Graphify corpus boundary for this repository.
+#
+# The session-start refresh runs `graphify update`, which re-extracts code files
+# without an LLM. Anything left in the corpus that only a semantic extraction can
+# index therefore stays pending after every free refresh, and the provider adapter
+# rejects an incomplete index rather than trusting it. Keeping the corpus to what
+# `update` can rebuild is what lets the graph return to complete on its own.
+*.md
+*.yaml
+*.yml
+*.txt
+*.html
+*.svg
+*.png
