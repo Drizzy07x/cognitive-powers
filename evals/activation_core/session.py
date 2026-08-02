@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import Any, Iterable, NamedTuple
 
 from .arms import ALL_TOGGLES, Arm
 from .cases import Case
@@ -47,6 +47,23 @@ DEFAULT_TOOLS = ("Skill", "Read", "Glob", "Grep", "TodoWrite")
 SCRUBBED = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CONFIG_DIR", *ALL_TOGGLES)
 
 
+# A rate limit is the provider asking for a pause, not the plugin failing to
+# activate. Matched against a run that already failed, never against a healthy
+# stream: `rate_limit_event` also appears informationally in successful runs,
+# so its presence alone would retry sessions that were fine.
+RATE_LIMIT_SIGNS = (
+    "rate limit",
+    "rate_limit",
+    "429",
+    "too many requests",
+    "overloaded",
+    "please try again",
+)
+DEFAULT_ATTEMPTS = 5
+DEFAULT_BACKOFF_SECONDS = 8.0
+MAX_BACKOFF_SECONDS = 240.0
+
+
 class Run(NamedTuple):
     """One invocation: what was asked, what came back, and what it cost."""
 
@@ -59,6 +76,21 @@ class Run(NamedTuple):
     duration_seconds: float
     stopped_early: bool
     timed_out: bool
+    attempts: int = 1
+    rate_limited: bool = False
+
+
+def looks_rate_limited(stream: str, stderr: str, exit_code: int) -> bool:
+    """Whether a failed run failed because the provider throttled it.
+
+    Deliberately conjunctive. A run that succeeded is never retried however its
+    stream reads, and a run that failed for any other reason is reported as the
+    incomplete observation it is rather than retried until the budget is gone.
+    """
+    if exit_code == 0:
+        return False
+    haystack = f"{stderr}\n{stream[-4000:]}".lower()
+    return any(sign in haystack for sign in RATE_LIMIT_SIGNS)
 
 
 def _settings(path: Path, python_executable: str) -> Path:
@@ -183,8 +215,55 @@ def run_case(
     max_cost_usd: float = 0.75,
     timeout_seconds: float = 300.0,
     claude_executable: str = "claude",
+    max_attempts: int = DEFAULT_ATTEMPTS,
+    backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    sleep: Any = time.sleep,
 ) -> Run:
-    """Run one repetition of one case under one arm."""
+    """Run one repetition, waiting out a throttled provider rather than scoring it.
+
+    A rate limit says nothing about whether the workflow would have activated,
+    so treating one as a failed case would let a busy hour look like a
+    regression. Retries are bounded: a run still throttled after the last
+    attempt comes back marked, and the scorer records it as incomplete -- absent
+    from the denominator rather than counted as a miss.
+    """
+    attempt = 1
+    while True:
+        run = _attempt(
+            case,
+            arm,
+            repetition,
+            plugin_root=plugin_root,
+            workspace_root=workspace_root,
+            python_executable=python_executable,
+            installed=installed,
+            model=model,
+            max_cost_usd=max_cost_usd,
+            timeout_seconds=timeout_seconds,
+            claude_executable=claude_executable,
+        )
+        throttled = looks_rate_limited(run.stream, run.stderr, run.exit_code)
+        if not throttled or attempt >= max_attempts:
+            return run._replace(attempts=attempt, rate_limited=throttled)
+        sleep(min(backoff_seconds * (2 ** (attempt - 1)), MAX_BACKOFF_SECONDS))
+        attempt += 1
+
+
+def _attempt(
+    case: Case,
+    arm: Arm,
+    repetition: int,
+    *,
+    plugin_root: Path,
+    workspace_root: Path,
+    python_executable: str,
+    installed: frozenset[str],
+    model: str,
+    max_cost_usd: float,
+    timeout_seconds: float,
+    claude_executable: str,
+) -> Run:
+    """One spawn of the host, with no opinion about retrying."""
     base = workspace_root / f"{case.case_id}-{arm.name}-{repetition}"
     workspace = materialize(case.fixture, base / "ws")
     settings_path = _settings(base / "settings.json", python_executable)

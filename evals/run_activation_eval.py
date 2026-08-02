@@ -99,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Directory for raw transcripts. Default {DEFAULT_ARTIFACTS} when --keep-transcripts.",
     )
     parser.add_argument("--keep-transcripts", action="store_true")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=runner.DEFAULT_WORKERS,
+        help=(
+            f"Concurrent sessions, 1 to {runner.MAX_WORKERS}. 1 is sequential. "
+            "Each run already has its own workspace; the ceiling is the "
+            "provider's patience, not isolation."
+        ),
+    )
     parser.add_argument("--max-cost-usd", type=float, default=0.75)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
     parser.add_argument("--python-executable", default=None)
@@ -178,7 +188,8 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.timeout_seconds,
             claude_executable=executable,
             artifacts=artifacts,
-            progress=lambda label: print(label, file=sys.stderr),
+            progress=lambda label: print(label, file=sys.stderr, flush=True),
+            workers=args.workers,
         )
     except runner.RunnerError as error:
         print(f"run failed: {error}", file=sys.stderr)

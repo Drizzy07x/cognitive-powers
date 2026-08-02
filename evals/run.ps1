@@ -42,6 +42,9 @@ param(
 
     [string[]]$Skills,
 
+    [ValidateRange(1, 4)]
+    [int]$Workers,
+
     [switch]$Quick,
 
     [switch]$Full,
@@ -97,6 +100,7 @@ $arguments = @($runner)
 foreach ($name in $Arm) { $arguments += @('--arm', $name) }
 $arguments += @('--reps', $Reps, '--model', $Model)
 if ($Skills) { $arguments += @('--skills', ($Skills -join ',')) }
+if ($PSBoundParameters.ContainsKey('Workers')) { $arguments += @('--workers', $Workers) }
 if ($Quick) { $arguments += '--quick' }
 if ($Full) { $arguments += '--full' }
 if ($ValidateOnly) { $arguments += '--validate-only' }

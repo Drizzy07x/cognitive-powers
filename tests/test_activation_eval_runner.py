@@ -7,8 +7,10 @@ import os
 import stat
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 if str(PLUGIN_ROOT / "evals") not in sys.path:
@@ -26,12 +28,14 @@ from activation_core.scoring import (  # noqa: E402
     score_arm,
     summarize,
 )
+from activation_core import session as session_module  # noqa: E402
 from activation_core.session import (  # noqa: E402
     DEFAULT_TOOLS,
     PLUGIN_CONFIG_KEY,
     Run,
     _environment,
     build_argv,
+    looks_rate_limited,
     run_case,
 )
 
@@ -480,6 +484,105 @@ class SessionShapeTests(unittest.TestCase):
         self.assertEqual(PLUGIN_CONFIG_KEY, "cognitive-powers@inline")
 
 
+class RateLimitTests(unittest.TestCase):
+    def test_a_healthy_run_is_never_retried_however_it_reads(self) -> None:
+        # `rate_limit_event` also appears informationally in successful runs,
+        # so matching on the text alone would retry sessions that were fine.
+        self.assertFalse(
+            looks_rate_limited('{"type":"rate_limit_event"}', "", exit_code=0)
+        )
+
+    def test_a_failed_run_that_says_rate_limit_is_retryable(self) -> None:
+        for text in ("429 Too Many Requests", "rate limit exceeded", "Overloaded"):
+            with self.subTest(text=text):
+                self.assertTrue(looks_rate_limited("", text, exit_code=1))
+
+    def test_a_failure_for_any_other_reason_is_not_retried(self) -> None:
+        self.assertFalse(
+            looks_rate_limited("", "Not logged in - please run /login", exit_code=1)
+        )
+
+    def test_a_throttled_run_is_retried_with_growing_waits(self) -> None:
+        waits: list[float] = []
+        attempts = {"n": 0}
+
+        def flaky(*argv, **kwargs):
+            attempts["n"] += 1
+            throttled = attempts["n"] < 3
+            return Run(
+                case_id="c",
+                arm="full",
+                repetition=1,
+                stream="",
+                stderr="429 rate limit" if throttled else "",
+                exit_code=1 if throttled else 0,
+                duration_seconds=0.1,
+                stopped_early=False,
+                timed_out=False,
+            )
+
+        with mock.patch.object(session_module, "_attempt", flaky):
+            outcome = run_case(
+                make_case(),
+                ARMS["full"],
+                1,
+                plugin_root=PLUGIN_ROOT,
+                workspace_root=Path(tempfile.mkdtemp(prefix="cp-retry-")),
+                python_executable=sys.executable,
+                installed=INSTALLED,
+                backoff_seconds=1.0,
+                sleep=waits.append,
+            )
+        self.assertEqual(outcome.attempts, 3)
+        self.assertFalse(outcome.rate_limited)
+        self.assertEqual(waits, [1.0, 2.0])
+
+    def test_exhausted_retries_come_back_marked_rather_than_scored(self) -> None:
+        def always(*argv, **kwargs):
+            return Run(
+                case_id="c",
+                arm="full",
+                repetition=1,
+                stream="",
+                stderr="429 rate limit",
+                exit_code=1,
+                duration_seconds=0.1,
+                stopped_early=False,
+                timed_out=False,
+            )
+
+        with mock.patch.object(session_module, "_attempt", always):
+            outcome = run_case(
+                make_case(),
+                ARMS["full"],
+                1,
+                plugin_root=PLUGIN_ROOT,
+                workspace_root=Path(tempfile.mkdtemp(prefix="cp-retry2-")),
+                python_executable=sys.executable,
+                installed=INSTALLED,
+                max_attempts=2,
+                backoff_seconds=0.0,
+                sleep=lambda _: None,
+            )
+        self.assertTrue(outcome.rate_limited)
+        self.assertEqual(outcome.attempts, 2)
+        # Incomplete, so it is absent from the denominator rather than counted
+        # as a workflow that failed to activate.
+        observation = observe(
+            make_case(),
+            "full",
+            1,
+            transcript.read(outcome.stream, INSTALLED),
+            expects_index=True,
+            expects_instruction=True,
+            duration_seconds=0.1,
+            stopped_early=False,
+            stream_error="claude exited 1",
+        )
+        self.assertFalse(observation.complete)
+        self.assertIsNone(observation.passed)
+
+
 class FixtureTests(unittest.TestCase):
     def test_every_named_fixture_materializes(self) -> None:
         base = Path(tempfile.mkdtemp(prefix="cp-fixture-"))
@@ -745,6 +848,73 @@ class OrchestrationTests(unittest.TestCase):
         }
         failures = runner.gate(payload, floor=0.7, max_false_positive=0.1)
         self.assertEqual(len(failures), 2)
+
+    def test_results_keep_corpus_order_whatever_the_pool_does(self) -> None:
+        # Row order that depended on scheduling would make two matrices
+        # undiffable even when every observation agreed.
+        cases = [make_case(case_id=f"c{index}") for index in range(6)]
+        delays = {"c0": 0.05, "c3": 0.03}
+
+        def fake(case, arm, repetition, **kwargs):
+            time.sleep(delays.get(case.case_id, 0.0))
+            return Run(
+                case_id=case.case_id,
+                arm=arm.name,
+                repetition=repetition,
+                stream=stream(
+                    hook_response(INDEX_TEXT),
+                    hook_response(STANDING_TEXT),
+                    skill_call("diagnose-systematically"),
+                    result(),
+                ),
+                stderr="",
+                exit_code=0,
+                duration_seconds=0.1,
+                stopped_early=False,
+                timed_out=False,
+            )
+
+        payload = runner.execute(
+            cases=cases,
+            arms=[ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=Path(tempfile.mkdtemp(prefix="cp-order-")),
+            runner=fake,
+            workers=4,
+        )
+        observed = [item["case_id"] for item in payload["observations"]]
+        self.assertEqual(observed, [case.case_id for case in cases])
+        self.assertEqual(payload["run"]["workers"], 4)
+
+    def test_workers_outside_the_ceiling_are_refused(self) -> None:
+        for workers in (0, runner.MAX_WORKERS + 1):
+            with self.subTest(workers=workers), self.assertRaises(runner.RunnerError):
+                runner.execute(
+                    cases=[make_case()],
+                    arms=[ARMS["full"]],
+                    repetitions=1,
+                    plugin_root=PLUGIN_ROOT,
+                    installed=INSTALLED,
+                    python_executable=sys.executable,
+                    model="sonnet",
+                    max_cost_usd=0.1,
+                    timeout_seconds=10.0,
+                    claude_executable="unused",
+                    artifacts=None,
+                    workers=workers,
+                )
+
+    def test_the_default_worker_count_stays_where_it_was_set(self) -> None:
+        self.assertEqual(runner.DEFAULT_WORKERS, 3)
+        self.assertEqual(runner.MAX_WORKERS, 4)
 
     def test_execute_refuses_an_empty_selection(self) -> None:
         with self.assertRaises(runner.RunnerError):

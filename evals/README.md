@@ -103,6 +103,18 @@ met; a should-not-fire run is always paid in full, because a workflow that has n
 is not a workflow that will not be invoked. `--max-cost-usd` bounds each run and
 `--timeout-seconds` bounds each wall clock.
 
+Measured on a 30-invocation pilot against `sonnet`: **$0.35 per should-not-fire run**, about
+**$0.70–0.97** for a should-fire run that never fires, and effectively nothing for one that fires
+early. Roughly 40 seconds per run.
+
+`--workers` runs up to four sessions at once (default 3, `1` for sequential). Each already has its
+own workspace, so the ceiling is the provider's patience rather than isolation. A run the provider
+throttles is waited out with exponential backoff and retried — **never scored as a case failure**,
+because a rate limit says nothing about whether the workflow would have activated. A run still
+throttled after the last attempt is recorded as incomplete: absent from the denominator rather than
+counted as a miss. `retriedRuns` and `rateLimitedRuns` are reported beside the rates, because a
+matrix that needed forty retries was measured against a busy provider.
+
 Raw transcripts land in `evals/artifacts/` only with `--keep-transcripts`, and that directory is
 git-ignored: a transcript carries the whole session, including anything the fixture and the
 operator's environment put in front of the model.

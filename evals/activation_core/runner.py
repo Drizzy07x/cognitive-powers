@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -23,6 +25,13 @@ from .cases import Case
 from .scoring import Observation, observe, score_arm
 from .session import Run, run_case
 from .transcript import read
+
+
+# Three concurrent sessions is the working default and four the ceiling. Above
+# that the provider throttles more than the wall clock improves, and every
+# retry spent waiting is a session held open for nothing.
+DEFAULT_WORKERS = 3
+MAX_WORKERS = 4
 
 
 class RunnerError(RuntimeError):
@@ -77,12 +86,15 @@ def execute(
     workspace_root: Path | None = None,
     progress: Callable[[str], None] | None = None,
     runner: Callable[..., Run] = run_case,
+    workers: int = DEFAULT_WORKERS,
 ) -> dict[str, Any]:
     """Run the whole matrix and return the scored payload."""
     if not cases:
         raise RunnerError("the selection matched no cases")
     if repetitions < 1:
         raise RunnerError("repetitions must be at least 1")
+    if not 1 <= workers <= MAX_WORKERS:
+        raise RunnerError(f"workers must be between 1 and {MAX_WORKERS}")
 
     unknown = sorted({case.fixture for case in cases} - set(fixtures.fixture_names()))
     if unknown:
@@ -94,49 +106,74 @@ def execute(
         if workspace_root
         else Path(tempfile.mkdtemp(prefix="cp-activation-"))
     )
-    observations: list[Observation] = []
-    transcripts: list[dict[str, Any]] = []
+    work = [
+        (arm, case, repetition)
+        for arm in arms
+        for case in cases
+        for repetition in range(1, repetitions + 1)
+    ]
+    results: list[tuple[Observation, Run] | None] = [None] * len(work)
+    done = threading.Lock()
+    finished = [0]
+
+    def _one(index: int) -> None:
+        arm, case, repetition = work[index]
+        run = runner(
+            case,
+            arm,
+            repetition,
+            plugin_root=plugin_root,
+            workspace_root=base / arm.name,
+            python_executable=python_executable,
+            installed=installed,
+            model=model,
+            max_cost_usd=max_cost_usd,
+            timeout_seconds=timeout_seconds,
+            claude_executable=claude_executable,
+        )
+        reading = read(run.stream, installed)
+        observation = observe(
+            case,
+            arm.name,
+            repetition,
+            reading,
+            expects_index=arm.expects_index,
+            expects_instruction=arm.expects_instruction,
+            duration_seconds=run.duration_seconds,
+            stopped_early=run.stopped_early,
+            stream_error=_stream_error(run),
+        )
+        results[index] = (observation, run)
+        if progress is not None:
+            # Reported on completion rather than on start, so the line is a
+            # fact about a run that happened. With several workers in flight,
+            # a start line would interleave into an order no result follows.
+            with done:
+                finished[0] += 1
+                progress(
+                    f"[{finished[0]}/{len(work)}] {arm.name}/{case.case_id}"
+                    f"#{repetition} -> {'fired ' + ','.join(observation.fired) if observation.fired else 'silent'}"
+                )
+
     try:
-        for arm in arms:
-            for case in cases:
-                for repetition in range(1, repetitions + 1):
-                    if progress is not None:
-                        progress(f"{arm.name}/{case.case_id}#{repetition}")
-                    run = runner(
-                        case,
-                        arm,
-                        repetition,
-                        plugin_root=plugin_root,
-                        workspace_root=base / arm.name,
-                        python_executable=python_executable,
-                        installed=installed,
-                        model=model,
-                        max_cost_usd=max_cost_usd,
-                        timeout_seconds=timeout_seconds,
-                        claude_executable=claude_executable,
-                    )
-                    reading = read(run.stream, installed)
-                    observations.append(
-                        observe(
-                            case,
-                            arm.name,
-                            repetition,
-                            reading,
-                            expects_index=arm.expects_index,
-                            expects_instruction=arm.expects_instruction,
-                            duration_seconds=run.duration_seconds,
-                            stopped_early=run.stopped_early,
-                            stream_error=_stream_error(run),
-                        )
-                    )
-                    if artifacts is not None:
-                        transcripts.append(_write_transcript(artifacts, run))
+        # Results are placed by index, never appended, so the report is
+        # identical whatever order the pool finishes in. A matrix whose row
+        # order depended on scheduling could not be diffed against the last one.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(_one, range(len(work))))
     finally:
         if owned:
             # Workspaces hold nothing worth keeping and everything worth not
             # leaving behind: a settings file naming the operator's interpreter
             # and a durable-state root written by the plugin under test.
             shutil.rmtree(base, ignore_errors=True)
+
+    observations = [entry[0] for entry in results if entry is not None]
+    transcripts = (
+        [_write_transcript(artifacts, entry[1]) for entry in results if entry]
+        if artifacts is not None
+        else []
+    )
 
     scored = [
         score_arm(
@@ -158,6 +195,16 @@ def execute(
             "invocations": len(observations),
             "maxCostUsd": max_cost_usd,
             "timeoutSeconds": timeout_seconds,
+            "workers": workers,
+            # Retries are reported rather than hidden: a matrix that needed
+            # forty of them was measured against a throttled provider, and
+            # that belongs beside its rates.
+            "retriedRuns": sum(
+                1 for entry in results if entry and entry[1].attempts > 1
+            ),
+            "rateLimitedRuns": sum(
+                1 for entry in results if entry and entry[1].rate_limited
+            ),
         },
         "plan": plan(arms, cases, repetitions),
         "arms": scored,
