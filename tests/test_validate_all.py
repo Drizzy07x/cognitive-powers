@@ -104,7 +104,7 @@ class ValidateAllTests(unittest.TestCase):
             for line in requirements
             if line.strip() and not line.lstrip().startswith("#")
         ]
-        self.assertEqual(declared, ["ruff==0.15.21"])
+        self.assertEqual(declared, ["ruff==0.16.1"])
 
         workflow = (PLUGIN_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
