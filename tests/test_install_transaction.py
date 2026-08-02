@@ -47,6 +47,22 @@ class InstallTransactionScenarios:
     recovery directory.
     """
 
+    # A scenario a concrete installer cannot express states why here, so that
+    # skipping is a decision on the record rather than a silently absent case.
+    recovery_scenario_skip = ""
+
+    # Declared rather than left to AttributeError: a third installer class is
+    # the obvious next use of this mixin, and "object has no attribute" names
+    # neither the hook nor the reason it exists.
+    def installer_path(self) -> Path:
+        raise NotImplementedError("name the installer script this class exercises")
+
+    def installer_argv(self, script: Path | None = None) -> list[str]:
+        raise NotImplementedError("give the argv that runs this installer")
+
+    def local_application_data(self) -> Path:
+        raise NotImplementedError("name the directory this host puts recovery in")
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
@@ -86,22 +102,33 @@ class InstallTransactionScenarios:
             windows=f'@"{python}" "{FAKE_GH}" %*\r\n',
             posix=f'#!/bin/sh\nexec "{python}" "{FAKE_GH}" "$@"\n',
         )
+        self.write_git_shim("b" * 40)
+        # The transaction harness exercises rollback and ordering.  The canonical
+        # verifier has its own real-Git fixture tests, so isolate this boundary.
+        self.write_python_shim()
+
+    def write_git_shim(self, revision: str) -> None:
+        """Answer `git -C <root> rev-parse HEAD` with a revision a test chooses.
+
+        Both installers accept a restore from the pinned remote only when the
+        restored marketplace really sits on the previous commit, and a fixed
+        answer of exactly that commit makes the comparison unfalsifiable: the
+        branch that rejects a marketplace restored to the wrong revision was
+        reachable only if the shim could disagree.
+        """
         self.shim(
             "git",
             windows=(
-                f'@if "%1"=="-C" echo {"b" * 40}\r\n'
+                f'@if "%1"=="-C" echo {revision}\r\n'
                 '@if "%1"=="-C" exit /b 0\r\n'
                 "@git.exe %*\r\n"
             ),
             posix=(
                 "#!/bin/sh\n"
-                f'if [ "$1" = "-C" ]; then echo {"b" * 40}; exit 0; fi\n'
+                f'if [ "$1" = "-C" ]; then echo {revision}; exit 0; fi\n'
                 f'exec "{self.real_git}" "$@"\n'
             ),
         )
-        # The transaction harness exercises rollback and ordering.  The canonical
-        # verifier has its own real-Git fixture tests, so isolate this boundary.
-        self.write_python_shim()
 
     def write_python_shim(self, exit_code: int | None = None) -> None:
         """Stand in for the interpreter the installer runs.
@@ -412,6 +439,52 @@ class InstallTransactionScenarios:
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.read_state()["installed"], [personal])
 
+    def recovery_directories(self) -> list[Path]:
+        """Recovery copies that are still on disk after the installer exited."""
+        parent = self.local_application_data() / "cognitive-powers"
+        if not parent.is_dir():
+            return []
+        return sorted(path for path in parent.glob("rollback-*") if path.is_dir())
+
+    def flattened_output(self, result: subprocess.CompletedProcess[str]) -> str:
+        """Both streams as one line, with PowerShell's error framing removed.
+
+        A thrown PowerShell error is colourized and word-wrapped to the console
+        width, with every continuation line prefixed by "  | ", so a sentence in
+        it matches no phrase and a path can end up on a line of its own. The
+        wrap is at spaces, so rejoining the lines with a space restores the
+        text; the shell's own message arrives as one line and is unaffected.
+        """
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout + "\n" + result.stderr)
+        lines = (re.sub(r"^\s*\|\s?", "", line).strip() for line in text.splitlines())
+        return " ".join(line for line in lines if line)
+
+    def assert_named_recovery_exists(
+        self, result: subprocess.CompletedProcess[str]
+    ) -> None:
+        """A message naming a directory has to name one that is there.
+
+        The failure text tells the operator to keep a recovery marketplace, and
+        the cleanup step removes it unless the transaction asked otherwise.
+        Nothing checked that those two agreed, so the message was free to name a
+        path that had already been deleted -- advice that reads as reassurance
+        and leaves nothing behind to act on.
+        """
+        output = self.flattened_output(result)
+        self.assertRegex(
+            output,
+            r"[Rr]ecovery marketplace",
+            "the failure claims no recovery marketplace at all",
+        )
+        named = re.findall(r"rollback-[0-9a-f-]{36}", output)
+        self.assertTrue(named, f"the failure names no recovery directory: {output}")
+        surviving = {path.name for path in self.recovery_directories()}
+        self.assertEqual(
+            set(named),
+            surviving,
+            f"the failure names {sorted(set(named))}, on disk: {sorted(surviving)}",
+        )
+
     def test_cleanup_failure_cannot_report_success_and_preserves_recovery(self) -> None:
         self.state(
             installed=[self.plugin()],
@@ -424,6 +497,58 @@ class InstallTransactionScenarios:
         recovery = [m for m in state["marketplaces"] if m["name"] == "cognitive-powers"]
         self.assertTrue(recovery)
         self.assertTrue(any("rollback-" in m["root"] for m in recovery))
+        self.assert_named_recovery_exists(result)
+
+    def test_recovery_survives_when_the_remote_restore_did_not_verify(self) -> None:
+        """Restoring from the remote is not the same as having restored.
+
+        The recovery copy is kept when the profile was pointed back at it, and
+        dropped when the pinned remote took over -- but "the remote took over"
+        was read from the attempt rather than from the verification. When the
+        remote marketplace came back and the restored state then failed to
+        check out, the copy was deleted and the failure message still told the
+        operator to keep it. The one case where recovery material matters most
+        is the one that had none.
+
+        The rollback re-add of the previous plugin fails here, so the remote
+        marketplace is restored while the plugin inventory is not.
+        """
+        self.state(
+            installed=[self.plugin()],
+            marketplaces=[self.marketplace()],
+            failures={"plugin add cognitive-powers@cognitive-powers --json": 2},
+        )
+
+        result = self.run_installer()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_named_recovery_exists(result)
+
+    def test_a_marketplace_restored_to_the_wrong_revision_is_not_a_rollback(
+        self,
+    ) -> None:
+        """The pinned commit is the whole point of restoring from the remote.
+
+        A marketplace that comes back on some other revision is a different
+        installation wearing the previous one's name, so the rollback has not
+        succeeded and the recovery copy is still the only material that can
+        reproduce what was there. With the shim answering the previous commit
+        unconditionally this branch could never be entered.
+        """
+        self.write_git_shim("c" * 40)
+        self.state(
+            installed=[self.plugin()],
+            marketplaces=[self.marketplace()],
+            failures={"plugin add cognitive-powers@cognitive-powers --json": 1},
+        )
+
+        result = self.run_installer()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(
+            "The previous installation was restored.", self.flattened_output(result)
+        )
+        self.assert_named_recovery_exists(result)
 
     def test_success_has_one_enabled_private_target_version(self) -> None:
         self.state()
@@ -685,6 +810,100 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         self.assertIsNotNone(declared)
         self.assertIsNotNone(ported)
         self.assertEqual(declared.group(1), ported.group(1))
+
+
+@unittest.skipUnless(
+    shutil.which("pwsh") is not None and shutil.which("bash") is not None,
+    "comparing the installers needs both pwsh and bash",
+)
+class InstallerEquivalenceTests(unittest.TestCase):
+    """The two installers must issue the same commands, not merely both pass.
+
+    Sharing the scenarios makes each installer meet the same expectations; it
+    does not make them meet those expectations the same way. Either could remove
+    the plugin before the marketplace instead of after, verify the provisional
+    installation a step later, or restore the previous plugins in a different
+    order, and both suites would stay green -- while a host that cares about
+    ordering saw two different transactions. The port's claim is that it is the
+    same transaction, and that claim is about the sequence of calls.
+    """
+
+    ABSOLUTE = re.compile(r"^(/|[A-Za-z]:[\\/])")
+
+    def command_log(self, harness, **scenario) -> tuple[int, list[list[str]]]:
+        # A TestCase needs a method name that exists; nothing here is run
+        # through the unittest machinery, only the fixture is borrowed.
+        case = harness("setUp")
+        case.setUp()
+        try:
+            case.state(**scenario)
+            result = case.run_installer()
+            return result.returncode, self.normalize(case.read_state()["log"])
+        finally:
+            case.tearDown()
+
+    def normalize(self, log: list[list[str]]) -> list[list[str]]:
+        """Collapse the arguments that are fixture locations rather than choices.
+
+        The recovery marketplace is passed by absolute path, and each harness
+        runs under its own temporary directory, so those tokens differ by
+        construction. Everything that encodes a decision -- the subcommand, the
+        plugin id, the pinned ref -- is left exactly as the installer sent it.
+        """
+        return [
+            ["<path>" if self.ABSOLUTE.match(token) else token for token in argv]
+            for argv in log
+        ]
+
+    def assert_installers_agree(self, **scenario) -> None:
+        powershell_code, powershell_log = self.command_log(
+            InstallTransactionTests, **scenario
+        )
+        posix_code, posix_log = self.command_log(InstallShTransactionTests, **scenario)
+        self.assertEqual(
+            powershell_code == 0,
+            posix_code == 0,
+            f"install.ps1 exited {powershell_code}, install.sh exited {posix_code}",
+        )
+        # Two empty logs are equal, so an equality check alone passes loudest
+        # when both installers stopped before doing anything -- a preflight that
+        # broke on both hosts would read as perfect agreement.
+        self.assertTrue(
+            powershell_log,
+            "neither installer reached the profile; the comparison proves nothing",
+        )
+        self.assertEqual(
+            powershell_log,
+            posix_log,
+            "the installers issued different command sequences",
+        )
+
+    def test_a_clean_install_issues_the_same_commands(self) -> None:
+        self.assert_installers_agree()
+
+    def test_a_failed_upgrade_rolls_back_through_the_same_commands(self) -> None:
+        case = InstallTransactionTests("setUp")
+        case.setUp()
+        try:
+            prior = [
+                case.plugin(),
+                case.plugin("cognitive-powers@personal", "1.5.2"),
+            ]
+            personal = {
+                "name": "personal",
+                "root": str(case.personal_root),
+                "marketplaceSource": {"source": "local"},
+            }
+            marketplaces = [case.marketplace(), personal]
+        finally:
+            case.tearDown()
+        # The roots inside these records are rewritten by each harness's own
+        # state(), so only their shape travels between the two runs.
+        self.assert_installers_agree(
+            installed=prior,
+            marketplaces=marketplaces,
+            failures={"plugin add cognitive-powers@cognitive-powers --json": 1},
+        )
 
 
 if __name__ == "__main__":

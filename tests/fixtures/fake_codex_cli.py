@@ -7,6 +7,12 @@ installers can consume, because PowerShell accepts either separator while a
 backslash inside a bash string is an escape rather than a path component. The
 alternative was a second fake that differed only in that detail, which is how
 two fixtures drift into testing two different contracts.
+
+Non-zero exits are kept distinct so a failure says which kind it was: 41 is a
+failure a scenario injected through ``failures``, 64 is a subcommand this fake
+does not implement, and 65 is a request that is invalid against the current
+state. One status for all three would let a mistyped subcommand read as the
+fault the scenario meant to exercise.
 """
 
 from __future__ import annotations
@@ -82,10 +88,22 @@ def main(argv: list[str]) -> int:
     elif argv[:2] == ["plugin", "add"]:
         plugin_id = argv[2]
         if plugin_id.endswith("@cognitive-powers"):
-            current = next(
+            # Real Codex refuses this, and the fixture has to refuse it the same
+            # way. A bare next() raised StopIteration, which reaches the
+            # installer as an exit status with a Python traceback attached to
+            # the transaction's own error output -- a fixture defect wearing the
+            # costume of the failure under test.
+            current = [
                 m for m in state["marketplaces"] if m["name"] == "cognitive-powers"
-            )
-            manifest = Path(current["root"]) / ".codex-plugin" / "plugin.json"
+            ]
+            if not current:
+                print(
+                    "no marketplace named cognitive-powers is configured",
+                    file=sys.stderr,
+                )
+                save(state_path, state)
+                return 65
+            manifest = Path(current[0]["root"]) / ".codex-plugin" / "plugin.json"
             version = json.loads(manifest.read_text(encoding="utf-8"))["version"]
         else:
             version = state.get("personal_version", "1.5.2")
