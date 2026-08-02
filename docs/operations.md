@@ -176,6 +176,50 @@ Do not remove the bundle until a newer complete bundle and retained state have
 both been verified. Schema migration remains forward-only with a verified copy;
 there is no destructive downgrade path.
 
+## Run the installer
+
+Two scripts perform one transaction. `install.ps1` is the PowerShell 7 path and
+`install.sh` the POSIX path for Linux and macOS; both take the release tag as an
+option, default to the declared release, and are moved together by
+`scripts/bump_version.py`, so neither can be left naming an older tag:
+
+```powershell
+& ./install.ps1 -ReleaseRef v1.8.1
+```
+
+```bash
+./install.sh --release-ref v1.8.1
+```
+
+`install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
+transfers between hosts unchanged. Both resolve the tag to a 40-character commit
+through `gh` before reading the profile, copy the configured marketplace to a
+recovery directory before any removal, and restore the previous installation --
+from the pinned remote commit when that is possible, from the recovery copy
+otherwise -- if any step fails. A recovery copy that had to be used is preserved
+and named in the failure message, and a later run recognizes it and resumes the
+upgrade from it rather than refusing it.
+
+Run either script from its own checkout. The canonical verifier is resolved
+beside the script (`$PSScriptRoot` and `${BASH_SOURCE[0]}` respectively), so a
+copy moved away from `scripts/verify_installed.py` has no postcondition to run
+and the transaction rolls back.
+
+Where PowerShell supplies something the shell does not, `install.sh` marks the
+substitution with a `DIVERGENCE` comment and says why it is safe. The ones worth
+knowing at the console:
+
+| PowerShell | POSIX port | Consequence |
+|---|---|---|
+| `python` | `$COGNITIVE_POWERS_PYTHON`, then `python3`, then `python` | PEP 394 makes a bare `python` absent on most distributions; set the variable to pin an interpreter. |
+| `ConvertFrom-Json` | the preflight-verified interpreter | The interpreter is proven runnable before the first document is parsed, in the position `install.ps1` already proves it. |
+| `GetFolderPath("LocalApplicationData")` | `${XDG_DATA_HOME:-$HOME/.local/share}` | The same directory .NET reports on Unix, so a recovery marketplace written by either script is recognized by both. |
+| `[IO.Path]::GetFullPath` | `cd` plus `pwd -P` | Resolves symlinks rather than normalizing lexically, which is what a symlinked `$TMPDIR` or `$HOME` requires. |
+| `[ValidatePattern]` | an explicit check before the preflight | The expected version is a substring of the ref, so a malformed ref would be verified against nonsense. |
+
+Both scripts exit `1` on any failure, so a caller cannot tell them apart by
+status.
+
 ## Verify an installed release
 
 After an explicitly authorized installation, run the canonical read-only

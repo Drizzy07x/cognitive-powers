@@ -54,19 +54,26 @@ session with no marketplace and no install step.
 
 **Codex** — the installer resolves the release tag to an immutable commit
 through GitHub CLI before it reads or changes the profile, so `gh` must be
-installed and authenticated:
+installed and authenticated. `install.ps1` and `install.sh` are the same
+transaction; run whichever your host has:
 
 ```powershell
 & ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.8.1' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-It creates a local recovery copy before any removal, pins the marketplace to
-that commit SHA, verifies exactly one enabled entry at the named version, and
-restores the prior state if a step fails. Pass `-ReleaseRef v1.7.2` for an
-immutable rollback to an earlier published tag; 1.6.0 and 1.7.0 exist only as
-changelog sections, never as tags. Restart Codex before starting a new task. The
-release and local-development routes are mutually exclusive; the
-[Operational guide](docs/operations.md) covers switching between them.
+```bash
+git clone --branch v1.8.1 --depth 1 https://github.com/Drizzy07x/cognitive-powers && ./cognitive-powers/install.sh
+```
+
+Both create a local recovery copy before any removal, pin the marketplace to
+that commit SHA, verify exactly one enabled entry at the named version, and
+restore the prior state if a step fails. Pass `-ReleaseRef v1.7.2` (or
+`--release-ref`, which `install.sh` also accepts) for an immutable rollback to
+an earlier published tag; 1.6.0 and 1.7.0 exist only as changelog sections,
+never as tags. Restart Codex before starting a new task. The release and
+local-development routes are mutually exclusive; the
+[Operational guide](docs/operations.md) covers switching between them, and the
+divergences the POSIX port had to make.
 
 ## Quickstart: three flows
 
