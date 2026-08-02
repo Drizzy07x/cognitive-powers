@@ -24,7 +24,9 @@ pure functions with their own tests in `tests/test_activation_eval_*.py`.
 ./evals/run.ps1 -Quick
 
 # All three arms, whole corpus, three repetitions. Roughly a thousand invocations.
-./evals/run.ps1 -Full -Arm none -Arm instruction -Arm full -Reps 3 -JsonOutput C:\tmp\activation.json
+# Arms are comma-separated: PowerShell binds an array parameter once, so
+# repeating -Arm is an error rather than a second value.
+./evals/run.ps1 -Full -Arm none,instruction,full -Reps 3 -JsonOutput C:\tmp\activation.json
 
 # One workflow, with the should-not-fire pool that always rides along.
 ./evals/run.ps1 -Skills diagnose-systematically,refactor-cleanly -Reps 5

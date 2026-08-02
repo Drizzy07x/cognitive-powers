@@ -13,7 +13,10 @@
     before spending anything.
 
 .PARAMETER Arm
-    Arms to run: none, instruction, full. Repeatable. Defaults to full.
+    Arms to run, comma-separated: -Arm none,instruction,full. Defaults to full.
+    PowerShell binds an array parameter once, so repeating the switch is an
+    error rather than a second value -- the Python flag is repeatable, this is
+    not, and the wrapper translates.
 
 .PARAMETER Reps
     Repetitions per case. Defaults to 3, because a single run of a
@@ -27,7 +30,7 @@
     ./evals/run.ps1 -Quick -Arm full
 
 .EXAMPLE
-    ./evals/run.ps1 -Full -Arm none -Arm instruction -Arm full -Reps 3 -JsonOutput C:\tmp\activation.json
+    ./evals/run.ps1 -Full -Arm none,instruction,full -Reps 3 -JsonOutput C:\tmp\activation.json
 #>
 [CmdletBinding()]
 param(

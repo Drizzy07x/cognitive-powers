@@ -31,6 +31,7 @@ from typing import Iterable, NamedTuple
 from .arms import ALL_TOGGLES, Arm
 from .cases import Case
 from .fixtures import materialize
+from .transcript import SKILL_TOOL
 
 PLUGIN_CONFIG_KEY = "cognitive-powers@inline"
 
@@ -235,7 +236,12 @@ def run_case(
     try:
         for line in process.stdout:
             collected.append(line.rstrip("\n"))
-            if _settled(collected, case, installed):
+            # Cheap pre-filter before the structural check, which re-reads the
+            # whole stream. Only a line that mentions the Skill tool can change
+            # the verdict, so a session that reads twenty files no longer pays
+            # a full re-parse per line. The substring never decides anything --
+            # it only decides whether to ask the reader.
+            if SKILL_TOOL in line and _settled(collected, case, installed):
                 stopped_early = True
                 break
     finally:
