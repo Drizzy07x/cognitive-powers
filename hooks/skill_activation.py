@@ -58,6 +58,15 @@ HEADER = (
     "non-trivial request, check whether one of these trigger conditions "
     "matches what was actually asked:"
 )
+# The same standing order with no catalogue under it. The host already lists
+# every workflow's name and trigger conditions, so this wording claims only the
+# part the index does not duplicate, and it has to read correctly on its own:
+# it is what ships if the eval harness finds the index earns nothing.
+INSTRUCTION_ONLY_HEADER = (
+    "Cognitive Powers workflows are installed here, and this session already "
+    "lists each one's name and trigger conditions. Before starting any "
+    "non-trivial request, check that list against what was actually asked."
+)
 CLAUDE_FOOTER = (
     "Invoke a match with the Skill tool as cognitive-powers:<name> before "
     "acting on the request."
@@ -145,6 +154,19 @@ def index_message(triggers: Mapping[str, str], claude_code: bool) -> str | None:
     return "\n".join([HEADER, *lines, footer, STANDING_RULE])
 
 
+def standing_message(triggers: Mapping[str, str], claude_code: bool) -> str | None:
+    """Render the standing instruction alone, or None for an empty catalogue.
+
+    Same precondition as ``index_message``: an instruction to consult a
+    catalogue is worth nothing when there is no catalogue to consult, and the
+    emptiness is the only thing the two renderings must agree about.
+    """
+    if not triggers:
+        return None
+    footer = CLAUDE_FOOTER if claude_code else CODEX_FOOTER
+    return "\n".join([INSTRUCTION_ONLY_HEADER, footer, STANDING_RULE])
+
+
 def _source(payload: Mapping[str, Any]) -> Any:
     for name in ("source", "trigger"):
         value = payload.get(name)
@@ -170,10 +192,25 @@ def build(payload: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill catalogue is unreadable"}
 
-    message = index_message(triggers, claude_code)
+    # Two renderings, one event. The eval harness needs an arm that keeps the
+    # standing instruction and drops the catalogue, because that arm is exactly
+    # the state this hook would ship in if the catalogue turns out to buy
+    # nothing over what the host already loads. Selecting it here rather than
+    # in the harness means the arm under measurement is the shipped code path.
+    index = not os.environ.get("COGNITIVE_POWERS_DISABLE_ACTIVATION_INDEX")
+    message = (
+        index_message(triggers, claude_code)
+        if index
+        else standing_message(triggers, claude_code)
+    )
     if message is None:
         return {"status": "skipped", "reason": "no readable skill catalogue"}
-    return {"status": "injected", "message": message, "skills": len(triggers)}
+    return {
+        "status": "injected",
+        "message": message,
+        "skills": len(triggers),
+        "index": index,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Measure Cognitive Powers workflow activation against the real host.
+
+Outside the offline gate by construction: every run spawns ``claude`` and costs
+money, which is the same reason the semantic and browser benchmark runners sit
+outside it. What the gate does cover is everything this file delegates to --
+corpus loading, transcript reading, arm verification and scoring are pure
+functions with their own tests.
+
+    python evals/run_activation_eval.py --arm full --reps 3 --quick
+    python evals/run_activation_eval.py --arm none --arm instruction --arm full
+    python evals/run_activation_eval.py --validate-only
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+EVALS_ROOT = Path(__file__).resolve().parent
+PLUGIN_ROOT = EVALS_ROOT.parent
+
+for candidate in (EVALS_ROOT, PLUGIN_ROOT / "scripts"):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+
+from activation_core import runner  # noqa: E402
+from activation_core.arms import ARMS, DEFAULT_ARM, arm_names  # noqa: E402
+from activation_core.cases import CorpusError, load_corpus, select  # noqa: E402
+from activation_core.report import as_markdown  # noqa: E402
+from activation_core.session import default_python  # noqa: E402
+
+DEFAULT_CASES = EVALS_ROOT / "cases"
+DEFAULT_ARTIFACTS = EVALS_ROOT / "artifacts"
+
+
+def _installed_workflows() -> frozenset[str]:
+    """The workflows the plugin actually ships, read from the tree.
+
+    Read rather than listed. A hand-maintained list would let a workflow be
+    added without ever being measured, and the eval would report full coverage
+    of a catalogue it had not seen.
+    """
+    from skill_routing import load_skill_triggers
+
+    return frozenset(load_skill_triggers(PLUGIN_ROOT))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--arm",
+        action="append",
+        choices=sorted(arm_names()),
+        help="Arm to run; repeatable. Defaults to the shipped configuration.",
+    )
+    parser.add_argument("--reps", type=int, default=3, help="Repetitions per case.")
+    parser.add_argument(
+        "--skills",
+        help="Comma-separated workflow names. The should-not-fire pool always runs.",
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Only cases marked quick in the corpus.",
+    )
+    parser.add_argument(
+        "--full", action="store_true", help="The whole corpus. Overrides --quick."
+    )
+    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--model", default="sonnet")
+    parser.add_argument("--json-output", type=Path)
+    parser.add_argument("--markdown-output", type=Path)
+    parser.add_argument(
+        "--artifacts",
+        type=Path,
+        default=None,
+        help=f"Directory for raw transcripts. Default {DEFAULT_ARTIFACTS} when --keep-transcripts.",
+    )
+    parser.add_argument("--keep-transcripts", action="store_true")
+    parser.add_argument("--max-cost-usd", type=float, default=0.75)
+    parser.add_argument("--timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--python-executable", default=None)
+    parser.add_argument("--claude", default="claude")
+    parser.add_argument(
+        "--floor",
+        type=float,
+        default=0.0,
+        help="Fail when an arm's should-fire rate falls below this.",
+    )
+    parser.add_argument("--max-false-positive", type=float, default=1.0)
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Load and check the corpus, print the plan, and spawn nothing.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        installed = _installed_workflows()
+        cases = load_corpus(args.cases, installed)
+    except (CorpusError, OSError) as error:
+        print(f"corpus is unusable: {error}", file=sys.stderr)
+        return 2
+
+    skills = args.skills.split(",") if args.skills else None
+    chosen = select(cases, skills=skills, quick=args.quick and not args.full)
+    if not chosen:
+        print("selection matched no cases", file=sys.stderr)
+        return 2
+
+    arms = [ARMS[name] for name in (args.arm or [DEFAULT_ARM])]
+    invocations = len(arms) * len(chosen) * args.reps
+
+    if args.validate_only:
+        print(
+            f"corpus ok: {len(cases)} cases, {len(chosen)} selected, "
+            f"{len(arms)} arm(s), {args.reps} repetition(s) "
+            f"-> {invocations} host invocations"
+        )
+        uncovered = sorted(
+            installed
+            - {name for case in cases if case.should_fire for name in case.expect}
+        )
+        if uncovered:
+            print(f"workflows with no should-fire case: {', '.join(uncovered)}")
+            return 1
+        return 0
+
+    executable = (
+        args.claude
+        if Path(args.claude).is_absolute()
+        else (shutil.which(args.claude) or args.claude)
+    )
+    artifacts = args.artifacts or (DEFAULT_ARTIFACTS if args.keep_transcripts else None)
+
+    print(f"running {invocations} host invocations", file=sys.stderr)
+    try:
+        payload = runner.execute(
+            cases=chosen,
+            arms=arms,
+            repetitions=args.reps,
+            plugin_root=PLUGIN_ROOT,
+            installed=installed,
+            python_executable=args.python_executable or default_python(),
+            model=args.model,
+            max_cost_usd=args.max_cost_usd,
+            timeout_seconds=args.timeout_seconds,
+            claude_executable=executable,
+            artifacts=artifacts,
+            progress=lambda label: print(label, file=sys.stderr),
+        )
+    except runner.RunnerError as error:
+        print(f"run failed: {error}", file=sys.stderr)
+        return 2
+
+    runner.write_outputs(
+        payload,
+        json_path=args.json_output,
+        markdown_path=args.markdown_output,
+    )
+    if args.markdown_output is None:
+        print(as_markdown(payload))
+    print(runner.summary_line(payload), file=sys.stderr)
+
+    failures = runner.gate(
+        payload, floor=args.floor, max_false_positive=args.max_false_positive
+    )
+    for failure in failures:
+        print(failure, file=sys.stderr)
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""Drive the corpus across arms and repetitions, and gate on the result.
+
+Two things happen before any process is spawned: the corpus is validated in
+full, and the planned work is written out. The first is a money guard -- a typo
+in case ninety should not cost eighty-nine runs to discover. The second is the
+honesty guard: the plan enumerates every intended (arm, case, repetition), so a
+run that never happened is a gap in the results rather than an absence nobody
+can see.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any, Callable, Sequence
+
+from . import fixtures
+from .arms import Arm, arm as get_arm
+from .cases import Case
+from .scoring import Observation, observe, score_arm
+from .session import Run, run_case
+from .transcript import read
+
+
+class RunnerError(RuntimeError):
+    """Raised when the harness cannot produce a measurement it would stand behind."""
+
+
+def plan(
+    arms: Sequence[Arm], cases: Sequence[Case], repetitions: int
+) -> list[dict[str, Any]]:
+    """Every intended invocation, written before any of them runs."""
+    return [
+        {
+            "arm": arm.name,
+            "case": case.case_id,
+            "repetition": repetition,
+            "polarity": case.polarity,
+            "expect": list(case.expect),
+        }
+        for arm in arms
+        for case in cases
+        for repetition in range(1, repetitions + 1)
+    ]
+
+
+def _stream_error(run: Run) -> str | None:
+    """Name a failure of the invocation itself, before the stream is read."""
+    if run.timed_out:
+        return "run exceeded the wall-clock timeout"
+    if run.exit_code != 0 and not run.stopped_early:
+        tail = " ".join(run.stderr.split())[-160:]
+        return (
+            f"claude exited {run.exit_code}: {tail}"
+            if tail
+            else (f"claude exited {run.exit_code}")
+        )
+    return None
+
+
+def execute(
+    *,
+    cases: Sequence[Case],
+    arms: Sequence[Arm],
+    repetitions: int,
+    plugin_root: Path,
+    installed: frozenset[str],
+    python_executable: str,
+    model: str,
+    max_cost_usd: float,
+    timeout_seconds: float,
+    claude_executable: str,
+    artifacts: Path | None,
+    workspace_root: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+    runner: Callable[..., Run] = run_case,
+) -> dict[str, Any]:
+    """Run the whole matrix and return the scored payload."""
+    if not cases:
+        raise RunnerError("the selection matched no cases")
+    if repetitions < 1:
+        raise RunnerError("repetitions must be at least 1")
+
+    unknown = sorted({case.fixture for case in cases} - set(fixtures.fixture_names()))
+    if unknown:
+        raise RunnerError(f"corpus names unknown fixtures: {', '.join(unknown)}")
+
+    owned = workspace_root is None
+    base = (
+        Path(workspace_root)
+        if workspace_root
+        else Path(tempfile.mkdtemp(prefix="cp-activation-"))
+    )
+    observations: list[Observation] = []
+    transcripts: list[dict[str, Any]] = []
+    try:
+        for arm in arms:
+            for case in cases:
+                for repetition in range(1, repetitions + 1):
+                    if progress is not None:
+                        progress(f"{arm.name}/{case.case_id}#{repetition}")
+                    run = runner(
+                        case,
+                        arm,
+                        repetition,
+                        plugin_root=plugin_root,
+                        workspace_root=base / arm.name,
+                        python_executable=python_executable,
+                        installed=installed,
+                        model=model,
+                        max_cost_usd=max_cost_usd,
+                        timeout_seconds=timeout_seconds,
+                        claude_executable=claude_executable,
+                    )
+                    reading = read(run.stream, installed)
+                    observations.append(
+                        observe(
+                            case,
+                            arm.name,
+                            repetition,
+                            reading,
+                            expects_index=arm.expects_index,
+                            expects_instruction=arm.expects_instruction,
+                            duration_seconds=run.duration_seconds,
+                            stopped_early=run.stopped_early,
+                            stream_error=_stream_error(run),
+                        )
+                    )
+                    if artifacts is not None:
+                        transcripts.append(_write_transcript(artifacts, run))
+    finally:
+        if owned:
+            # Workspaces hold nothing worth keeping and everything worth not
+            # leaving behind: a settings file naming the operator's interpreter
+            # and a durable-state root written by the plugin under test.
+            shutil.rmtree(base, ignore_errors=True)
+
+    scored = [
+        score_arm(
+            arm.name, [item for item in observations if item.arm == arm.name], cases
+        )
+        for arm in arms
+    ]
+
+    return {
+        "schemaVersion": 1,
+        "kind": "cognitive-powers-activation-eval",
+        "run": {
+            "model": model,
+            "repetitions": repetitions,
+            "cases": len(cases),
+            "shouldFireCases": sum(1 for case in cases if case.should_fire),
+            "shouldNotFireCases": sum(1 for case in cases if not case.should_fire),
+            "arms": [arm.name for arm in arms],
+            "invocations": len(observations),
+            "maxCostUsd": max_cost_usd,
+            "timeoutSeconds": timeout_seconds,
+        },
+        "plan": plan(arms, cases, repetitions),
+        "arms": scored,
+        "observations": [item._asdict() for item in observations],
+        "transcripts": transcripts,
+    }
+
+
+def _write_transcript(artifacts: Path, run: Run) -> dict[str, Any]:
+    """Persist one raw stream outside the repository and return its location."""
+    directory = artifacts / run.arm
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{run.case_id}-{run.repetition}.jsonl"
+    path.write_text(run.stream, encoding="utf-8", newline="\n")
+    return {
+        "arm": run.arm,
+        "case": run.case_id,
+        "repetition": run.repetition,
+        "path": str(path),
+    }
+
+
+def gate(
+    payload: dict[str, Any], *, floor: float, max_false_positive: float
+) -> list[str]:
+    """Return the reasons this run fails its thresholds, or an empty list.
+
+    An arm that produced no complete should-fire run fails rather than passing
+    silently. The alternative -- treating an unmeasurable arm as meeting its
+    floor -- is how a broken harness reports a healthy plugin.
+    """
+    failures: list[str] = []
+    for scored in payload.get("arms", []):
+        name = scored["arm"]
+        should_fire = scored.get("shouldFire", {})
+        rate = should_fire.get("passRate")
+        if rate is None:
+            failures.append(
+                f"arm {name}: no complete should-fire run, so no activation rate"
+            )
+        elif rate < floor:
+            failures.append(
+                f"arm {name}: activation {rate:.2f} is below the floor {floor:.2f}"
+            )
+        false_positive = scored.get("falsePositiveRate")
+        if false_positive is not None and false_positive > max_false_positive:
+            failures.append(
+                f"arm {name}: false positives {false_positive:.2f} exceed "
+                f"{max_false_positive:.2f}"
+            )
+    return failures
+
+
+def write_outputs(
+    payload: dict[str, Any],
+    *,
+    json_path: Path | None,
+    markdown_path: Path | None,
+) -> None:
+    from .report import as_json, as_markdown
+
+    if json_path is not None:
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(as_json(payload), encoding="utf-8", newline="\n")
+    if markdown_path is not None:
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(as_markdown(payload), encoding="utf-8", newline="\n")
+
+
+def summary_line(payload: dict[str, Any]) -> str:
+    parts = []
+    for scored in payload.get("arms", []):
+        rate = scored.get("shouldFire", {}).get("passRate")
+        shown = "--" if rate is None else f"{rate * 100:.0f}%"
+        parts.append(f"{scored['arm']}={shown}")
+    return " ".join(parts) or "no arms scored"
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+__all__ = [
+    "RunnerError",
+    "execute",
+    "gate",
+    "get_arm",
+    "load_json",
+    "plan",
+    "summary_line",
+    "write_outputs",
+]
