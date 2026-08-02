@@ -408,7 +408,19 @@ catch {
         }
     }
 
-    if ($rollbackPrepared -and $mutationStarted -and -not $restoredFromRemote) { $preserveRollback = $true }
+    # Kept whenever the rollback did not verify, not only when the profile was
+    # pointed back at this copy. Reading "the remote took over" from the attempt
+    # rather than from the verification meant a restore that came back on the
+    # wrong revision, or left the plugin inventory short, deleted the recovery
+    # copy while the failure message still told the operator to keep it -- so
+    # the one case where recovery material matters most was the one that had
+    # none, and the advice named a directory that was already gone.
+    if (
+        $rollbackPrepared -and $mutationStarted -and
+        (-not $restoredFromRemote -or -not $rollbackSucceeded)
+    ) {
+        $preserveRollback = $true
+    }
     $rollbackMessage = if ($rollbackSucceeded -and $preserveRollback) {
         "The previous installation was restored from recovery marketplace '$rollbackMarketplace'; keep that directory until a remote immutable marketplace is re-established. Re-running this installer recognizes that recovery marketplace and resumes the upgrade from it."
     }

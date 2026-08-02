@@ -754,7 +754,15 @@ rollback() {
         fi
     fi
 
-    if [ "$rollback_prepared" -eq 1 ] && [ "$restored_from_remote" -eq 0 ]; then
+    # Kept whenever the rollback did not verify, not only when the profile was
+    # pointed back at this copy. Reading "the remote took over" from the attempt
+    # rather than from the verification meant a restore that came back on the
+    # wrong revision, or left the plugin inventory short, deleted the recovery
+    # copy while the failure message still told the operator to keep it -- so
+    # the one case where recovery material matters most was the one that had
+    # none, and the advice named a directory that was already gone.
+    if [ "$rollback_prepared" -eq 1 ] &&
+        { [ "$restored_from_remote" -eq 0 ] || [ "$rollback_succeeded" != "1" ]; }; then
         preserve_rollback=1
     fi
     return 0
