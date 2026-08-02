@@ -20,7 +20,7 @@ vocabulary would steal its twin's prompts rather than add a capability.
 | 7 | A Philosophy of Software Design | Vague or unpickable names | Flag names that fit several meanings; a name that resists choosing is a design finding | `design-review` | new |
 | 8 | A Philosophy of Software Design | Non-obvious code | Flag code whose reader needs a fact the code does not state | `design-review` | new |
 | 9 | A Philosophy of Software Design | Strategic over tactical | Default to the design that makes the next change cheap; the tactical shortcut must be declared in the handoff | `solve-efficiently` | upgrade |
-| 10 | A Philosophy of Software Design | Design it twice | A new public interface requires two sketched alternatives; the handoff names the rejected one and why | `solve-efficiently` | upgrade |
+| 10 | A Philosophy of Software Design | Design it twice | A new public interface requires two sketched alternatives, and the handoff names the rejected one and why; skipping the second sketch is allowed only when one plausible shape exists and the handoff says so | `solve-efficiently` | upgrade |
 | 11 | A Philosophy of Software Design | Deep modules | New public surface must hide more than it exposes; a wrapper that saves callers nothing is rejected | `solve-efficiently` | upgrade |
 | 12 | Debugging (nine rules) | Understand the system | Name the involved components and their expected behavior before any theory | `diagnose-systematically` | upgrade |
 | 13 | Debugging (nine rules) | Make it fail | A recorded reproduction command precedes any cause claim | `diagnose-systematically` | upgrade |

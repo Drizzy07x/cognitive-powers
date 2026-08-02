@@ -30,8 +30,9 @@ scanner cannot see; do not repeat its findings as your own.
 
 ## 2. Sweep the red flags
 
-For every flag report the location, the symptom observed, and the named fix.
-A sweep that finds nothing states which flags were checked and where.
+For every flag report the location, the symptom observed, the comprehension
+cost it imposes, and the named fix. A sweep that finds nothing states which
+flags were checked and where.
 
 | Flag | Detect | Why it costs | Fix |
 | --- | --- | --- | --- |
@@ -55,7 +56,8 @@ the pieces would share hidden state.
 ## 4. Report
 
 Order findings by comprehension cost, most expensive first. Each carries
-`file:line`, the flag name, the observed symptom, and the named fix. Close with
+`file:line`, the flag name, the observed symptom, the cost stated in reader
+terms, and the named fix. Close with
 what was reviewed and found clean, so a silent miss is distinguishable from an
 unchecked file. Never rewrite the code from inside the review.
 
@@ -70,7 +72,7 @@ item. An unconfirmed item goes in the report, never silently past it.
 - Mechanical scan run, so its findings are not resold as judgment.
 
 **Before reporting**
-- Every finding carries location, flag name, symptom, and named fix.
+- Every finding carries location, flag name, symptom, comprehension cost, and named fix.
 - Findings ordered by comprehension cost, not by file order.
 - Clean files named as checked, so absence of findings is evidence.
 - No code was changed anywhere in the review.

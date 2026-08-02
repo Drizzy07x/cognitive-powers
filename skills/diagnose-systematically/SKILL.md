@@ -38,6 +38,8 @@ Run the signal enough times to distinguish deterministic failure from intermitte
 
 Remove one input, dependency, configuration element, or step at a time. Keep a removal only when the same symptom still occurs. Stop when every remaining element is load-bearing.
 
+When the search bisects instead of removing - halving the input, the commit range, or the path from input to symptom - record each split and its verdict as it happens. A bisection whose halves were not written down cannot show that the surviving half was the one the evidence chose.
+
 ## 3. Test hypotheses
 
 Write up to five credible falsifiable hypotheses; never add filler to reach a quota. Give each one a prediction and falsifier that distinguish it from the others. Probe one variable at a time, using a debugger or focused instrumentation at the boundary where predictions diverge.
@@ -56,7 +58,7 @@ If no correct test seam exists, state that limitation instead of adding a shallo
 
 ## 5. Close with evidence
 
-Re-run the original unminimized signal and the regression test. Remove tagged instrumentation and throwaway harnesses. Report the supported cause, the discriminating evidence, the checks run, and any surface that remains unverified.
+Re-run the original unminimized signal and the regression test. Where cheap to show, revert the fix and watch the original signal fail again: causality demonstrated in both directions, not inferred from one green run. Remove tagged instrumentation and throwaway harnesses. Report the supported cause, the discriminating evidence, the checks run, and any surface that remains unverified.
 
 ## Pause points
 
@@ -70,8 +72,10 @@ DO-CONFIRM: work from judgment, then stop at each point and confirm every item. 
 **During the investigation**
 - One variable per experiment; unhelpful changes reverted.
 - The audit trail is written as it happens, not reconstructed after.
+- Each bisection split and its verdict recorded before the next split.
 
 **Before claiming the cause**
 - The evidence discriminates the cause from the plausible alternatives.
 - The original signal re-run; fix proven against it, not against the minimized copy only.
+- Where cheap to show, the reverted fix made the original signal fail again.
 - Instrumentation removed; unverified surfaces named.

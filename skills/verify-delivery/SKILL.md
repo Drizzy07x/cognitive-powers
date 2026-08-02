@@ -9,7 +9,7 @@ disallowed-tools: Edit, Write, NotebookEdit
 
 Treat completion as a set of falsifiable claims, not a confident summary.
 
-For a bounded checkout with one explicit claim document and a small declared evidence surface, use a focused audit instead of the remaining broad workflow: one batch for the claim, status, exact local/tracking/remote identity, relevant diff/artifact evidence, and named tests; then run the single focused suite once. Do not load references, inspect unclaimed signing/identity/history, try alternate test frameworks, or run `knowledge_closeout.py` for that bounded case.
+For a bounded checkout with one explicit claim document and a small declared evidence surface, use a focused audit instead of the remaining broad workflow: one batch for the claim, status, exact local/tracking/remote identity, relevant diff/artifact evidence, and named tests; then run the single focused suite once. The Construction checks below stay in force for a code delivery - the bound narrows what is read, not what a diff owes. Do not load references, inspect unclaimed signing/identity/history, try alternate test frameworks, or run `knowledge_closeout.py` for that bounded case.
 
 ## Locate plugin files
 

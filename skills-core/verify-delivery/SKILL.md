@@ -18,7 +18,7 @@ scripts into the target repository.
 
 ## Bounded audit fast path
 
-When the checkout contains an explicit claim and a small declared evidence surface, do not load another Cognitive Powers file. Use two tool calls after this skill read:
+When the checkout contains an explicit claim and a small declared evidence surface, do not load another Cognitive Powers file. The Construction checks below stay in force for a code delivery - the bound narrows what is read, not what a diff owes. Use two tool calls after this skill read:
 
 1. **One audit batch.** Read the claim and applicable instructions; capture `git status --porcelain --untracked-files=all`, exact local/tracking/remote revisions, the relevant diff or artifact object/hash comparison, and the declared test path. Inspect only files named by the claim or status. Do not inspect author configuration, signing, commit history beyond the claimed revision, unrelated files, or alternate test frameworks unless the claim includes them.
 2. **One verification.** Run the single declared/focused test command once. Do not try pytest, Pester, compile checks, or default discovery after a relevant suite passes.
