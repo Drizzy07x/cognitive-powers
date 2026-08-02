@@ -140,10 +140,12 @@ class ReleaseManifestTests(unittest.TestCase):
         ):
             self.assertIn(artifact, workflow)
         self.assertIn("aggregate-release-evidence", workflow)
-        self.assertIn(
-            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
-            workflow,
-        )
+        # The pin is asserted by shape, not by value. Copying the SHA here made
+        # a routine action bump fail as a test about release manifests, and the
+        # repair was to retype the same pin in a second place -- which is how a
+        # pin stops pinning. That every action is bound to an immutable commit
+        # is checked once, in test_plugin_contract.
+        self.assertRegex(workflow, r"actions/download-artifact@[0-9a-f]{40}")
         self.assertIn("merge-multiple: false", workflow)
         self.assertIn("aggregate_release_artifacts.py", workflow)
 

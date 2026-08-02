@@ -531,24 +531,52 @@ class PluginContractTests(unittest.TestCase):
             "validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}.json",
             workflow,
         )
-        self.assertTrue(
-            (PLUGIN_ROOT / "ci" / "codex-0.145.0" / "package-lock.json").is_file()
-        )
-        self.assertTrue(
-            (
-                PLUGIN_ROOT / "ci" / "codex-0.146.0-alpha.3.1" / "package-lock.json"
-            ).is_file()
-        )
+        # Derived from the workflow rather than copied out of it. Six SHAs and
+        # two directory names spelled again here meant a routine action bump
+        # failed as a test about release witnesses, and the repair was to retype
+        # the same pins in a second place. What this is actually for is that no
+        # action floats on a tag, every one is bound to an immutable commit, the
+        # set of actions is a deliberate list, and every Codex cell the matrix
+        # names has a lockfile behind it -- all of which the workflow states.
         self.assertNotRegex(workflow, r"actions/[a-z-]+@v[0-9]+")
-        for action_sha in (
-            "11d5960a326750d5838078e36cf38b85af677262",
-            "a26af69be951a213d495a4c3e4e4022e16d87065",
-            "49933ea5288caeca8642d1e84afbd3f7d6820020",
-            "ea165f8d65b6e75b540449e92b4886f43607fa02",
-            "d3f86a106a0bac45b974a628896c90dbdf5c8093",
-            "e8998f949152b193b063cb0ec769d69d929409be",
-        ):
-            self.assertIn(action_sha, workflow)
+        pins = re.findall(r"uses: (actions/[a-z-]+)@([0-9a-f]{40}) # v\d+", workflow)
+        self.assertTrue(pins, "the workflow pins no action to a commit")
+        self.assertEqual(
+            {action for action, _ in pins},
+            {
+                "actions/checkout",
+                "actions/setup-python",
+                "actions/setup-node",
+                "actions/upload-artifact",
+                "actions/download-artifact",
+                "actions/attest-build-provenance",
+            },
+            "the set of actions changed; add it here on purpose or drop it",
+        )
+        self.assertNotIn(
+            "uses: actions/",
+            re.sub(r"uses: actions/[a-z-]+@[0-9a-f]{40} # v\d+", "", workflow),
+            "an action is used without a commit pin and a version comment",
+        )
+
+        declared_codex = re.search(r"codex: \[([^\]]+)\]", workflow)
+        self.assertIsNotNone(declared_codex, "the matrix declares no codex axis")
+        cells = re.findall(r'"([^"]+)"', declared_codex.group(1))
+        self.assertTrue(cells)
+        for cell in cells:
+            with self.subTest(codex=cell):
+                self.assertTrue(
+                    (
+                        PLUGIN_ROOT / "ci" / f"codex-{cell}" / "package-lock.json"
+                    ).is_file(),
+                    f"the matrix runs Codex {cell} with no lockfile behind it",
+                )
+        # The contract's axis and the matrix that runs it have to be the same
+        # list, or the compatibility table declares cells CI never executes.
+        contract = json.loads(
+            (PLUGIN_ROOT / "compatibility-contract.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(contract["axes"]["codexCli"], cells)
         post_release = (
             PLUGIN_ROOT / ".github" / "workflows" / "verify-release.yml"
         ).read_text(encoding="utf-8")

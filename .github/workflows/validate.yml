@@ -36,17 +36,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.13"]
-        codex: ["0.145.0", "0.146.0-alpha.3.1"]
+        codex: ["0.146.0", "0.147.0-alpha.4"]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Install exact lockfile-backed Codex CLI
         run: npm ci --prefix "ci/codex-${{ matrix.codex }}" --ignore-scripts --no-audit --no-fund
       - name: Expose the lockfile-backed Codex executable
@@ -240,7 +240,7 @@ jobs:
         id: receipt-upload
         if: always() && steps.receipt-report.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: validation-${{ matrix.os }}-py${{ matrix.python }}-codex${{ matrix.codex }}
           path: |
@@ -278,10 +278,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.13"
       - name: Create the local-only release tag on untagged refs
@@ -294,7 +294,7 @@ jobs:
           set -euo pipefail
           version=$(python -c "import json;print(json.load(open('.codex-plugin/plugin.json',encoding='utf-8'))['version'].split('+')[0])")
           git tag -f "v$version"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: validation-*
           path: ${{ runner.temp }}/matrix-evidence
@@ -378,7 +378,7 @@ jobs:
         run: sha256sum --check "$ARCHIVE.sha256"
       - name: Attest canonical release archive provenance
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-path: ${{ runner.temp }}/release-final/${{ steps.release-identity.outputs.archive }}
       - name: Gather the publishable asset set into one directory
@@ -418,7 +418,7 @@ jobs:
             printf 'expected: %s\n' "${expected[@]}" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: startsWith(github.ref, 'refs/tags/')
         with:
           # Constant name: artifacts are already scoped to one run, the
@@ -435,7 +435,7 @@ jobs:
             ${{ runner.temp }}/release-final/compatibility-matrix.json
             ${{ runner.temp }}/release-final/compatibility.md
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: github.event_name == 'schedule' || inputs.release_dry_run == true
         with:
           name: release-evidence-dry-run
