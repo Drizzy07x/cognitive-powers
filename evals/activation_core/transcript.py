@@ -33,6 +33,12 @@ from .arms import (
 SKILL_TOOL = "Skill"
 PLUGIN_PREFIX = "cognitive-powers:"
 
+# Named so the one caller allowed to forgive it can say which reason it means.
+# A run the harness stopped on purpose has no terminal event by construction,
+# and treating that as a truncated stream would discard exactly the runs where
+# the workflow fired fastest.
+MISSING_TERMINAL = "stream never reached a terminal result event"
+
 
 class Injections(NamedTuple):
     """How many times each payload reached the session."""
@@ -180,7 +186,7 @@ def read(stream: str, installed: Iterable[str]) -> Reading:
 
     reason = protocol_error
     if reason is None and terminal is None:
-        reason = "stream never reached a terminal result event"
+        reason = MISSING_TERMINAL
 
     return Reading(
         complete=reason is None,

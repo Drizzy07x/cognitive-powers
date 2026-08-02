@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Iterable, NamedTuple, Sequence
 
 from .cases import Case
-from .transcript import Reading, arm_mismatch
+from .transcript import MISSING_TERMINAL, Reading, arm_mismatch
 
 COMPLETE = "complete"
 PARTIAL = "partial"
@@ -68,13 +68,19 @@ def observe(
     have to demote rather than score, so they are collected in one place where
     a new reason cannot be added without passing through the same demotion.
     """
-    reason = stream_error or reading.incomplete_reason
-    if reason is None:
-        reason = arm_mismatch(reading, expects_index, expects_instruction)
     # Early stopping is legitimate only where it cannot change the verdict:
     # the runner stops a should-fire case once the expectation is met, and
     # never stops a should-not-fire case. A stop recorded anywhere else means
     # the runner and the scorer disagree about what settles a case.
+    settled_early = stopped_early and case.should_fire
+    reason = stream_error or reading.incomplete_reason
+    # A deliberately stopped run has no terminal event because nothing was left
+    # to wait for. Scoring that as a truncated stream threw away every run in
+    # which the workflow fired -- the whole positive half of the measurement.
+    if settled_early and reason == MISSING_TERMINAL:
+        reason = None
+    if reason is None:
+        reason = arm_mismatch(reading, expects_index, expects_instruction)
     if reason is None and stopped_early and not case.should_fire:
         reason = "run was stopped early on a case that can only pass by finishing"
 
@@ -238,9 +244,17 @@ def score_arm(
         "workedAfterFiring": sum(
             1 for item in observations if item.complete and item.worked_after_firing
         ),
+        # A lower bound, and labelled as one. Cost is reported by the terminal
+        # event, which a deliberately stopped run never reaches, so the runs
+        # that were cheapest to stop are exactly the ones missing from the sum.
         "cost": {
             "runs": len(observations),
-            "observedUsd": round(sum(item.cost_usd or 0.0 for item in observations), 4),
+            "observedUsdLowerBound": round(
+                sum(item.cost_usd or 0.0 for item in observations), 4
+            ),
+            "runsWithoutReportedCost": sum(
+                1 for item in observations if item.cost_usd is None
+            ),
             "stoppedEarly": sum(1 for item in observations if item.stopped_early),
         },
     }

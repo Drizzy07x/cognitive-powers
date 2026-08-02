@@ -545,6 +545,51 @@ class SubprocessPathTests(unittest.TestCase):
         launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
         return str(launcher)
 
+    def test_a_deliberate_stop_still_counts_as_a_complete_observation(self) -> None:
+        # A stopped run has no terminal result event by construction. Scoring
+        # that as a truncated stream discarded every run in which the workflow
+        # actually fired, which is the positive half of the measurement.
+        case = make_case()
+        reading = transcript.read(
+            stream(
+                hook_response(INDEX_TEXT),
+                hook_response(STANDING_TEXT),
+                skill_call("diagnose-systematically"),
+            ),
+            INSTALLED,
+        )
+        self.assertFalse(reading.complete)
+        observation = observe(
+            case,
+            "full",
+            1,
+            reading,
+            expects_index=True,
+            expects_instruction=True,
+            duration_seconds=2.0,
+            stopped_early=True,
+        )
+        self.assertTrue(observation.complete)
+        self.assertTrue(observation.passed)
+
+    def test_a_truncated_stream_without_a_stop_is_still_incomplete(self) -> None:
+        case = make_case()
+        reading = transcript.read(
+            stream(hook_response(INDEX_TEXT), hook_response(STANDING_TEXT)),
+            INSTALLED,
+        )
+        observation = observe(
+            case,
+            "full",
+            1,
+            reading,
+            expects_index=True,
+            expects_instruction=True,
+            duration_seconds=2.0,
+            stopped_early=False,
+        )
+        self.assertFalse(observation.complete)
+
     def test_a_run_streams_and_stops_once_the_verdict_is_settled(self) -> None:
         base = Path(tempfile.mkdtemp(prefix="cp-run-"))
         outcome = run_case(
@@ -568,6 +613,42 @@ class SubprocessPathTests(unittest.TestCase):
         self.assertTrue((base / "c-full-1" / "ws" / "src" / "login.js").is_file())
         settings = json.loads((base / "c-full-1" / "settings.json").read_text())
         self.assertIn(PLUGIN_CONFIG_KEY, settings["pluginConfigs"])
+
+    def test_a_silent_stall_is_killed_by_the_watchdog(self) -> None:
+        # The clock cannot be checked inside the read loop alone: a session
+        # that stalls with its pipe open produces no line to check it on, and
+        # would hold the whole matrix.
+        base = Path(tempfile.mkdtemp(prefix="cp-run-hang-"))
+        script = base / "stall.py"
+        script.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+        if os.name == "nt":
+            launcher = base / "stall.cmd"
+            launcher.write_text(
+                f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8"
+            )
+        else:
+            launcher = base / "stall.sh"
+            launcher.write_text(
+                f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n',
+                encoding="utf-8",
+            )
+            launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
+
+        outcome = run_case(
+            make_case(),
+            ARMS["full"],
+            1,
+            plugin_root=PLUGIN_ROOT,
+            workspace_root=base,
+            python_executable=sys.executable,
+            installed=INSTALLED,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=2.0,
+            claude_executable=str(launcher),
+        )
+        self.assertTrue(outcome.timed_out)
+        self.assertLess(outcome.duration_seconds, 60.0)
 
     def test_a_negative_case_is_never_cut_short(self) -> None:
         base = Path(tempfile.mkdtemp(prefix="cp-run-neg-"))

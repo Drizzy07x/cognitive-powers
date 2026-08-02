@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Iterable, NamedTuple
@@ -117,6 +118,37 @@ def build_argv(
     ]
 
 
+def _terminate_tree(process: subprocess.Popen) -> None:
+    """Kill the whole process tree, not just the process that was spawned.
+
+    The host launches child processes, and killing only the parent leaves them
+    running with the inherited stdout pipe still open -- so the read loop keeps
+    blocking on a session that was already abandoned, and each stopped run
+    leaks a descendant. Windows needs an external tree kill for this; POSIX has
+    the process group the spawn already asked for.
+    """
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        killpg = getattr(os, "killpg", None)
+        getpgid = getattr(os, "getpgid", None)
+        if killpg is not None and getpgid is not None:
+            try:
+                killpg(getpgid(process.pid), 9)
+            except (OSError, ProcessLookupError):
+                pass
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
 def _settled(collected: list[str], case: Case, installed: frozenset[str]) -> bool:
     """Whether the verdict can no longer change, so the process can be stopped.
 
@@ -181,25 +213,36 @@ def run_case(
         encoding="utf-8",
         errors="replace",
         bufsize=1,
+        # A process group on POSIX so the whole tree can be signalled at once.
+        # Windows Python accepts the argument and ignores it, which is why the
+        # tree kill there goes through taskkill instead.
+        start_new_session=os.name != "nt",
     )
     assert process.stdout is not None
+    # The timeout has to come from outside the read loop. Checking the clock
+    # after each line only bounds a run that is still producing lines, so a
+    # session that stalls with its pipe open would block here forever and take
+    # the whole matrix with it.
+    expired = threading.Event()
+
+    def _expire() -> None:
+        expired.set()
+        _terminate_tree(process)
+
+    watchdog = threading.Timer(timeout_seconds, _expire)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         for line in process.stdout:
             collected.append(line.rstrip("\n"))
-            if time.monotonic() - started > timeout_seconds:
-                timed_out = True
-                break
             if _settled(collected, case, installed):
                 stopped_early = True
                 break
     finally:
+        watchdog.cancel()
+        timed_out = expired.is_set()
         if stopped_early or timed_out:
-            process.terminate()
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=15)
+            _terminate_tree(process)
         stderr = process.stderr.read() if process.stderr is not None else ""
         process.stdout.close()
         if process.stderr is not None:
