@@ -22,7 +22,7 @@ class ExternalCatalogTests(unittest.TestCase):
 
     def test_current_catalog_is_complete_and_valid(self) -> None:
         self.assertEqual(catalog.validate_catalog(self.payload), [])
-        self.assertEqual(len(self.payload["sources"]), 18)
+        self.assertEqual(len(self.payload["sources"]), 19)
 
     def test_labels_resolve_to_immutable_commits(self) -> None:
         source = catalog.resolve_label(self.payload, "semantic:graphify")
@@ -30,18 +30,24 @@ class ExternalCatalogTests(unittest.TestCase):
         self.assertRegex(source["commit"], r"^[0-9a-f]{40}$")
 
     def test_missing_license_cannot_be_approved(self) -> None:
+        # Read the compare-and-swap version from the catalog instead of pinning
+        # it. What this test asserts is that an unlicensed source cannot reach
+        # approved; a literal made every unrelated catalog addition fail here
+        # with "catalog changed since it was read", which names neither the rule
+        # under test nor the edit that broke it.
+        current = self.payload["meta_version"]
         updated = catalog.transition_source(
             self.payload,
             "composio-community/awesome-codex-skills",
             "candidate",
-            expected_meta_version=1,
+            expected_meta_version=current,
         )
         with self.assertRaisesRegex(catalog.CatalogError, "without a detected license"):
             catalog.transition_source(
                 updated,
                 "composio-community/awesome-codex-skills",
                 "approved",
-                expected_meta_version=2,
+                expected_meta_version=current + 1,
             )
 
     def test_compare_and_swap_rejects_stale_update(self) -> None:
