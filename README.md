@@ -59,12 +59,12 @@ transaction; run whichever your host has, from a checkout, because each resolves
 the canonical verifier beside itself:
 
 ```powershell
-git clone --branch v1.8.1 --depth 1 https://github.com/Drizzy07x/cognitive-powers
+git clone --branch v1.8.2 --depth 1 https://github.com/Drizzy07x/cognitive-powers
 ./cognitive-powers/install.ps1
 ```
 
 ```bash
-git clone --branch v1.8.1 --depth 1 https://github.com/Drizzy07x/cognitive-powers && ./cognitive-powers/install.sh
+git clone --branch v1.8.2 --depth 1 https://github.com/Drizzy07x/cognitive-powers && ./cognitive-powers/install.sh
 ```
 
 Both create a local recovery copy before any removal, pin the marketplace to
