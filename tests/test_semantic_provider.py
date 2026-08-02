@@ -71,6 +71,33 @@ class SemanticProviderTests(unittest.TestCase):
 
         return run
 
+    def kind_aware_detector(self, root):
+        """Answer per requested layer, the way the real provider does.
+
+        The shared ``detector`` above returns one payload whatever ``argv``
+        says, so no test could see which question the adapter asks. That blind
+        spot is what let the adapter measure a `graphify update` refresh with
+        the yardstick for `graphify extract`: an AST-only pass empties
+        semantic_hash, so every refreshed file stayed pending for the semantic
+        layer while being current for the AST one.
+        """
+        source = str(root / "src.py")
+
+        def run(argv, **kwargs):
+            asks_ast = any(
+                "'kind':'ast'" in "".join(str(part).split()) for part in argv
+            )
+            payload = {
+                "files": {"code": [source]},
+                "unchanged_files": {"code": [source] if asks_ast else []},
+                "deleted_files": [],
+            }
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=json.dumps(payload), stderr=""
+            )
+
+        return run
+
     def test_fresh_graphify_and_normalized_confidence(self):
         td, root = self.fixture()
         self.addCleanup(td.cleanup)
@@ -207,6 +234,16 @@ class SemanticProviderTests(unittest.TestCase):
 
         self.assertTrue(probe["usable"])
         self.assertEqual(probe["completeness"]["pending_file_count"], 0)
+
+    def test_completeness_asks_about_the_layer_the_refresh_maintains(self):
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+
+        probe = mod.probe_graphify(root, runner=self.kind_aware_detector(root))
+
+        self.assertTrue(probe["usable"])
+        self.assertEqual("complete", probe["completeness"]["status"])
+        self.assertTrue(probe["completeness_verified"])
 
     def test_detector_failure_and_timeout_fail_closed(self):
         td, root = self.fixture()

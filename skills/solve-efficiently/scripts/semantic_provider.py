@@ -210,11 +210,22 @@ def _graphify_completeness(
         executable = (index / executable).resolve()
     if not executable.is_file():
         return _manifest_completeness(root, index, records)
+    # detect_incremental defaults to kind="semantic", the yardstick for
+    # `graphify extract`: it re-queues every file `graphify update` touched,
+    # because an AST-only pass empties semantic_hash on purpose. The
+    # session-start refresh runs exactly that update, so the default question
+    # reported every refreshed file as pending forever, this adapter rejected
+    # its own maintained index, and navigation fell back to lexical while the
+    # hook reported a successful refresh. Ask about the layer the plugin
+    # actually maintains. A provider too old to know the parameter answers the
+    # only question it has rather than failing the probe closed.
     script = (
         "from graphify.detect import detect_incremental;"
-        "import json,sys;"
+        "import inspect,json,sys;"
         "from pathlib import Path;"
-        "print(json.dumps(detect_incremental(Path(sys.argv[1]), sys.argv[2])))"
+        "kw={'kind':'ast'} if 'kind' in "
+        "inspect.signature(detect_incremental).parameters else {};"
+        "print(json.dumps(detect_incremental(Path(sys.argv[1]),sys.argv[2],**kw)))"
     )
     argv = [
         str(executable),
