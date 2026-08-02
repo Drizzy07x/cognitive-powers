@@ -1,0 +1,94 @@
+# Findings argued away, one `path:line:rule` per line. `#` starts a comment.
+# Read by clean_code_guard.py in --scan mode only. Acceptance is per finding
+# rather than per file so the next defect written into the same file is still
+# reported. An entry with no reason above it is a bug in this file.
+
+# The rules module measures 430 lines only because `ruff format` expanded it
+# from 365, and this repository's formatter config wins over a style dispute by
+# its own rule. Splitting it would need a third module holding Finding and the
+# limits, purely to keep the language-specific halves from importing each
+# other in a cycle: more installed surface to satisfy a threshold the
+# formatter moved.
+hooks/clean_code_rules.py:1:file-length
+
+# The fixture that proves the orphan-marker rule fires has to contain an
+# unticketed marker, and the scanner reads physical lines, so it cannot tell
+# this one is quoted test data. Ticketing it would test the opposite rule; the
+# neighbouring TICKETED_SOURCE already covers that direction.
+tests/test_clean_code_guard.py:39:orphan-marker
+
+# The rule counts a function from `def` to its last line, so a docstring is
+# charged against the body. Both of these are under the limit as code -- 12 and
+# 17 lines -- and carry long docstrings because each records the defect that
+# made it necessary, which is what this repository asks a comment to do.
+# Demoting them to comments above the `def` would satisfy the counter and lose
+# them from help(); extracting a helper called once would be a false
+# abstraction bought with the same prose still present.
+hooks/skill_router.py:78:function-length
+hooks/skill_router.py:105:function-length
+
+# Documented design, not a defect: CLAUDE.md, "Four hooks, three shapes", makes
+# semantic_index advisory in full and silent on every error. Both sites now
+# carry a comment saying so. Handling either one would turn a cache miss into a
+# startup message, which is the behaviour the contract exists to prevent.
+hooks/semantic_index.py:166:swallowed-error
+hooks/semantic_index.py:204:swallowed-error
+
+# refresh() is a flat sequence of guard clauses, each returning a distinct
+# skip reason; the count is the number of ways an optional provider can be
+# absent, not nesting. The two extractions that would shorten it are both
+# barred here: pulling the precondition block out would call shutil.which a
+# second time, which reorders a side effect, and pulling the stamp block out
+# would move the two except blocks this task was told to leave alone.
+hooks/semantic_index.py:128:branch-count
+hooks/semantic_index.py:128:function-length
+
+# The commented-code entry that stood here is gone rather than renumbered. The
+# prose it excused now lives in _stop_remediation's docstring, where the line
+# scanner does not read it as an assignment, so the false positive it waived no
+# longer occurs.
+
+# Thirteen of this file's twenty-one findings were cleared by extraction, and
+# the def lines and docstrings that took are why it now measures 958. Reaching
+# 400 means the ledger layer and the evidence layer as separate modules: two
+# more sibling imports in the one hook whose failure is silent, since the stop
+# gate reads an empty ledger as "nothing was edited". The per-function limits
+# are what carry the comprehension cost here, and those now hold.
+hooks/selective_hooks.py:1:file-length
+
+# Both are under the limit as code -- 17 and 19 lines -- and over it as
+# documentation, the same shape already accepted in skill_router. Each
+# docstring records the defect that made the function necessary: a regex over
+# an unparsable prefix that is not a JSON parser, and an oversized payload that
+# switched the whole completion gate off for a session.
+hooks/selective_hooks.py:256:function-length
+hooks/selective_hooks.py:414:function-length
+
+# The body has to stay inside one try. Its comparison chain does its own I/O --
+# is_file, is_symlink, hashing the receipt -- and the except is what turns any
+# of that failing into "not current" instead of a traceback that would take the
+# stop gate down through main's blanket handler. Extracting the chain either
+# moves that I/O outside the guarded region or reorders the short circuit so
+# the receipt is hashed in cases that used to return before reading it. The six
+# parameters are six independent facts a receipt must match; a record holding
+# exactly this call's arguments would name a type, not a concept.
+hooks/selective_hooks.py:487:function-length
+hooks/selective_hooks.py:487:parameter-count
+
+# Length and branch count came down by extraction; the five parameters did not,
+# because they are the facts the durable checks cross-reference. The natural
+# grouping is already made one frame down, where _DurableRoots carries the four
+# paths _durable_state_identity compares. Building it in the caller instead
+# would move the same parameters up into stop() and record_validation() rather
+# than remove them.
+hooks/selective_hooks.py:714:parameter-count
+
+# A flat sequence of guard clauses, each printing a distinct refusal and
+# returning 2 -- the shape already accepted for refresh() in semantic_index.
+# The two blocks that could leave did leave, taking it from 61 lines to 51.
+# What holds the rest together is the lock: every early return has to happen
+# while the ledger is still held, or the receipt binds to an event that could
+# have changed between the check and the write. The four parameters are the
+# subcommand's own flags, one each.
+hooks/selective_hooks.py:845:function-length
+hooks/selective_hooks.py:845:parameter-count

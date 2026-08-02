@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "cognitive-powers",
   "displayName": "Cognitive Powers",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "Focused execution with durable evidence and independent verification.",
   "author": {
     "name": "DrizzyPC"
@@ -22,6 +22,12 @@
     "desktop-automation"
   ],
   "hooks": "./hooks/hooks.claude.json",
+  "mcpServers": {
+    "cognitive-powers-evidence": {
+      "command": "${user_config.python_executable}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/evidence_server.py"]
+    }
+  },
   "userConfig": {
     "python_executable": {
       "type": "file",

@@ -8,7 +8,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import random
 import re
 import shutil
 import subprocess
@@ -290,16 +289,44 @@ def compact_session(
     }
 
 
-def verify_compaction_bundle(bundle_path: Path) -> dict[str, Any]:
-    """Authenticate a historical compaction bundle without trusting its JSON."""
+def verify_compaction_bundle(bundle_path: Path, session_dir: Path) -> dict[str, Any]:
+    """Authenticate a bundle against the ledger that recorded making it.
+
+    The bundle is a byte copy of the session directory, ``.ledger.key``
+    included, so a key carried inside it authenticates nothing: rewriting
+    ``state.json`` and ``ledger.jsonl``, re-signing under a fresh key and
+    dropping that key in as ``.ledger.key`` produced ``verified: True``. The
+    returned digest was no anchor either, being computed from the same file.
+
+    The anchor has to be a value the bundle cannot restate. ``compact_session``
+    already writes one: a ``compaction_checkpoint`` event carrying the bundle's
+    digest into the *surviving* session ledger, signed under the key that stays
+    in the session directory. This reads that instead. Structural checks on the
+    archive remain, but they describe integrity and never decide authenticity.
+    """
     bundle_path = bundle_path.resolve()
+    session_dir = session_dir.resolve()
+    digest = _sha256_file(bundle_path)
+    recorded = {
+        str(event.get("bundle_sha256"))
+        for event in _read_ledger_events(session_dir)
+        if event.get("event") == "compaction_checkpoint" and event.get("bundle_sha256")
+    }
+    if digest not in recorded:
+        # A bundle whose checkpoint has since been compacted away is equally
+        # unverifiable here, and saying so is the honest outcome: this session
+        # no longer holds the evidence that it produced these bytes.
+        raise WorkStateError(
+            "compaction bundle is not one this session recorded: no signed "
+            "compaction_checkpoint names its digest"
+        )
     try:
         with zipfile.ZipFile(bundle_path, "r") as archive:
             if archive.testzip() is not None:
                 raise WorkStateError("compaction bundle has corrupt members")
             required = {"state.json", "ledger.jsonl", ".ledger.key"}
             if not required.issubset(archive.namelist()):
-                raise WorkStateError("compaction bundle lacks authenticated state")
+                raise WorkStateError("compaction bundle lacks recoverable state")
             with tempfile.TemporaryDirectory() as temporary:
                 extracted = Path(temporary)
                 for name in required:
@@ -310,7 +337,7 @@ def verify_compaction_bundle(bundle_path: Path) -> dict[str, Any]:
         raise WorkStateError(f"compaction bundle is unreadable: {error}") from error
     return {
         "verified": True,
-        "bundle_sha256": _sha256_file(bundle_path),
+        "bundle_sha256": digest,
         "events": len(events),
         "last_seq": state["last_seq"],
     }
@@ -326,7 +353,7 @@ def run_compaction_fault_injection(
         if name == "bundle-write":
             target.write_bytes(b"partial")
             try:
-                verify_compaction_bundle(target)
+                verify_compaction_bundle(target, session_dir)
             except WorkStateError:
                 boundaries.append({"name": name, "failedClosed": True})
         elif name == "bundle-verify":
@@ -335,7 +362,7 @@ def run_compaction_fault_injection(
             data[len(data) // 2] ^= 1
             target.write_bytes(data)
             try:
-                verify_compaction_bundle(target)
+                verify_compaction_bundle(target, session_dir)
             except WorkStateError:
                 boundaries.append({"name": name, "failedClosed": True})
         else:
@@ -350,53 +377,6 @@ def run_compaction_fault_injection(
     return {
         "passed": all(item["failedClosed"] for item in boundaries),
         "boundaries": boundaries,
-    }
-
-
-def run_fault_state_machines(*, seed: int, sequences: int = 1000) -> dict[str, Any]:
-    """Exercise deterministic offline models for terminal, dependency, and WAL invariants."""
-    if sequences < 1:
-        raise WorkStateError("sequences must be positive")
-    rng = random.Random(seed)
-    terminal_passed = dependency_passed = wal_passed = True
-    terminal_states = {"completed", "killed", "collected"}
-    for _ in range(sequences):
-        current = "active"
-        for _step in range(rng.randint(1, 20)):
-            proposed = rng.choice(
-                ["active", "failed", "completed", "killed", "collected"]
-            )
-            previous = current
-            if current not in terminal_states:
-                current = proposed
-            if previous in terminal_states and current != previous:
-                terminal_passed = False
-        completed = {item for item in range(5) if rng.choice([True, False])}
-        dependencies = {item: set(range(item)) for item in range(5)}
-        runnable = {
-            item
-            for item in range(5)
-            if item not in completed and dependencies[item].issubset(completed)
-        }
-        dependency_passed &= not bool(runnable.intersection(completed))
-        state_seq = rng.randint(0, 100)
-        snapshots = [rng.randint(0, 100) for _ in range(rng.randint(0, 10))]
-        recovered = max([state_seq, *snapshots])
-        wal_passed &= recovered >= state_seq and all(
-            recovered >= item for item in snapshots
-        )
-    machines = {
-        "terminal-monotonicity": {"passed": terminal_passed, "sequences": sequences},
-        "dependency-resume": {"passed": dependency_passed, "sequences": sequences},
-        "wal-recovery": {"passed": wal_passed, "sequences": sequences},
-    }
-    return {
-        "schema_version": 1,
-        "seed": seed,
-        "sequencesPerMachine": sequences,
-        "machines": machines,
-        "passed": all(item["passed"] for item in machines.values()),
-        "providerCalls": 0,
     }
 
 
@@ -1156,16 +1136,6 @@ def status(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     return payload, 0
 
 
-def compact_ledger_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
-    root = resolve_root(args.root)
-    data_root = resolve_data_root(args.data_root)
-    session_dir = session_directory(root, data_root, args.session)
-    return {
-        "message": f"session {sanitize_identifier(args.session, 'session')}: compacted",
-        **compact_ledger(session_dir),
-    }, 0
-
-
 def _external_data_root(args: argparse.Namespace) -> Path:
     root = resolve_root(args.root)
     data_root = resolve_data_root(args.data_root)
@@ -1189,6 +1159,25 @@ def storage_inspect_command(
     }, 0
 
 
+def verify_bundle_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Authenticate an exported bundle before anyone relies on or deletes it.
+
+    The operational guide tells the reader not to remove a bundle until it and
+    the retained state have both been verified, and until now no command could
+    do that: the verifier was reachable only from a fault injector called by one
+    test.
+    """
+    root = resolve_root(args.root)
+    data_root = resolve_data_root(args.data_root)
+    session_dir = session_directory(root, data_root, args.session)
+    return {
+        "message": (
+            f"session {sanitize_identifier(args.session, 'session')}: bundle verified"
+        ),
+        **verify_compaction_bundle(Path(args.bundle).expanduser(), session_dir),
+    }, 0
+
+
 def storage_gc_command(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     report = garbage_collect_storage(
         _external_data_root(args),
@@ -1196,14 +1185,31 @@ def storage_gc_command(args: argparse.Namespace) -> tuple[dict[str, object], int
         keep_last=args.keep_last,
         apply=args.apply,
     )
-    return {
-        "message": (
-            "storage garbage collection applied"
-            if args.apply
-            else "storage garbage collection dry-run; pass --apply to delete"
-        ),
-        **report,
-    }, 0
+    failed_sessions = report.get("failed_sessions") or []
+    unscannable = report.get("unscannable_evidence") or []
+    if not args.apply:
+        message = "storage garbage collection dry-run; pass --apply to delete"
+    elif failed_sessions:
+        # Continuing past one uncollectable session is what lets the run report
+        # what it did delete. Reporting that partial run as "applied" with exit
+        # 0 would replace a loud abort with a quiet lie, so the incomplete run
+        # says so and exits like any other refused operation.
+        message = (
+            f"storage garbage collection incomplete: {len(failed_sessions)} of "
+            f"{len(failed_sessions) + len(report.get('deleted_sessions') or [])} "
+            "sessions could not be collected; see failed_sessions"
+        )
+    else:
+        message = "storage garbage collection applied"
+    if unscannable:
+        # Unreferenced objects are protected wholesale while any evidence file
+        # is unreadable, so a store that never shrinks needs to name the reason
+        # rather than look like a collector that found nothing to do.
+        message += (
+            f"; {len(unscannable)} evidence file(s) could not be scanned, so no "
+            "unreferenced object was collected (see unscannable_evidence)"
+        )
+    return {"message": message, **report}, 2 if failed_sessions else 0
 
 
 def _begin_attempt(
@@ -1430,7 +1436,10 @@ def _read_json_input(value: str, label: str) -> dict[str, Any]:
             else Path(value).read_text(encoding="utf-8")
         )
         payload = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as error:
+    # A plan written in UTF-16 or cp1252 raises UnicodeDecodeError, which is a
+    # ValueError and not a JSONDecodeError, so it escaped as a traceback with
+    # exit 1 instead of the contract's error object with exit 2.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(f"{label} is unreadable: {error}") from error
     if not isinstance(payload, dict):
         raise WorkStateError(f"{label} must be a JSON object")
@@ -3008,6 +3017,14 @@ def build_parser() -> argparse.ArgumentParser:
     compact_parser.add_argument("--retain-events", type=int, default=25)
     _add_json_flag(compact_parser)
 
+    verify_bundle_parser = subparsers.add_parser(
+        "verify-bundle",
+        help="authenticate an exported bundle against the session that made it",
+    )
+    verify_bundle_parser.add_argument("--session", required=True)
+    verify_bundle_parser.add_argument("--bundle", required=True)
+    _add_json_flag(verify_bundle_parser)
+
     inspect_parser = subparsers.add_parser(
         "storage-inspect", help="report bounded durable storage usage"
     )
@@ -3221,6 +3238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "status": status,
         "resume-summary": resume_session,
         "compact": compact_session_command,
+        "verify-bundle": verify_bundle_command,
         "storage-inspect": storage_inspect_command,
         "storage-gc": storage_gc_command,
         "state-migrate": state_migrate,

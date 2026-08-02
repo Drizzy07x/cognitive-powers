@@ -221,8 +221,52 @@ def _session_lock_status(session_dir: Path) -> str | None:
     return None
 
 
-def _collect_cas_references(session_directories: Sequence[Path]) -> set[str]:
+def _digests_reachable_from(evidence: Path) -> set[str] | None:
+    """Hash every artifact under one session's evidence tree.
+
+    An unreadable receipt cannot be parsed, but the objects it could possibly
+    name are still bounded: every stored artifact is materialized inside the
+    session beside that receipt, so hashing what is there enumerates the
+    candidates without reading the file that failed.
+
+    Hashing rather than inode identity on purpose -- ``_copy_artifact_to_cas``
+    falls back to a real copy when the filesystem refuses a hard link, and that
+    fallback breaks ``(st_dev, st_ino)`` equality while preserving content.
+
+    ``None`` means the tree could not be walked, so nothing can be bounded.
+    """
+    digests: set[str] = set()
+    try:
+        candidates = sorted(evidence.rglob("*"))
+    except OSError:
+        return None
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            digests.add(_sha256_file(path))
+        except OSError:
+            return None
+    return digests
+
+
+def _collect_cas_references(
+    session_directories: Sequence[Path],
+) -> tuple[set[str], list[str], set[str] | None]:
+    """Report referenced digests, unreadable evidence, and what it could name.
+
+    The third value bounds the damage of the second. It used to be absent, and
+    the caller answered an unreadable file by protecting every unreferenced
+    object in the whole store, for every project, permanently -- garbage
+    collection never repairs evidence, so the same file blocked every later run
+    too. ``None`` means a session's evidence could not be enumerated at all, in
+    which case there is nothing to bound and the caller must fall back to
+    protecting everything.
+    """
     references: set[str] = set()
+    unscannable: list[str] = []
+    uncertain: set[str] = set()
+    unbounded = False
 
     def visit(value: object) -> None:
         if isinstance(value, dict):
@@ -242,14 +286,34 @@ def _collect_cas_references(session_directories: Sequence[Path]) -> set[str]:
         evidence = session_dir / "evidence"
         if not evidence.is_dir():
             continue
-        for path in sorted(evidence.rglob("*.json")):
+        try:
+            candidates = sorted(evidence.rglob("*.json"))
+        except OSError:
+            unscannable.append(str(evidence))
+            unbounded = True
+            continue
+        session_unread = False
+        for path in candidates:
             if path.is_symlink() or not path.is_file():
                 continue
             try:
                 visit(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
-                continue
-    return references
+            # Recorded artifacts are copied verbatim, so evidence holds JSON
+            # this scan never wrote: a cp1252 artifact raises UnicodeDecodeError,
+            # which is a ValueError and escaped here after the session deletions
+            # had already happened. Dropping such a file silently would also
+            # drop the digests it names and collect objects a retained session
+            # still depends on, so the caller is told what stayed unread.
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                unscannable.append(str(path))
+                session_unread = True
+        if session_unread:
+            reachable = _digests_reachable_from(evidence)
+            if reachable is None:
+                unbounded = True
+            else:
+                uncertain |= reachable
+    return references, unscannable, (None if unbounded else uncertain)
 
 
 def _storage_session_directories(data_root: Path) -> list[tuple[Path, Path]]:
@@ -330,6 +394,7 @@ def garbage_collect_storage(
             }
     session_decisions = [{"path": str(path), **inspected[path]} for _, path in sessions]
     deleted_sessions: list[str] = []
+    failed_sessions: list[dict[str, object]] = []
     if apply:
         for item in session_decisions:
             if item["decision"] != "delete":
@@ -351,21 +416,30 @@ def garbage_collect_storage(
                 if tombstone.exists() and not session_dir.exists():
                     with contextlib.suppress(OSError):
                         os.replace(tombstone, session_dir)
-                if isinstance(error, WorkStateError):
-                    raise
-                raise WorkStateError(
-                    f"failed to collect session {session_dir}: {error}"
-                ) from error
+                # One session that cannot be collected -- a lock that times out,
+                # a concurrent reopen, or a rename Windows refuses while any
+                # descendant is open -- used to abort the whole run and discard
+                # the return value, so the sessions already deleted above were
+                # gone with nothing left to say which ones they were.
+                failed_sessions.append({"path": str(session_dir), "error": str(error)})
+                continue
             deleted_sessions.append(str(session_dir))
-    deleting = {
-        Path(str(item["path"]))
-        for item in session_decisions
-        if item["decision"] == "delete"
-    }
+    if apply:
+        # A session whose collection failed is still on disk, so its evidence
+        # must keep protecting the objects it references.
+        collected = {Path(path) for path in deleted_sessions}
+    else:
+        collected = {
+            Path(str(item["path"]))
+            for item in session_decisions
+            if item["decision"] == "delete"
+        }
     retained_sessions = [
-        path for _, path in sessions if path not in deleting and path.exists()
+        path for _, path in sessions if path not in collected and path.exists()
     ]
-    references = _collect_cas_references(retained_sessions)
+    references, unscannable_evidence, uncertain_digests = _collect_cas_references(
+        retained_sessions
+    )
     object_root = data_root / "objects" / "sha256"
     object_decisions: list[dict[str, object]] = []
     if object_root.is_dir():
@@ -383,6 +457,13 @@ def garbage_collect_storage(
                 decision, reason = "protect", "malformed-object-name"
             elif digest in references:
                 decision, reason = "protect", "referenced"
+            # Protect what the unreadable receipts could have named, not the
+            # whole store. The bare `if unscannable_evidence` this replaces let
+            # one legacy file in one session pin every unreferenced object in
+            # every project, and pin it forever, because collection never
+            # repairs evidence and every later run re-read the same file.
+            elif uncertain_digests is None or digest in uncertain_digests:
+                decision, reason = "protect", "unscannable-evidence"
             elif stat.st_mtime > cutoff:
                 decision, reason = "keep", "younger-than-age"
             else:
@@ -420,4 +501,7 @@ def garbage_collect_storage(
         "object_decisions": object_decisions,
         "deleted_sessions": deleted_sessions,
         "deleted_objects": deleted_objects,
+        "failed_sessions": failed_sessions,
+        "unscannable_evidence": unscannable_evidence,
+        "failed": bool(failed_sessions),
     }

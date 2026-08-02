@@ -2,6 +2,7 @@
 name: verify-installation
 description: Establish whether this installed plugin actually runs on the current host, by executing its interpreter, hooks, evidence storage, and optional providers instead of inspecting its packaging.
 when_to_use: Use when the plugin has just been installed, enabled, updated, or relocated, when its hooks or durable receipts appear not to work, or when a host upgrade may have changed what it can rely on. Not for auditing a delivery, a code change, or a skill catalogue.
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # Verify Installation
@@ -71,3 +72,15 @@ and the two host observations. Name the plugin root and version you tested.
 If everything passed, say the checks that ran and what they establish. Do not
 extend that to compatibility with hosts, versions, or platforms that were not
 exercised here.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before reporting health**
+- Components were executed, not inspected as packaging.
+- The interpreter, hooks, and storage ran on this host, in this checkout.
+
+**Before claiming done**
+- Observed, skipped, and unavailable are reported as three different things.
+- Optional providers failed soft and are named as absent, not broken.

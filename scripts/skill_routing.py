@@ -345,8 +345,17 @@ SPANISH_TERMS = {
     "actualizado": "current",
     "obsoleto": "stale",
     "obsoleta": "stale",
-    "desconocido": "unknown",
-    "desconocida": "unknown",
+    # "unfamiliar", not "unknown": map-project is the skill that spells this
+    # ("a large or unfamiliar tree"), and a mapping onto a word no description
+    # uses is dead weight that still inflates the query norm.
+    "desconocido": "unfamiliar",
+    "desconocida": "unfamiliar",
+    "acotada": "bounded",
+    "acotado": "bounded",
+    "primaria": "primary",
+    "primario": "primary",
+    "versionada": "version",
+    "versionado": "version",
     "nativo": "native",
     "nativa": "native",
     "visible": "visible",
@@ -401,37 +410,78 @@ def tokenize(text: str) -> list[str]:
     return tokens
 
 
+def _parse_skill_file(skill_file: Path) -> tuple[str, str]:
+    # utf-8-sig, not utf-8: PowerShell 5.1 writes a BOM by default, and a BOM
+    # made the anchored frontmatter match fail, which used to abort the whole
+    # load and leave the router permanently and invisibly silent.
+    text = skill_file.read_text(encoding="utf-8-sig")
+    match = re.match(r"\A---\s*\n(.*?)\n---", text, re.DOTALL)
+    if match is None:
+        raise ValueError(f"missing frontmatter: {skill_file}")
+    name_match = re.search(r"^name:\s*(.+?)\s*$", match.group(1), re.MULTILINE)
+    description_match = re.search(
+        r"^description:\s*(.+?)\s*$", match.group(1), re.MULTILINE
+    )
+    if name_match is None or description_match is None:
+        raise ValueError(f"missing name or single-line description: {skill_file}")
+    name = name_match.group(1).strip(" \"'")
+    description = description_match.group(1).strip(" \"'")
+    if not description or description in {">-", ">", "|", "|-"}:
+        # A folded or block scalar leaves the marker as the whole description,
+        # so the skill would rank against two junk characters instead of its
+        # text. That is a broken skill, not a low-scoring one.
+        raise ValueError(f"description is not a single-line scalar: {skill_file}")
+    # Rank the text the host actually lists. Claude Code appends
+    # when_to_use to description in the skill listing, so scoring the
+    # description alone would measure something the model never sees.
+    trigger_match = re.search(
+        r"^when_to_use:\s*(.+?)\s*$", match.group(1), re.MULTILINE
+    )
+    if trigger_match is not None:
+        # Stripped outside the f-string: a backslash inside a replacement
+        # field is a syntax error before Python 3.12, and the support
+        # matrix still declares 3.11.
+        trigger = trigger_match.group(1).strip(" \"'")
+        description = f"{description} {trigger}"
+    return name, description
+
+
 def load_skill_descriptions(root: Path) -> dict[str, str]:
+    """Load every skill, refusing the whole set if one cannot be parsed.
+
+    The gates need this strictness: a validator that silently dropped a broken
+    skill would report a healthy catalogue. The hook uses the resilient loader
+    below instead, because for routing a partial catalogue beats none.
+    """
     descriptions: dict[str, str] = {}
     for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
-        text = skill_file.read_text(encoding="utf-8")
-        match = re.match(r"\A---\s*\n(.*?)\n---", text, re.DOTALL)
-        if match is None:
-            raise ValueError(f"missing frontmatter: {skill_file}")
-        name_match = re.search(r"^name:\s*(.+?)\s*$", match.group(1), re.MULTILINE)
-        description_match = re.search(
-            r"^description:\s*(.+?)\s*$", match.group(1), re.MULTILINE
-        )
-        if name_match is None or description_match is None:
-            raise ValueError(f"missing name or single-line description: {skill_file}")
-        name = name_match.group(1).strip(" \"'")
-        description = description_match.group(1).strip(" \"'")
-        # Rank the text the host actually lists. Claude Code appends
-        # when_to_use to description in the skill listing, so scoring the
-        # description alone would measure something the model never sees.
-        trigger_match = re.search(
-            r"^when_to_use:\s*(.+?)\s*$", match.group(1), re.MULTILINE
-        )
-        if trigger_match is not None:
-            # Stripped outside the f-string: a backslash inside a replacement
-            # field is a syntax error before Python 3.12, and the support
-            # matrix still declares 3.11.
-            trigger = trigger_match.group(1).strip(" \"'")
-            description = f"{description} {trigger}"
+        name, description = _parse_skill_file(skill_file)
         if name in descriptions:
             raise ValueError(f"duplicate skill name: {name}")
         descriptions[name] = description
     return descriptions
+
+
+def load_parsable_skill_descriptions(root: Path) -> tuple[dict[str, str], list[str]]:
+    """Load what parses and name what did not.
+
+    One unparsable SKILL.md used to abort the load, and the hook renders a
+    failed load exactly like a prompt that matched nothing. A dead router and a
+    quiet one were indistinguishable, for every prompt, forever.
+    """
+    descriptions: dict[str, str] = {}
+    unparsable: list[str] = []
+    for skill_file in sorted((root / "skills").glob("*/SKILL.md")):
+        try:
+            name, description = _parse_skill_file(skill_file)
+        except (OSError, UnicodeDecodeError, ValueError):
+            unparsable.append(skill_file.parent.name)
+            continue
+        if name in descriptions:
+            unparsable.append(skill_file.parent.name)
+            continue
+        descriptions[name] = description
+    return descriptions, unparsable
 
 
 def _idf(documents: Sequence[Sequence[str]]) -> dict[str, float]:

@@ -56,10 +56,14 @@ Check it after changing a manifest, a hook configuration, or skill frontmatter:
 
 `versionsAligned` must be `true`. A `host-version-drift` finding means the two
 manifests disagree and the release is not coherent. For Claude Code the report
-also lists `modelInvocableSkills`, which must contain exactly the three core
-workflows, and `userInvocableOnlySkills`, which must contain the other eleven.
-A workflow that moves between those lists changes how much catalog Claude loads
-on every task.
+also lists `modelInvocableSkills`, which must contain all sixteen workflows, and
+`userInvocableOnlySkills`, which must stay empty. The core workflows delegate to
+the specialized ones by name, and Claude Code hides a
+`disable-model-invocation` skill from the model entirely, so a workflow that
+moved into the second list could never be reached by the delegation that names
+it. `tests/test_claude_plugin_contract.py` asserts both lists; the cost of the
+sixteen descriptions Claude loads on every task is the deliberate price of that
+reachability.
 
 `requiredUserConfig` lists values Claude Code prompts for when the plugin is
 enabled. `python_executable` has no default because no interpreter name resolves
@@ -148,6 +152,25 @@ checkpoint plus at least one event:
   --bundle <external-bundle.zip> --retain-events 25 --json
 ```
 
+Verify a bundle against the session that produced it before relying on it or
+removing it:
+
+```powershell
+& $python skills/execute-durably/scripts/work_state.py --root <workspace> `
+  --data-root <external-data-root> verify-bundle --session <id> `
+  --bundle <external-bundle.zip> --json
+```
+
+Authentication comes from the session, not from the archive. `compact` records
+the bundle's digest in a signed `compaction_checkpoint` event in the surviving
+ledger, and this command requires the bundle to match one of those. A bundle is
+a byte copy of the session directory and therefore carries a copy of the ledger
+key, so anything verified against the key it ships with proves only that the
+archive is self-consistent -- which a forger controls. Once the recording
+checkpoint has itself been compacted away, the session no longer holds the
+evidence that it produced those bytes and the command refuses rather than
+guessing.
+
 Do not remove the bundle until a newer complete bundle and retained state have
 both been verified. Schema migration remains forward-only with a verified copy;
 there is no destructive downgrade path.
@@ -159,7 +182,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.7.3
+  --installed-root <installed-root> --tag v1.8.0
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.

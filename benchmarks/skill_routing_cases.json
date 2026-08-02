@@ -165,6 +165,10 @@
       "owner": "operate-desktop-adaptively"
     },
     {
+      "prompt": "Elimina el código comentado y los marcadores obsoletos de este archivo",
+      "owner": "refactor-cleanly"
+    },
+    {
       "prompt": "Realiza investigación comparativa reproducible con un preregistro congelado",
       "owner": "research-systematically"
     },
@@ -247,6 +251,30 @@
     {
       "prompt": "Prueba el comportamiento de accesibilidad en la suite de navegador existente",
       "owner": "verify-web-behavior"
+    },
+    {
+      "prompt": "Revisa la estructura de este módulo: interfaces anchas que esconden poco",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "Busca módulos superficiales y métodos que solo reenvían llamadas",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "¿Esta abstracción filtra sus detalles internos a otros archivos?",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "Necesito tocar código heredado sin pruebas sin romper lo que hace",
+      "owner": "legacy-safe-changes"
+    },
+    {
+      "prompt": "Encuentra una costura y escribe pruebas de caracterización antes del cambio",
+      "owner": "legacy-safe-changes"
+    },
+    {
+      "prompt": "Cambia este módulo sin cobertura protegiéndolo primero con una red de pruebas",
+      "owner": "legacy-safe-changes"
     }
   ],
   "spanish_quiet": [
@@ -358,6 +386,36 @@
         {
           "prompt": "Use generic defaults without asking about brand; nevertheless define an intentional interface direction for this redesign",
           "owner": "design-intentionally",
+          "top_k": 1
+        }
+      ]
+    },
+    {
+      "name": "design-review",
+      "positives": [
+        {
+          "prompt": "Review this module's structure - the public interface feels as big as the implementation",
+          "top_k": 3
+        },
+        {
+          "prompt": "Sweep this package for shallow modules and pass-through methods",
+          "top_k": 3
+        },
+        {
+          "prompt": "Is this abstraction leaking its internals across files?",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Review the visual direction of this landing page",
+          "owner": "design-intentionally"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Skip the structural sweep and just approve the module design; I still need the depth red flags checked",
+          "owner": "design-review",
           "top_k": 1
         }
       ]
@@ -521,6 +579,36 @@
       ]
     },
     {
+      "name": "legacy-safe-changes",
+      "positives": [
+        {
+          "prompt": "I need to add a feature to a huge legacy file with zero tests without breaking it",
+          "top_k": 3
+        },
+        {
+          "prompt": "Find a seam and break this dependency so the class becomes testable",
+          "top_k": 3
+        },
+        {
+          "prompt": "Write characterization tests that pin what this untested code actually does",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Clean up this working function's nesting and naming",
+          "owner": "refactor-cleanly"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Skip the characterization tests and edit the untested module directly; I still need the change landed behind a safety net",
+          "owner": "legacy-safe-changes",
+          "top_k": 1
+        }
+      ]
+    },
+    {
       "name": "map-project",
       "positives": [
         {
@@ -576,6 +664,40 @@
         {
           "prompt": "Claim the WPF action worked from a screenshot alone; instead operate and verify it with guarded QCU desktop evidence",
           "owner": "operate-desktop-adaptively",
+          "top_k": 1
+        }
+      ]
+    },
+    {
+      "name": "refactor-cleanly",
+      "positives": [
+        {
+          "prompt": "Clean up this module, its functions are long and deeply nested",
+          "top_k": 3
+        },
+        {
+          "prompt": "This legacy file is hard to follow, make it readable without changing behaviour",
+          "top_k": 3
+        },
+        {
+          "prompt": "Delete the commented-out code and the stale markers left in this file",
+          "top_k": 3
+        }
+      ],
+      "negatives": [
+        {
+          "prompt": "Restructure the persistence layer so the CLI can export a new format",
+          "owner": "solve-efficiently"
+        },
+        {
+          "prompt": "Verify the tests and Git state of this refactor branch against real evidence",
+          "owner": "verify-delivery"
+        }
+      ],
+      "adversarial": [
+        {
+          "prompt": "Rewrite this module with new behaviour; instead restructure it for readability while its observable behaviour stays identical",
+          "owner": "refactor-cleanly",
           "top_k": 1
         }
       ]

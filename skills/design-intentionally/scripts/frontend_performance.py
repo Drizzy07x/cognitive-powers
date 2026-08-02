@@ -48,7 +48,10 @@ def _load_package_json(root: Path) -> dict[str, Any]:
         raise FrontendAuditError(f"package.json not found: {package_path}")
     try:
         value = json.loads(package_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # A manifest saved in UTF-16 or cp1252 raises UnicodeDecodeError, which is a
+    # ValueError and not a JSONDecodeError, so it escaped as a traceback instead
+    # of the documented error object.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise FrontendAuditError(f"cannot read package.json: {package_path}") from error
     if not isinstance(value, dict):
         raise FrontendAuditError("package.json must contain an object")

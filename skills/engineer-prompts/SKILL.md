@@ -50,3 +50,15 @@ Each list must contain at least one distinct, non-empty string. `target_model` i
 - Prefer concise instructions and remove duplicated constraints after preserving their meaning.
 
 The bundled script enforces required fields, non-empty values, uniqueness, unknown-field rejection, deterministic order, and model neutrality. It does not prove semantic clarity, permission validity, evidence quality, or model improvement; those remain review judgments that must be reported honestly.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before rendering the contract**
+- Every outcome is observable; none needs the author to judge success.
+- Permissions, tools, and evidence obligations are named explicitly.
+
+**Before delivering**
+- Stop conditions exist and are reachable.
+- The audit found no unstated permission or unobservable criterion.

@@ -1,0 +1,170 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Cognitive Powers is a plugin that ships from **one source tree to two hosts**: Codex reads
+`.codex-plugin/plugin.json` + `skills-core/` + `hooks/hooks.json`; Claude Code reads
+`.claude-plugin/plugin.json` + `skills/` + `hooks/hooks.claude.json`. Both manifests declare the
+same version, and `doctor.py` reports `versionsAligned: false` when they drift.
+
+**The two skill trees are not mirrors.** `skills/` holds all seventeen workflows. `skills-core/`
+holds only the three routers Codex installs — `solve-efficiently`, `execute-durably`,
+`verify-delivery` — with their own `SKILL.md` and `agents/openai.yaml`, which differ from the
+`skills/` copies and are gated separately. Codex reaches the other fourteen by reading
+`skills/<name>/SKILL.md` under the plugin root; that is why `hooks/skill_router.py` names a Skill
+tool id on Claude Code and a file path on Codex, and why the catalog in
+`skills-core/execute-durably/SKILL.md` has to list every specialized workflow by path.
+
+Everything is Python standard library. `ruff` is the only dependency, dev-only and hash-pinned in
+`requirements-dev.txt`. Do not add a runtime dependency: several components exist to report whether
+an installation works, and one that needed installing first would be self-defeating.
+
+## Commands
+
+```powershell
+# The canonical gate. 25 commands: the unittest suite, ruff, eleven benchmark runners,
+# packaging contracts, and doctor. The receipt MUST land outside the repo.
+& $python scripts/validate_all.py --offline --json-output <path-outside-repo>.json
+
+# One module, one class, or one test
+& $python -m unittest tests.test_work_state_storage
+& $python -m unittest tests.test_plugin_hooks.PluginHookTests.test_post_tool_use_reads_stdin_appends_and_hashes_changed_file
+
+& $python -m ruff check .
+& $python -m ruff format --check .
+
+& $python scripts/validate_skills.py --strict-quality
+& $python scripts/doctor.py --json                          # packaging, never executes a host CLI
+& $python scripts/doctor.py --validate-installation --json  # runs the components in a temp copy
+& $python scripts/run_skill_routing_benchmarks.py           # after any skill name/description edit
+
+# Readability findings. Exit 1 when any remain; a waived one is not reported.
+& $python hooks/clean_code_guard.py --scan hooks
+'{"tool_name":"Write","tool_input":{"file_path":"hooks/skill_router.py"}}' |
+    & $python hooks/clean_code_guard.py post-tool-use
+```
+
+`$python` must be an explicit interpreter path. On Windows `python3` resolves to a Microsoft Store
+stub that exits without running Python — the reason `python_executable` is required user config with
+no default.
+
+Reading the receipt: `offlinePassed` is whether the 25 commands succeeded. `passed` additionally
+requires a clean worktree and a stable source identity, so it is `false` on any dirty tree by
+design. `skippedTests` is recorded per command because a skipped assertion is one that did not run.
+
+Two runners are deliberately outside the gate and fail locally without their provider:
+`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
+
+`docs/operations.md` is the runbook for everything the gate does not do: lock and state-schema
+recovery, durable resume across a compaction, verifying an installed release, the release
+checklist, and running the controller A/B without growing the working tree.
+
+## Architecture
+
+**The routing decision has one implementation.** `scripts/skill_routing.py` holds `decide()`, and
+both `hooks/skill_router.py` and the routing benchmark call it. A hook carrying its own copy could
+satisfy every checked-in case and rank something else at runtime — that split is what the module
+exists to prevent. Skill descriptions are the routing corpus: the benchmark scores the combined
+`description` + `when_to_use` text because that is what the host actually lists.
+
+**That match is lexical, so a description that names a sibling claims its vocabulary.** Ceding
+territory in prose — "not for X, that is `other-skill`" — puts `other-skill`'s words in this
+skill's own bag and wins the prompts it meant to hand over. Measured on `refactor-cleanly`: with
+two such clauses, one Spanish prompt misrouted and Spanish routing fell to 0.92; removing them
+returned 0 misroutes and 0.94. Separate siblings in the body, which the router never scores.
+
+**The routing benchmark measures disambiguation between siblings, not whether a skill fires at
+all.** Its prompts were written against the descriptions, so under-triggering is invisible to it by
+construction: 53 of 54 checked-in positives reach their own skill, and no natural-phrasing corpus
+exists in `benchmarks/skill_routing_cases.json` that could expose the gap. A green suite means no
+skill steals another's work; it is not evidence that any skill activates on real requests.
+
+**Four hooks, three shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
+(UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
+is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
+indistinguishable from a session that changed nothing. When editing it, ask what an early return
+makes invisible. `hooks/clean_code_guard.py` (PostToolUse on writes) is the third shape: advisory
+by default, exit 2 under `CLEAN_CODE_GUARD_STRICT`, with the measurable rules isolated in
+`hooks/clean_code_rules.py` — pure analysis, no I/O, no process control. Waivers in
+`cleancode-accepted.txt` are per `path:line:rule`, never per file, and hook mode ignores them: the
+file being edited right now is the one where a stale waiver would hide the next defect.
+
+**Durable state lives outside the repository**, at `~/.codex/cognitive-powers` on both hosts
+(historical name, deliberately shared so one machine keeps one store), overridable with
+`COGNITIVE_POWERS_DATA`. `skills/execute-durably/scripts/work_state.py` is the CLI; the real logic
+is in `work_state_core/durability.py` (ledger, HMAC chain, recovery) and `storage.py` (content-
+addressed objects, garbage collection). `_default_data_root()` in `selective_hooks.py` must stay
+byte-identical to `resolve_data_root()` in `durability.py`: if they diverge, receipts land outside
+the root the Stop gate checks and it rejects work that is in fact complete.
+
+**`agents/` ships three subagents** (`executor`, `test-writer`, `verifier`) whose frontmatter
+withholds `Agent` from the tool set. The depth-one rule is enforced by what the tools allow, not by
+what the prompt asks for — a worker able to spawn workers breaks it whatever its instructions say.
+`verifier` adds `disallowedTools` and `isolation: worktree` for the same reason: the agent that
+produced a result cannot be the one confirming it.
+
+**Fail closed, and say what failed.** Corruption, unreadable evidence, unknown schema versions and
+torn writes raise a domain error rather than guessing or tracebacking. `UnicodeDecodeError` is a
+`ValueError`, not an `OSError` — a handler guarding only `OSError` lets a half-written file escape.
+
+**`mcp/evidence_server.py`** publishes read-only inspections of that store over MCP. It shells out
+to the canonical `work_state.py` subcommand rather than reimplementing the read path, and its tool
+table is the allowlist: a name not in it reaches no subprocess. Mutation stays on the CLI.
+
+**The controller A/B harness** (`scripts/controller_ab_*.py`, `live_ab_runner*.py`,
+`prepare_controller_ab_homes.py`) is the only part that calls a provider. `controller_ab_fixtures.py`
+*generates* the fixture trees and the `hidden_check.py` / `quality_check.py` evaluators in-process —
+nothing under `benchmarks/` is read as evaluator material — and refuses to materialize inside the
+repo. `INSTALLED_SURFACE_DIRECTORIES` / `INSTALLED_SURFACE_FILES` in `live_ab_runner.py` define what
+counts as the shipped runtime surface; the A/B homes copy exactly that.
+
+`benchmarks/controller_ab_protocol.json` freezes the design and its `not-proven` state. Evidence
+scope is promotion-only, so a pilot-only run proves nothing by construction. The control arm is
+`forced-solo` of the same build, not "no plugin".
+
+## Invariants worth knowing before you edit
+
+- **All seventeen skills stay model-invocable.** `userInvocableOnlySkills` must be empty. The core
+  workflows delegate to the specialized ones by name, and Claude Code hides a
+  `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
+  Asserted by `tests/test_claude_plugin_contract.py`.
+- **Adding or removing a workflow moves six carriers.** The `skills/<name>/` directory,
+  `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
+  `scripts/verify_installed.py`, the catalog in `skills-core/execute-durably/SKILL.md`, the
+  `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` corpus. The
+  last two are not optional extras: `run_skill_routing_benchmarks.py` raises `ValueError` when the
+  case names and the skill names are not the same set, and
+  `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
+  skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
+  skill rather than scoring it as perfect by omission. Then rerun the benchmark: a new description
+  changes the ranking of prompts that were never about it.
+- **Adding a hook moves three assertions in `tests/test_claude_plugin_contract.py`**: the number of
+  hook entries, the set of script names, and the subcommand table. Every hook takes its event as
+  `args[1]`, and the table reads that index directly, so a hook registered without one raises
+  `IndexError` instead of reporting a missing subcommand.
+- **This file is gated like the code.** `tests/test_documentation.py` resolves every
+  repository-relative path and markdown link in `README.md`, `CLAUDE.md`, `THIRD_PARTY_NOTICES.md`
+  and `docs/*.md`, and fails when a new root document is not listed in `ROOT_DOCUMENTS`. It cannot
+  catch a wrong count in prose — 1.7.3 shipped three such claims — so counts stated here are worth
+  rechecking against the tree before trusting them.
+- **Every skill needs `agents/openai.yaml`** with a 25–64 character `short_description` and a
+  `default_prompt` mentioning `$<skill-name>`. Skills cap at 500 lines; the host truncates
+  `description` + `when_to_use` at 1,536 characters in the listing.
+- **Version carriers move only through `scripts/bump_version.py`.** Write the `CHANGELOG.md`
+  section first — the bump refuses to run without it, and the publisher derives release notes from
+  it. Tags are immutable: every correction is a new version, because the plugin cache on both hosts
+  is keyed by version and a same-version cache is never refreshed in place.
+- **`source.sha256` identifies a commit, not a checkout.** Text is folded to LF and filenames
+  composed to NFC before hashing (`sha256-text-normalized-v3`), so platforms agree. Digests from
+  different schemes are not comparable and are rejected rather than reported as a content change.
+- **A test that mocks the integration under test proves nothing.** This has bitten twice: a
+  `subprocess.run` mock hid that prepared A/B homes could not work on any host, and a hand-listed
+  CLI gate silently shrank to half the shipped scripts. Prefer enumerating the real surface.
+
+## Style
+
+Comments explain **why a defect was possible**, not what a line does — read a few before writing
+one. The `CHANGELOG.md` entries follow the same rule and are the best available record of intent.
+Match each file's existing voice; keep diffs scoped.

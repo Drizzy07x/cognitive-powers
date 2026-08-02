@@ -657,7 +657,7 @@ def state_migration_report(session_dir: Path) -> dict[str, object]:
     path = _state_path(session_dir)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(f"state is unreadable: {path}: {error}") from error
     if not isinstance(payload, dict):
         raise WorkStateError(f"state is not an object: {path}")
@@ -696,7 +696,11 @@ def _read_ledger_events(session_dir: Path) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     try:
         content = path.read_text(encoding="utf-8")
-    except OSError as error:
+    # An interrupted append can leave bytes that are not valid UTF-8, exactly
+    # the corruption load_state documents for state.json. UnicodeDecodeError is
+    # a ValueError rather than an OSError, so it escaped this handler and every
+    # command answered a torn ledger with a traceback instead of failing closed.
+    except (OSError, UnicodeDecodeError) as error:
         raise WorkStateError(f"ledger is unreadable: {path}: {error}") from error
     # One physical line is one record. read_text has already folded every
     # platform newline to "\n"; splitlines() additionally breaks on U+2028,
@@ -1056,7 +1060,7 @@ def _read_recovery_checkpoint(session_dir: Path) -> dict[str, Any] | None:
         return None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(
             f"recovery checkpoint is unreadable: {path}: {error}"
         ) from error

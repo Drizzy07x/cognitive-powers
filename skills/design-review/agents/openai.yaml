@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Review"
+  short_description: "Find shallow modules and leaky structure"
+  default_prompt: "Use $design-review to sweep this code for depth and clarity red flags."

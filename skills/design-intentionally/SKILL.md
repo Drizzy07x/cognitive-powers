@@ -51,3 +51,15 @@ The visual receipt must remain `behavioralVerificationEligible=false` and `subje
 ## 5. Deliver honestly
 
 Report the design read, preserved constraints, material visual changes, tested viewports and interactions, and remaining visual or behavioral gaps. Invoke `verify-delivery` for a separate release or quality verdict and `communicate-efficiently` for the final handoff.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before implementing**
+- Visual intent recorded as inspectable constraints, not adjectives.
+- Context chosen deliberately; defaults rejected or adopted by name.
+
+**Before claiming fidelity**
+- The rendered result was verified at the declared viewports.
+- Every quality claim maps to a recorded check, not an impression.

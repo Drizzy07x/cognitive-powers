@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refactor Cleanly"
+  short_description: "Clean up code without changing behaviour"
+  default_prompt: "Use $refactor-cleanly to improve this code's readability without changing behaviour."

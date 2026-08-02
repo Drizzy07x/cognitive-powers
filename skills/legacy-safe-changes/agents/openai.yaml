@@ -1,0 +1,4 @@
+interface:
+  display_name: "Legacy-Safe Changes"
+  short_description: "Change untested code behind a safety net"
+  default_prompt: "Use $legacy-safe-changes to land this change in untested code without breaking it."

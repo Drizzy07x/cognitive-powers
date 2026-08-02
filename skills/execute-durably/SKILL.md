@@ -1,7 +1,7 @@
 ---
 name: execute-durably
 description: Run long or compaction-prone work against external durable state, recording a hash-bound receipt for each observable criterion and requiring a separate verifier before a criterion may close.
-when_to_use: Use when work spans several turns or is likely to cross a context compaction, must survive interruption and resume from stored state, or has several criteria whose proof must outlive the conversation. Skip work that finishes and can be checked in a single pass.
+when_to_use: Use when work spans several turns or is likely to cross a context compaction, must survive interruption and resume from stored state, or has several criteria whose proof must outlive the conversation. Makes work resumable from an append-only history. Skip work that finishes and can be checked in a single pass.
 ---
 
 # Execute Durably
@@ -41,7 +41,14 @@ For a compact board, timeline, blocker list, and handoff derived from that same 
 
 The report is a view, not a second state store. Do not edit it to change packet status.
 
-Delegate only independent work. Before spawning, follow the automatic conservative plan from `<plugin-root>/scripts/orchestration_policy.py`; re-evaluate after each wave and allow at most one classified retry. Every worker prompt must name the deliverable, scope, permissions, and verification target. Keep one owner for coupled edits. Read [agent-roles.md](references/agent-roles.md) before assigning executor, test-writer, or verifier roles; custom TOML agents are optional and must not become an installation requirement.
+Delegate only independent work. Before spawning, obtain the conservative plan by filling the template and submitting it; the script has no default mode and prints usage when run with no flag:
+
+```powershell
+& $python <plugin-root>/scripts/orchestration_policy.py --agent-plan-template 2 --json
+& $python <plugin-root>/scripts/orchestration_policy.py --agent-plan <json-or-stdin> --json
+```
+
+Re-evaluate after each wave and allow at most one classified retry. Every worker prompt must name the deliverable, scope, permissions, and verification target. Keep one owner for coupled edits. Read [agent-roles.md](references/agent-roles.md) before assigning executor, test-writer, or verifier roles; custom TOML agents are optional and must not become an installation requirement.
 
 For a medium or large implementation with independent file ownership, read [work-packets.md](references/work-packets.md), compile human-authored Markdown when applicable, and install one atomic packet plan before starting workers. Do not use packets for a focused edit. Packet checks are scoped implementation gates; they never replace integrated criteria or independent verification.
 
@@ -113,8 +120,36 @@ Give a fresh verifier the original objective, relevant diff, criterion, and rece
 
 The script rejects self-verification, malformed receipts, missing or changed artifacts, and evidence made stale by later source changes. A different identifier is a guardrail, not proof of cognitive independence; the workflow must actually use a fresh context.
 
+## Execution discipline
+
+Rules that hold across every criterion, checkable against the diff and the ledger:
+
+- **One authority per fact.** Before adding a constant, format, or rule, search for its existing owner. Finding two authorities for the same fact is itself a finding to record; adding a third closes completion until one owner remains.
+- **One concern per diff.** A packet's diff serves the concern its criterion names. Edits to unrelated modules split into their own packet or are reverted; coupled edits stay under one owner rather than being forced apart.
+- **Crash early.** An impossible state raises a domain error at the point of detection with the failing thing named. Code that limps forward past a detected impossibility fails review even when its tests pass.
+- **Suspect this repository first.** When a failure looks like a framework, library, or host bug, rule out this project's own code before claiming otherwise. An upstream-bug claim requires a minimal reproduction outside the project, recorded as evidence like any other.
+- **Tracer first.** For multi-criterion work, order criteria so the first receipt proves a thin end-to-end slice through every layer involved. Thicken behind proven wiring; do not perfect one layer while the connection to the next remains a guess.
+
 ## 5. Close only through the gate
 
 Run `complete` only after every criterion is verified. Any pending, failed, blocked, rejected, inconclusive, or stale criterion blocks completion without a retry limit or fail-open escape.
 
 Do not create commits, branches, PRs, security reviews, or external publications unless the user requested them.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the report, never silently past it.
+
+**Before the first receipt**
+- Criteria are falsifiable and ordered so the first one proves end-to-end wiring.
+- State initialized outside the repository; resume reads state, not memory.
+
+**Before each criterion closes**
+- The receipt came from the tool, with real exit code and hashes.
+- The diff serves one concern and introduced no second authority for any fact.
+- A different verifier confirmed the evidence without a suggested verdict.
+
+**Before completing the session**
+- Every criterion verified; none pending, stale, or inconclusive.
+- Upstream-bug claims carry an out-of-project reproduction.
+- No commit, branch, or publication happened without an explicit request.

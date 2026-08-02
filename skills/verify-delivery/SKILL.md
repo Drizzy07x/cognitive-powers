@@ -2,6 +2,7 @@
 name: verify-delivery
 description: Audit an already-completed implementation, diagnosis, research delivery, release, or benchmark against real evidence, separating what the evidence supports from what was only asserted.
 when_to_use: Use when asked to review a completion claim, check tests and Git state, judge release readiness, or find unsupported claims. Never use while implementing a change; this workflow audits finished work only.
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # Verify Delivery
@@ -76,6 +77,15 @@ For cross-cutting, release-critical, or independently delegated work, select the
 
 When several passes report findings, normalize them through [finding-contract.md](references/finding-contract.md) and `scripts/review_protocol.py synthesize`. Bind every pass and finding to the same source identity, merge only identical issue keys, preserve disagreements as conflicts, and order material findings by severity and confidence.
 
+## Construction checks
+
+For a code delivery, audit these four dimensions inside the Quality axis. Each has an observable fail condition; cite the line for every finding.
+
+- **Naming.** Every identifier the diff introduces or repurposes says what it now holds or does. A name the change made misleading fails even though no line containing it changed.
+- **Defensive programming.** Input crossing a trust boundary is validated where it enters. Impossibilities are asserted; expectable failures get errors. The distinction is checkable: an assertion that can fire on user input is a finding.
+- **Error handling.** Every failure path the diff adds is handled or propagated with context, and the message names the failing thing and input. A newly introduced silent catch fails unless the surrounding component documents silence as its contract.
+- **Review pass.** The whole diff was re-read line by line as its own step, distinct from writing it, and the report says so. Unrelated edits found in that pass are listed, not absorbed.
+
 ## 5. Render the verdict
 
 Report the Contract and Quality verdicts separately. Within each axis, lead with its most important defect or verdict and cite the command, artifact, line, log, or state supporting each finding. State what passed, what failed, and what was not tested.
@@ -91,3 +101,21 @@ After the delivery verdict, use `scripts/knowledge_closeout.py` to assess whethe
 Use `light` mode for a narrow change and include only relevant surfaces. Use `full` mode for cross-cutting, release, architecture, or capability-lifecycle work and assess all six. A required surface is current only with evidence bound to the reviewed source identity.
 
 The closeout is read-only. It may report cleanup or memory-write actions as authorized or blocked, but it never performs them. Do not clean artifacts or write durable memory unless the user explicitly authorized that separate side effect.
+
+## Pause points
+
+DO-CONFIRM: work from judgment, then stop at each point and confirm every item. An unconfirmed item goes in the verdict, never silently past it.
+
+**Before gathering evidence**
+- The contract frozen: outcomes, constraints, side effects, promised checks.
+- Every material claim listed and mapped to the evidence that could falsify it.
+
+**Before rendering the verdict**
+- Each claim classified from current evidence; no stale report counted as a pass.
+- Construction checks run on code deliveries, findings cited by line.
+- Boundaries probed, not only the happy path.
+
+**Before declaring complete**
+- Contract and Quality verdicts separate; neither offsets the other.
+- Verdict bound to the exact source state and artifacts reviewed.
+- Gaps carry the smallest next check or fix, not a vague retry.

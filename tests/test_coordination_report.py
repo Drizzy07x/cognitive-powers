@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +15,15 @@ SPEC = importlib.util.spec_from_file_location("coordination_report", MODULE_PATH
 reporting = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(reporting)
+
+# U+2028, U+2029, and U+0085: the separators str.splitlines() breaks on and
+# "\n" does not. Spelled as code points so the fixture survives any editor or
+# checkout that would otherwise rewrite them.
+SPLITLINES_ONLY_SEPARATORS = (
+    ("line", chr(0x2028)),
+    ("paragraph", chr(0x2029)),
+    ("next", chr(0x85)),
+)
 
 
 class CoordinationReportTests(unittest.TestCase):
@@ -61,6 +72,47 @@ class CoordinationReportTests(unittest.TestCase):
             reporting.render_report(
                 {"criteria": [], "work_packets": [{"status": "pending"}]}, []
             )
+
+    def test_unicode_separators_inside_an_event_stay_one_record(self) -> None:
+        # work_state writes the ledger with json.dumps(ensure_ascii=False), so an
+        # objective carrying one of these separators reaches this reader raw.
+        # splitlines() treated each of them as a record boundary, so the board,
+        # timeline, blockers, and handoff were permanently unavailable for a
+        # session work_state itself still read. Only "\n" terminates a record.
+        for label, separator in SPLITLINES_ONLY_SEPARATORS:
+            with (
+                self.subTest(separator=label),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                ledger = Path(temporary) / "ledger.jsonl"
+                objective = f"ship the {separator} release"
+                ledger.write_text(
+                    json.dumps(
+                        {"seq": 1, "event": "session_initialized", "reason": objective},
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                events = reporting.read_events(ledger)
+
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0]["reason"], objective)
+
+    def test_interior_blank_ledger_line_is_still_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = Path(temporary) / "ledger.jsonl"
+            ledger.write_text(
+                '{"seq": 1, "event": "session_initialized"}\n'
+                "\n"
+                '{"seq": 2, "event": "packet_started"}\n',
+                encoding="utf-8",
+            )
+
+            events = reporting.read_events(ledger)
+
+            self.assertEqual([item["seq"] for item in events], [1, 2])
 
 
 if __name__ == "__main__":

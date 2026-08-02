@@ -79,7 +79,12 @@ class BenchmarkIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
         self.assertIn("FAIL payment-retry-impact", completed.stdout)
-        self.assertIn("version=None", completed.stdout)
+        # Naming the absent provider is the point. Reporting a recall figure
+        # from the deterministic fallback made an unconfigured machine look
+        # like a provider that answered badly -- a different problem with a
+        # different fix -- so the recall wording must stay out of this path.
+        self.assertIn("CodeGraph did not answer", completed.stdout)
+        self.assertNotIn("impact recall=", completed.stdout)
 
     def test_browser_suite_cannot_pass_without_playwright(self) -> None:
         completed = subprocess.run(

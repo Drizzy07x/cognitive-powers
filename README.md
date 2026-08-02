@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Cognitive Powers" width="720">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img src="assets/logo.png" alt="Cognitive Powers" width="720">
+  </picture>
 </p>
 
 <p align="center">
@@ -22,7 +25,7 @@ with no receipt stays `unknown` instead of being assumed to work.
 
 One source tree packages both hosts. Codex loads `.codex-plugin/plugin.json` and
 `skills-core/`; Claude Code loads `.claude-plugin/plugin.json` and `skills/`.
-Both expose the same three core workflows and the same thirteen specialized ones.
+Both expose the same three core workflows and the same sixteen specialized ones.
 Only the invocation prefix differs: Codex uses `$name`, Claude Code uses
 `/name`. See [Install in Claude Code](#install-in-claude-code).
 
@@ -82,7 +85,7 @@ assignment's exact declared check. A write that legitimately changes nothing
 uses the explicit `no-op` status, an empty changed-path list, a concrete reason,
 and a successful required check; an empty `completed` write is rejected.
 
-The two hosts reach the other thirteen specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all sixteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
+The two hosts reach the other sixteen specialized workflows differently. Codex sees only these three core entries and loads a specialized workflow from the core router when the task directly matches. Claude Code lists all nineteen, because a skill it does not list cannot be invoked by the model at all, and the core workflows delegate to the specialized ones by name. Each description carries an explicit `when_to_use` trigger contract stating both when the workflow applies and when it does not, so the wider catalog does not turn into over-triggering; the deterministic routing benchmark scores that combined listing text and reports unchanged accuracy against the narrower surface.
 
 Version 1.4 adds fail-closed evidence and result-quality boundaries:
 
@@ -160,15 +163,15 @@ preflight fails without changing the profile.
 The installer resolves the release tag to an immutable commit through GitHub CLI and configures Git credentials with it, so `gh` must be installed and authenticated even though the repository itself is readable without it. Install or update Cognitive Powers with one PowerShell command:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.3' -H "Accept: application/vnd.github.raw+json" | Out-String)))
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.8.0' -H "Accept: application/vnd.github.raw+json" | Out-String)))
 ```
 
-The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.7.3` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one entry is enabled at the version the release ref names. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
+The installer configures Git credentials through the authenticated GitHub CLI session, resolves `v1.8.0` to a full commit SHA before reading or changing the profile, creates a local recovery copy before any removal, and updates the `cognitive-powers` marketplace with that immutable SHA. It removes other installed copies with the same plugin name, installs `cognitive-powers@cognitive-powers`, and verifies that exactly one entry is enabled at the version the release ref names. If an upgrade step fails, it restores the prior marketplace and previously enabled copies; if complete restoration is impossible, it preserves the recovery marketplace path and fails closed. Restart Codex before starting a new task.
 
-To roll back immutably, run the audited `v1.7.3` installer with the newest earlier tag that was actually published — 1.6.0 and 1.7.0 exist only as changelog sections, never as tags. The same recovery transaction protects the currently installed release:
+To roll back immutably, run the audited `v1.8.0` installer with the newest earlier tag that was actually published — 1.6.0 and 1.7.0 exist only as changelog sections, never as tags. The same recovery transaction protects the currently installed release:
 
 ```powershell
-& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.7.3' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.7.2
+& ([scriptblock]::Create((gh api 'repos/Drizzy07x/cognitive-powers/contents/install.ps1?ref=v1.8.0' -H "Accept: application/vnd.github.raw+json" | Out-String))) -ReleaseRef v1.7.2
 ```
 
 ## Update the local development installation
@@ -215,15 +218,30 @@ every platform. On Windows, `python3` resolves to the Microsoft Store alias in
 Hooks are invoked in exec form, so this path is passed as an argument vector and
 is never expanded by a shell.
 
-Claude may load any of the sixteen workflows when its trigger contract matches,
+Claude may load any of the nineteen workflows when its trigger contract matches,
 and every one of them stays directly invocable as `/solve-efficiently`,
 `/map-project`, `/verify-web-behavior`, and so on. Only the listing text, a
 description plus `when_to_use` per skill, is held in context; a workflow body
 loads when it is used.
 
 The plugin's three agent roles register under plugin-scoped names such as
-`cognitive-powers:verifier`. The verifier declares a read-only tool set, so the
-host enforces the independence contract instead of merely stating it.
+`cognitive-powers:verifier`. None of them is granted `Agent`, so a worker cannot
+spawn its own workers and depth one is a property of the tool set rather than a
+request. The verifier withholds the edit tools and runs under `isolation:
+worktree`: it keeps `Bash`, because verification means running real checks, and
+`Bash` is exactly what a withheld-edit-tools list does not contain -- the
+disposable checkout is what makes the read-only claim true of your tree.
+
+The plugin also declares one MCP server, `cognitive-powers-evidence`, so a host
+that cannot shell out can still read the durable store: `inspect_evidence_storage`,
+`summarize_durable_session`, and `check_durable_session_schema`. Every published
+tool is an inspection. Mutation stays on `work_state.py`, where the ownership,
+lock, and independent-verifier gates live, and the server does not reimplement
+the read path either -- each tool runs the canonical subcommand and returns its
+JSON, because two implementations of one contract diverge and the one behind an
+MCP boundary is the one nobody would notice diverging. The tool table is the
+allowlist: a name that is not in it reaches no subprocess, so no argument a
+caller supplies can select a mutating subcommand.
 
 To find out whether an installed copy actually runs on your host rather than
 merely being packaged correctly, invoke `/verify-installation`. It executes the
@@ -246,7 +264,7 @@ Verify an explicitly authorized installed copy against the immutable tag:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <isolated-installed-root> --tag v1.7.3 --host claude-code
+  --installed-root <isolated-installed-root> --tag v1.8.0 --host claude-code
 ```
 
 The `claude-code` host verifies tagged content and packaging only. It never
@@ -281,7 +299,7 @@ inventory, and the three-skill public surface:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <isolated-installed-root> --tag v1.7.3
+  --installed-root <isolated-installed-root> --tag v1.8.0
 ```
 
 Exit codes distinguish identity (`10`), content (`11`), inventory (`12`), and

@@ -1,1 +1,0 @@
-"""Pilot fixture package."""

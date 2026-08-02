@@ -784,6 +784,24 @@ def _is_truthy(value: str | None) -> bool:
     return _FRONTMATTER.is_truthy(value)
 
 
+def _mcp_server_script_exists(root: Path, server: object) -> bool:
+    """Resolve a declared server's script without expanding the interpreter.
+
+    Only ``${CLAUDE_PLUGIN_ROOT}`` is substituted. The command is deliberately
+    left alone: it is the operator's configured interpreter, and doctor reports
+    packaging rather than probing whether a program starts.
+    """
+    if not isinstance(server, dict):
+        return False
+    for argument in server.get("args") or []:
+        if not isinstance(argument, str) or "${CLAUDE_PLUGIN_ROOT}" not in argument:
+            continue
+        relative = argument.replace("${CLAUDE_PLUGIN_ROOT}", "").lstrip("/\\")
+        if not (root / relative).is_file():
+            return False
+    return True
+
+
 def _unroutable_referenced_skills(root: Path, manual: set[str]) -> list[str]:
     """Return skills another skill tells the model to invoke but cannot.
 
@@ -847,6 +865,14 @@ def host_surfaces(root: Path) -> dict[str, Any]:
             claude["version"] = manifest.get("version")
             claude["hooks"] = manifest.get("hooks")
             claude["agents"] = manifest.get("agents")
+            # A declared server that is not on disk starts on every session and
+            # fails there, so name what the manifest promises and whether the
+            # file backing it exists. Nothing here starts a server.
+            claude["mcpServers"] = sorted((manifest.get("mcpServers") or {}))
+            claude["mcpServerScriptsPresent"] = all(
+                _mcp_server_script_exists(root, server)
+                for server in (manifest.get("mcpServers") or {}).values()
+            )
             claude["requiredUserConfig"] = sorted(
                 key
                 for key, option in (manifest.get("userConfig") or {}).items()

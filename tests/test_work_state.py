@@ -2028,6 +2028,32 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
         self.assertEqual(completed.returncode, 2)
         self.assertIn("ledger line 2 is malformed", completed.stdout)
 
+    def test_a_torn_ledger_write_fails_closed_instead_of_tracebacking(self) -> None:
+        """An interrupted append leaves bytes the UTF-8 decoder rejects.
+
+        UnicodeDecodeError is a ValueError, so it slipped past the OSError-only
+        handler and every command answered a torn ledger with a traceback and
+        exit 1 instead of the documented error object and exit 2.
+        """
+        initialized = self.initialize()
+        session_dir = Path(str(initialized["state"])).parent
+        ledger = session_dir / "ledger.jsonl"
+        ledger.write_bytes(ledger.read_bytes() + b"\x80\x80\x80")
+
+        completed = self.cli("status", "--session", "demo", "--json")
+
+        self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertIn("ledger is unreadable", json.loads(completed.stdout)["error"])
+
+    def test_state_migration_policy_fails_closed_on_a_torn_state_write(self) -> None:
+        torn = self.base / "schema-torn"
+        torn.mkdir()
+        (torn / "state.json").write_bytes(b"\x80\x80\x80")
+
+        with self.assertRaisesRegex(work_state.WorkStateError, "state is unreadable"):
+            work_state.state_migration_report(torn)
+
     def test_state_migration_policy_fails_closed_on_unknown_versions(self) -> None:
         for version in (True, "1", 0, 2):
             with self.subTest(version=version):
