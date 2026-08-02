@@ -1,11 +1,42 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v\d+\.\d+\.\d+$')]
-    [string]$ReleaseRef = "v1.8.1"
+    [string]$ReleaseRef = "v1.8.1",
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($Help) {
+    # The default is printed from the parameter, never spelled again here: a
+    # second copy of the tag is a second thing for bump_version.py to miss, and
+    # help text is where nobody would notice it had gone stale.
+    Write-Host @"
+usage: install.ps1 [-ReleaseRef vX.Y.Z]
+
+  -ReleaseRef   release tag to install (default: $ReleaseRef)
+
+Environment:
+  COGNITIVE_POWERS_PYTHON   interpreter to use instead of 'python'
+
+Run this script from its own checkout: the canonical verifier is resolved beside
+it, and a copy separated from scripts/verify_installed.py has no postcondition.
+"@
+    exit 0
+}
+
+# The Microsoft Store alias hijacks the bare name 'python' on a profile that has
+# never installed a real interpreter, and disabling it is a Settings change the
+# operator may not be able to make. The override names a working interpreter
+# without touching the profile, and matches COGNITIVE_POWERS_PYTHON in install.sh
+# so one documented variable works on either host.
+$pythonCommand = if ([string]::IsNullOrWhiteSpace($env:COGNITIVE_POWERS_PYTHON)) {
+    "python"
+}
+else {
+    $env:COGNITIVE_POWERS_PYTHON
+}
 
 $repository = "Drizzy07x/cognitive-powers"
 $marketplace = "cognitive-powers"
@@ -122,7 +153,7 @@ function Assert-Verifier {
 
 Assert-Command "gh"
 Assert-Command "codex"
-Assert-Python "python"
+Assert-Python $pythonCommand
 Assert-Verifier
 Invoke-Checked "gh" @("auth", "status", "--hostname", "github.com")
 Invoke-Checked "gh" @("auth", "setup-git", "--hostname", "github.com")
@@ -299,7 +330,7 @@ try {
     }
     $installedMarketplaceRoot = [System.IO.Path]::GetFullPath([string]$installedMarketplace[0].root)
     $verifier = Join-Path $PSScriptRoot "scripts/verify_installed.py"
-    Invoke-Checked "python" @(
+    Invoke-Checked $pythonCommand @(
         $verifier,
         "--source-root", $installedMarketplaceRoot,
         "--installed-root", $installedMarketplaceRoot,
