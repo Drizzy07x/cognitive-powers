@@ -87,6 +87,45 @@ Durable evidence defaults to `~/.codex/cognitive-powers` on both hosts. The name
 is historical; the shared location is deliberate so one machine running both
 hosts keeps a single durable state. Override it with `COGNITIVE_POWERS_DATA`.
 
+## Understand the completion gate
+
+The `Stop` hook warns when no current, hash-bound validation receipt covers the
+session's latest recorded edit. Four properties of that gate are read wrongly
+often enough to have been filed as defects; each is stated here because the
+behaviour is intended.
+
+**A matched edit-tool call arms it, not a file change.** `post_tool_use` appends
+one ledger event per matched call, and the gate reads only the latest event.
+An `Edit` or `Write` naming a path outside `cwd` records `files: []` --
+`_recorded_path` declines to describe anything the hook must not hash -- and that
+zero-file event arms the gate exactly like one carrying a digest. The ledger's
+job is to record *that* the session edited; a zero-file event is the only trace
+left of an edit whose target the hook may not name, so dropping it would leave
+none.
+
+**Shell tools do not arm it on either host.** `SUPPORTED_TOOLS` in
+`hooks/selective_hooks.py` lists `bash` and the Codex shell spellings so the hook
+still behaves on a host that ignores matchers, but no shipped manifest routes a
+shell call to it: `hooks/hooks.json` matches `apply_patch|Edit|Write` and
+`hooks/hooks.claude.json` matches `Edit|Write|MultiEdit|NotebookEdit`.
+`scripts/run_extension_benchmarks.py` asserts `Bash` stays out of that matcher.
+Invoking `post_tool_use` directly with a shell tool name does append an event and
+arm the gate, but that path measures the function rather than the product.
+
+**A zero-file event is clearable.** The receipt binds to the event's `eventHash`,
+never to a file, and the criterion is one the operator declares, so the printed
+remediation is satisfiable with nothing recorded under `cwd`.
+
+**It warns; it never blocks.** `stop` prints `systemMessage`, and on Claude Code
+an `additionalContext` the agent can actually read. It emits no block decision,
+so an armed gate never stops a session from ending -- it states that the
+completion claim is unreceipted.
+
+Clearing the gate takes two identities: `record-validation` requires the
+validator to differ from the executor. A single agent working alone therefore
+cannot honestly close its own gate, and should report the armed gate rather than
+self-certify.
+
 ## Inspect durable state schema
 
 Durable state currently uses schema version 1. Inspect one session with the

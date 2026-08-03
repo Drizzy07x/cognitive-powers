@@ -29,6 +29,12 @@ MAX_STDIN_BYTES = 2 * 1024 * 1024
 PREFIX_SCAN_BYTES = 64 * 1024
 MAX_HASH_BYTES = 32 * 1024 * 1024
 LOCK_TIMEOUT_SECONDS = 5.0
+# The shell spellings are defence for a host that ignores matchers, not a claim
+# that shell use is recorded: neither manifest routes one here, and
+# run_extension_benchmarks.py asserts `Bash` stays out of the PostToolUse
+# matcher. Calling post_tool_use directly with a shell tool name does append an
+# event and arm the Stop gate, which has twice been read as the shipped
+# behaviour -- see the completion gate section of docs/operations.md.
 SUPPORTED_TOOLS = {
     "apply_patch",
     "edit",
@@ -756,8 +762,8 @@ def _stop_warning(
     """Shape the warning for a session whose latest edit no receipt covers."""
     detail = f" ({error})" if error else ""
     message = (
-        f"Cognitive Powers session {session_id!r} recorded file-changing tool use "
-        f"under {str(data_root)!r}, "
+        f"Cognitive Powers session {session_id!r} recorded an edit-tool call "
+        f"(ledger under {str(data_root)!r}), "
         "but no current, hash-bound validation receipt covers the latest "
         f"edit{detail}."
     )

@@ -162,6 +162,16 @@ skipped check, or a stale report is never counted as a pass — it appears under
 *Not tested*, and a claim with no adequate evidence is reported `unverified`
 rather than rounded up.
 
+A `Stop` hook applies the same standard to the session itself. Once the session
+makes a matched edit — `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, or
+`apply_patch`; shell commands are deliberately not matched — it warns at the end
+of the turn unless a current, hash-bound receipt covers that edit. It warns and
+never blocks, and an edit whose target lies outside the working directory arms it
+just the same, because the ledger records that the session edited even when it
+may not record what. Clearing it needs a verifier who is not the executor, so an
+agent working alone reports the armed gate rather than certifying itself. See
+[docs/operations.md](docs/operations.md) for the full contract.
+
 ## The three subagents
 
 Claude Code loads three roles from `agents/`. A workflow delegates to them by
