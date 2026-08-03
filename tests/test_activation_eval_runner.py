@@ -484,22 +484,90 @@ class SessionShapeTests(unittest.TestCase):
         self.assertEqual(PLUGIN_CONFIG_KEY, "cognitive-powers@inline")
 
 
+def run_shaped(**overrides) -> Run:
+    values = {
+        "case_id": "c",
+        "arm": "full",
+        "repetition": 1,
+        "stream": "",
+        "stderr": "",
+        "exit_code": 0,
+        "duration_seconds": 1.0,
+        "stopped_early": False,
+        "timed_out": False,
+    }
+    values.update(overrides)
+    return Run(**values)
+
+
 class RateLimitTests(unittest.TestCase):
     def test_a_healthy_run_is_never_retried_however_it_reads(self) -> None:
-        # `rate_limit_event` also appears informationally in successful runs,
-        # so matching on the text alone would retry sessions that were fine.
         self.assertFalse(
-            looks_rate_limited('{"type":"rate_limit_event"}', "", exit_code=0)
+            looks_rate_limited(
+                run_shaped(stream='{"type":"rate_limit_event"}', exit_code=0)
+            )
         )
+
+    def test_a_deliberate_stop_is_never_read_as_throttling(self) -> None:
+        # The regression that cost a whole matrix. A run stopped once its
+        # expectation was met exits non-zero because the harness killed it, and
+        # every session emits `rate_limit_event` as ordinary telemetry. Together
+        # those made every successful early stop retry five times with backoff:
+        # the cheapest runs in the corpus became the most expensive.
+        settled = run_shaped(
+            stream="\n".join(
+                [
+                    '{"type":"system","subtype":"rate_limit_event"}',
+                    skill_call("diagnose-systematically"),
+                ]
+            ),
+            exit_code=1,
+            stopped_early=True,
+        )
+        self.assertFalse(looks_rate_limited(settled))
+
+    def test_a_timed_out_run_is_not_read_as_throttling_either(self) -> None:
+        self.assertFalse(looks_rate_limited(run_shaped(exit_code=1, timed_out=True)))
+
+    def test_telemetry_in_a_failed_stream_is_not_evidence_of_throttling(self) -> None:
+        # Only the terminal result's own failure text counts. Scanning the whole
+        # stream is what made ordinary telemetry look like a throttled provider.
+        noisy = run_shaped(
+            stream="\n".join(
+                [
+                    '{"type":"system","subtype":"rate_limit_event"}',
+                    '{"type":"result","subtype":"success","result":"all done"}',
+                ]
+            ),
+            exit_code=1,
+        )
+        self.assertFalse(looks_rate_limited(noisy))
 
     def test_a_failed_run_that_says_rate_limit_is_retryable(self) -> None:
         for text in ("429 Too Many Requests", "rate limit exceeded", "Overloaded"):
             with self.subTest(text=text):
-                self.assertTrue(looks_rate_limited("", text, exit_code=1))
+                self.assertTrue(
+                    looks_rate_limited(run_shaped(stderr=text, exit_code=1))
+                )
+
+    def test_a_terminal_result_reporting_a_rate_limit_is_retryable(self) -> None:
+        throttled = run_shaped(
+            stream=json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "error",
+                    "result": "Rate limit reached, retry later",
+                }
+            ),
+            exit_code=1,
+        )
+        self.assertTrue(looks_rate_limited(throttled))
 
     def test_a_failure_for_any_other_reason_is_not_retried(self) -> None:
         self.assertFalse(
-            looks_rate_limited("", "Not logged in - please run /login", exit_code=1)
+            looks_rate_limited(
+                run_shaped(stderr="Not logged in - please run /login", exit_code=1)
+            )
         )
 
     def test_a_throttled_run_is_retried_with_growing_waits(self) -> None:

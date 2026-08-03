@@ -48,16 +48,15 @@ SCRUBBED = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CONFIG_DIR", *ALL_TO
 
 
 # A rate limit is the provider asking for a pause, not the plugin failing to
-# activate. Matched against a run that already failed, never against a healthy
-# stream: `rate_limit_event` also appears informationally in successful runs,
-# so its presence alone would retry sessions that were fine.
+# activate. The wording is matched narrowly and never against the raw stream:
+# a healthy session emits `rate_limit_event` informationally, so a substring
+# scan for "rate_limit" matched every run and "please try again" matched the
+# model's own prose. Both were in the first version and both fired constantly.
 RATE_LIMIT_SIGNS = (
     "rate limit",
-    "rate_limit",
     "429",
     "too many requests",
     "overloaded",
-    "please try again",
 )
 DEFAULT_ATTEMPTS = 5
 DEFAULT_BACKOFF_SECONDS = 8.0
@@ -80,16 +79,48 @@ class Run(NamedTuple):
     rate_limited: bool = False
 
 
-def looks_rate_limited(stream: str, stderr: str, exit_code: int) -> bool:
-    """Whether a failed run failed because the provider throttled it.
+def _terminal_error_text(stream: str) -> str:
+    """The failure text a terminal result carries, and nothing else.
 
-    Deliberately conjunctive. A run that succeeded is never retried however its
-    stream reads, and a run that failed for any other reason is reported as the
-    incomplete observation it is rather than retried until the budget is gone.
+    Reading the whole stream was the defect: every session emits
+    `rate_limit_event` as ordinary telemetry, so any scan across it reported a
+    throttled provider on runs that were completely healthy.
     """
-    if exit_code == 0:
+    for line in reversed(stream.splitlines()):
+        text = line.strip()
+        if not text.startswith("{"):
+            continue
+        try:
+            event = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "result":
+            continue
+        parts = (
+            event.get("result"),
+            event.get("subtype"),
+            event.get("api_error_status"),
+            event.get("terminal_reason"),
+        )
+        return " ".join(str(part) for part in parts if isinstance(part, str))
+    return ""
+
+
+def looks_rate_limited(run: Run) -> bool:
+    """Whether this run failed because the provider throttled it.
+
+    Deliberately conjunctive, and the guards are load-bearing rather than
+    defensive. A run the harness stopped on purpose exits non-zero *by our own
+    hand*, so treating that exit code as evidence of anything about the provider
+    turned every successful early stop into five retries with backoff -- the
+    cheapest runs in the corpus became the most expensive, and a matrix that
+    should have taken two hours was on track for thirteen.
+    """
+    if run.stopped_early or run.timed_out:
         return False
-    haystack = f"{stderr}\n{stream[-4000:]}".lower()
+    if run.exit_code == 0:
+        return False
+    haystack = f"{run.stderr}\n{_terminal_error_text(run.stream)}".lower()
     return any(sign in haystack for sign in RATE_LIMIT_SIGNS)
 
 
@@ -242,7 +273,7 @@ def run_case(
             timeout_seconds=timeout_seconds,
             claude_executable=claude_executable,
         )
-        throttled = looks_rate_limited(run.stream, run.stderr, run.exit_code)
+        throttled = looks_rate_limited(run)
         if not throttled or attempt >= max_attempts:
             return run._replace(attempts=attempt, rate_limited=throttled)
         sleep(min(backoff_seconds * (2 ** (attempt - 1)), MAX_BACKOFF_SECONDS))
