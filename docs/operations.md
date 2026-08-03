@@ -321,7 +321,12 @@ running a pre-fix tree that reported the fixed version.
 2. `& $python scripts/bump_version.py <X.Y.Z>` moves every carrier and derives
    the documented rollback target; `--check` runs in the suite from then on.
 3. Full local gate, push, branch CI green, then `git tag vX.Y.Z` and push the
-   tag. The tag run must be green end to end.
+   tag. The tag run must be green end to end. Between the bump commit and the
+   tag push the README documents a clone command whose ref does not resolve
+   yet; the `documented-release-ref` job asks the remote on the nightly
+   schedule, on dispatch, and on the tag itself, so a bump left untagged
+   overnight turns Validate red rather than shipping a README that lies. Close
+   the window in the same session, or move the carriers back.
 4. Publish: dispatch `publish-release.yml` with the tag and the validation run
    id, or let the auto-publish bridge do it when `AUTO_PUBLISH` is `true`.
    `verify-release.yml` fires on publication and re-checks the assets and the

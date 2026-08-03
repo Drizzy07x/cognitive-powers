@@ -264,6 +264,31 @@ jobs:
           --receipt "${{ runner.temp }}/cognitive-powers-validation.json"
           --publication-outcome "${{ steps.receipt-upload.outcome }}"
 
+  documented-release-ref:
+    # The alignment gate proves the version carriers agree with each other; it
+    # cannot prove the tag they agree on was ever pushed. That is the 1.8.2
+    # state exactly: every carrier named the same tag, CI was green, and the
+    # README's clone command resolved to nothing. This job asks the remote.
+    #
+    # It is not on the per-push path, and that is deliberate rather than
+    # convenient: the release checklist requires a green branch run *before*
+    # the tag is created, so a per-push form of this gate could never be
+    # satisfied at the moment a release needs it. The nightly run is what
+    # separates the legitimate window between the bump commit and the tag push
+    # from a window that never closes. On a tag it also binds the README to the
+    # release actually under build.
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.13"
+      - name: Resolve the documented clone ref against the remote
+        run: >-
+          python scripts/check_release_ref_exists.py
+          ${{ startsWith(github.ref, 'refs/tags/') && format('--expect-ref {0}', github.ref_name) || '' }}
+
   aggregate-release-evidence:
     # Runs on tags and on dry runs: the twelve-cell byte-identity gate,
     # canonical selection, aggregated witness, and asset shape all prove out

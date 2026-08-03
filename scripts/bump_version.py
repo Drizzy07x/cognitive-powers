@@ -199,6 +199,24 @@ def check(root: Path) -> dict[str, object]:
     readme = _read(root, "README.md")
     if f"-ReleaseRef {rollback}" not in readme:
         problems.append(f"README rollback target is not {rollback}")
+    # Every other release tag in the README names the release being declared,
+    # including the `git clone --branch` command a stranger actually runs. That
+    # command was the one carrier nothing checked, so a hand edit to it passed
+    # this gate. The rollback phrase is removed positionally, exactly as the
+    # bump protects it, rather than exempted by value.
+    stale_readme = sorted(
+        {
+            tag
+            for tag in TAG_PATTERN.findall(
+                re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", "", readme)
+            )
+            if tag != f"v{version}"
+        }
+    )
+    if stale_readme:
+        problems.append(
+            f"README.md names {', '.join(stale_readme)}, declared v{version}"
+        )
     # The runbook has no rollback command, so every tag in it names the release
     # being declared. Checking it here is what makes the divergence the 1.8.2
     # bump produced fail the gate instead of sitting under a sentence claiming

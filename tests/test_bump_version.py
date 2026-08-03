@@ -170,6 +170,29 @@ class BumpVersionTests(unittest.TestCase):
             )
             self.assertEqual(bump.main(["--check", "--root", str(root)]), 2)
 
+    def test_check_fails_when_the_readme_documents_a_stale_release(self) -> None:
+        """The clone command a stranger runs is a carrier like any other.
+
+        `_apply` has always rewritten it and `check` never read it, so a hand
+        edit to the README's release tag passed the alignment gate while
+        telling readers to install something other than what was built.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build_tree(root)
+            self.assertEqual(bump.main(["1.7.2", "--root", str(root)]), 0)
+            readme = root / "README.md"
+            readme.write_text(
+                readme.read_text(encoding="utf-8").replace(
+                    "?ref=v1.7.2", "?ref=v1.5.1"
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(bump.main(["--check", "--root", str(root)]), 2)
+            with self.assertRaises(bump.BumpError) as raised:
+                bump.check(root)
+            self.assertIn("README.md names v1.5.1", str(raised.exception))
+
     def test_repository_carriers_are_aligned_right_now(self) -> None:
         """The real tree must always pass --check between releases."""
         code = bump.main(["--check", "--root", str(PLUGIN_ROOT)])
