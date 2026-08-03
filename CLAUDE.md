@@ -109,7 +109,8 @@ including one delivered twice, is recorded as *incomplete* rather than scored: t
 silently by contract, so an arm that never took effect otherwise reads as an arm that changed
 nothing.
 
-**Four hooks, three shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
+**Five hooks, three shapes.** `hooks/semantic_index.py` and `hooks/skill_activation.py`
+(both SessionStart) and `hooks/skill_router.py`
 (UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
 is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
 indistinguishable from a session that changed nothing. When editing it, ask what an early return
