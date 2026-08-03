@@ -99,13 +99,13 @@ Ordered by how fatal they are.
    tree*. The arm vocabulary is closed in code to `with_skill`, `without_skill`, `old_skill`, and
    `ablation:<id>` (`skill_benchmark.py:1199-1208`). There is no environment or hook arm, and the
    only appearance of "hooks" in its documentation is as a frontmatter field of a different class
-   (`docs/skill-ablation-spec.md:67`). Three arms would be three separate runs plus our own
+   (`skill-eval-harness · docs/skill-ablation-spec.md:67`). Three arms would be three separate runs plus our own
    comparison — which is most of a harness.
 4. **Its fallback detector would manufacture false positives here.** Besides the `Skill` tool
    evidence it accepts `mounted_path` evidence — a file read under the mounted tree
    (`trigger_contracts.py:334-337`). A run that merely reads `SKILL.md` counts as triggered. Our
-   negative corpus is fifty-odd prompts whose whole purpose is to draw nothing; a detector that
-   fires on a read would score noise as activation.
+   negative corpus is twenty prompts (`evals/cases/should-not-fire.yaml`) whose whole purpose is to
+   draw nothing; a detector that fires on a read would score noise as activation.
 5. **Two runtime dependencies.** `pyyaml>=6` and an exact-pinned `regex==2026.7.19`, neither
    present here; `import skill_benchmark` fails on this machine with `ModuleNotFoundError: yaml`.
    `CLAUDE.md` forbids adding a runtime dependency, and the reason applies with full force to this
@@ -133,7 +133,8 @@ Skill-invocation detector (`skill-eval-action · scripts/eval.py:288-294`), but 
 to a metadata file and never read by aggregation, thresholding, the PR comment, or the viewer.
 
 Worse for our purpose: on the cases where activation would matter, `expect_skill: true` causes the
-whole `SKILL.md` body to be pasted into the prompt (`scripts/eval.py:326-333`), and the skill is
+whole `SKILL.md` body to be pasted into the prompt (`skill-eval-action · scripts/eval.py:326-333`),
+and the skill is
 never installed as a skill anywhere. There is no Skill entry for the model to invoke, and no need to
 invoke one. `expect_skill` is a prompt-injection switch, not an assertion. It measures whether a
 model given a workflow's text follows it — a real question, and not this one.

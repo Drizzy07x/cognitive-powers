@@ -1,6 +1,7 @@
 # Skill activation mission
 
-Branch `feature/skill-activation`, cut from `main` at 1.8.2. Not merged.
+Branch `feature/skill-activation`, cut from `main` at 1.8.2. Merged to `main` in `8cdb67b`, as the
+first step of the eval-harness mission that measures what it changed.
 
 ## The defect
 

@@ -12,4 +12,8 @@ graphify-out/
 ci/*/node_modules/
 .codex-marketplace-install.json
 evals/artifacts/
+# Nothing in this tree writes here. It is the default output directory of the
+# host's own `claude plugin eval`, which is gated behind early access and so
+# cannot be used yet; the rule exists so the first run after it opens up does
+# not commit a results tree.
 evals/results/

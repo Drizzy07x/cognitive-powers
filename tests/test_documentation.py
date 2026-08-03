@@ -31,7 +31,7 @@ SKILL_TREES = ("skills", "skills-core")
 # shared rule.
 REPOSITORY_PATH = re.compile(
     r'(?<![A-Za-z0-9_/."-])((?:scripts|tests|hooks|mcp|skills|skills-core'
-    r"|benchmarks|ci|agents|integrations)/[A-Za-z0-9_./-]+"
+    r"|benchmarks|ci|agents|integrations|evals)/[A-Za-z0-9_./-]+"
     r"\.(?:py|json|md|ps1|js))"
 )
 # CHANGELOG.md is deliberately absent: it is a historical record, and entries
