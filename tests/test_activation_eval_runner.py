@@ -1048,6 +1048,135 @@ class OrchestrationTests(TempTreeTestCase):
         self.assertEqual(arm["shouldFire"]["passRate"], 1.0)
         self.assertIn("workspace is on fire", json.dumps(arm["shouldFire"]["reasons"]))
 
+    def _arm_run(self, case, arm, repetition, passes: bool):
+        body = []
+        if arm.expects_index:
+            body.append(hook_response(INDEX_TEXT))
+        if arm.expects_instruction:
+            body.append(hook_response(STANDING_TEXT))
+        if passes:
+            body.append(skill_call("diagnose-systematically"))
+        body.append(result())
+        return Run(
+            case_id=case.case_id,
+            arm=arm.name,
+            repetition=repetition,
+            stream=stream(*body),
+            stderr="",
+            exit_code=0,
+            duration_seconds=0.1,
+            stopped_early=False,
+            timed_out=False,
+        )
+
+    def test_a_decided_comparison_stops_paying_for_more_runs(self) -> None:
+        """The saving that makes the comparison runnable at all.
+
+        The full matrix is hours, and most of them are spent after the answer
+        has stopped changing. With one arm winning every trial, the verdict is
+        settled long before the corpus is exhausted.
+        """
+        cases = [make_case(case_id=f"c{index:03d}") for index in range(60)]
+        spawned = []
+
+        def fake(case, arm, repetition, **kwargs):
+            spawned.append((case.case_id, arm.name))
+            return self._arm_run(case, arm, repetition, passes=arm.name == "full")
+
+        payload = runner.execute(
+            cases=cases,
+            arms=[ARMS["instruction"], ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=self.temp_dir("cp-seq-"),
+            runner=fake,
+            workers=1,
+            stop_when_decided=True,
+        )
+        self.assertEqual(payload["run"]["plannedInvocations"], 120)
+        self.assertLess(len(spawned), 120)
+        self.assertIsNotNone(payload["run"]["stoppedAt"])
+        verdicts = [row["verdict"] for row in payload["comparisons"]]
+        self.assertEqual(verdicts, ["superior"])
+
+    def test_an_undecided_comparison_is_paid_in_full(self) -> None:
+        """One undecided pair keeps the whole run going.
+
+        Arms that agree on everything are not equivalent over a handful of
+        trials, so the stop must not fire on the agreement alone.
+        """
+        cases = [make_case(case_id=f"c{index:03d}") for index in range(8)]
+        spawned = []
+
+        def fake(case, arm, repetition, **kwargs):
+            spawned.append(arm.name)
+            return self._arm_run(case, arm, repetition, passes=True)
+
+        payload = runner.execute(
+            cases=cases,
+            arms=[ARMS["instruction"], ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=self.temp_dir("cp-seq2-"),
+            runner=fake,
+            workers=1,
+            stop_when_decided=True,
+        )
+        self.assertEqual(len(spawned), 16)
+        self.assertIsNone(payload["run"]["stoppedAt"])
+        self.assertEqual(payload["comparisons"][0]["verdict"], "not-proven")
+
+    def test_arms_are_interleaved_so_position_is_not_the_arm(self) -> None:
+        """Arm-major order made wall-clock position a property of the arm.
+
+        Over a run of hours, provider load and throttling would land on
+        whichever arm happened to be executing, and the report would attribute
+        them to the injected context.
+        """
+        cases = [make_case(case_id=f"c{index}") for index in range(3)]
+        order = []
+
+        def fake(case, arm, repetition, **kwargs):
+            order.append(arm.name)
+            return self._arm_run(case, arm, repetition, passes=True)
+
+        runner.execute(
+            cases=cases,
+            arms=[ARMS["none"], ARMS["instruction"], ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=self.temp_dir("cp-order2-"),
+            runner=fake,
+            workers=1,
+            stop_when_decided=False,
+        )
+        self.assertEqual(
+            order,
+            ["none", "instruction", "full"] * 3,
+            "each trial must run all arms before the next trial starts",
+        )
+
     def test_workers_outside_the_ceiling_are_refused(self) -> None:
         for workers in (0, runner.MAX_WORKERS + 1):
             with self.subTest(workers=workers), self.assertRaises(runner.RunnerError):

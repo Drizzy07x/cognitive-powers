@@ -49,6 +49,10 @@ param(
 
     [switch]$Full,
 
+    [switch]$NoStopWhenDecided,
+
+    [double]$EquivalenceMargin,
+
     [switch]$ValidateOnly,
 
     [switch]$KeepTranscripts,
@@ -103,6 +107,10 @@ if ($Skills) { $arguments += @('--skills', ($Skills -join ',')) }
 if ($PSBoundParameters.ContainsKey('Workers')) { $arguments += @('--workers', $Workers) }
 if ($Quick) { $arguments += '--quick' }
 if ($Full) { $arguments += '--full' }
+if ($NoStopWhenDecided) { $arguments += '--no-stop-when-decided' }
+if ($PSBoundParameters.ContainsKey('EquivalenceMargin')) {
+    $arguments += @('--equivalence-margin', $EquivalenceMargin)
+}
 if ($ValidateOnly) { $arguments += '--validate-only' }
 if ($KeepTranscripts) { $arguments += '--keep-transcripts' }
 if ($JsonOutput) { $arguments += @('--json-output', $JsonOutput) }

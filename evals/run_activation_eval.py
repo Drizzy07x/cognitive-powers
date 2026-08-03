@@ -122,6 +122,27 @@ def build_parser() -> argparse.ArgumentParser:
             "provider's patience, not isolation."
         ),
     )
+    parser.add_argument(
+        "--equivalence-margin",
+        type=float,
+        default=runner.DEFAULT_MARGIN,
+        help=(
+            "How close two arms must be before the run may call them "
+            "equivalent rather than undecided. A judgement about what "
+            "difference would be worth paying for, so it is declared here "
+            "rather than derived."
+        ),
+    )
+    parser.add_argument(
+        "--no-stop-when-decided",
+        dest="stop_when_decided",
+        action="store_false",
+        help=(
+            "Run every planned invocation even after every arm pair has a "
+            "verdict. Needed for per-skill rates over the whole corpus, and "
+            "wasteful when the question is only which arm wins."
+        ),
+    )
     parser.add_argument("--max-cost-usd", type=float, default=0.75)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
     parser.add_argument("--python-executable", default=None)
@@ -204,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
             progress=lambda label: print(label, file=sys.stderr, flush=True),
             workers=args.workers,
             suite=_suite_label(args, skills),
+            equivalence_margin=args.equivalence_margin,
+            stop_when_decided=args.stop_when_decided,
         )
     except runner.RunnerError as error:
         print(f"run failed: {error}", file=sys.stderr)

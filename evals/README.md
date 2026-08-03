@@ -100,6 +100,47 @@ and a rate over thirty look identical once the denominator is dropped.
 `flippedCases` lists the cases that passed some repetitions and not others. Those are the ones
 whose outcome is not yet a property of the configuration.
 
+## Deciding which arm wins, cheaply
+
+Three things make the comparison short. They matter because the naive shape —
+whole corpus, three arms, three repetitions — is 927 invocations and most of them
+are spent after the answer stops changing.
+
+**Arms run interleaved, on the same cases.** All three runs of one trial sit
+together, so the arms are *paired*: only the trials where they disagreed carry
+information, and the variance from a case being easy or hard drops out. The same
+runs read as two independent rates decide far less. Interleaving is also what
+stops wall-clock position becoming a property of the arm — arm-major order
+attributes an hour of provider throttling to whichever arm was running.
+
+**The run stops when every arm pair has a verdict.** One undecided pair keeps it
+going, and the stop can only fire on a verdict, never on a rate that looks good
+so far. `--no-stop-when-decided` turns it off, which is what you want when the
+goal is per-skill rates over the whole corpus rather than a winner.
+
+**Prefer more cases over more repetitions.** Repetitions of one case are
+correlated; distinct cases are independent pairs. For the comparison, the whole
+corpus at one repetition beats the reduced suite at three — and it is cheaper:
+
+| Shape | Invocations | Independent pairs |
+|---|---|---|
+| quick suite, 3 arms, 3 reps | 261 | ~29 per pair |
+| whole corpus, 2 arms, 1 rep | 206 | 103 |
+
+Repetitions are still how per-case variance is measured. That is a different
+question from which arm wins, and it does not need three arms.
+
+```powershell
+# Decide the index question and stop as soon as it is decided.
+./evals/run.ps1 -Full -Arm instruction,full -Reps 1 -EquivalenceMargin 0.10
+```
+
+A verdict is one of four. `superior` and `inferior` mean the interval clears
+zero. `equivalent` means the whole interval fits inside the margin you declared.
+**`not-proven` means the run did not decide** — the interval spans both a real
+gain and a real loss — and it is reported rather than rounded to "no
+difference", because an underpowered run is not a finding.
+
 ## Cost
 
 One invocation per (arm, case, repetition). A should-fire run stops as soon as its expectation is

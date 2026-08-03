@@ -22,6 +22,7 @@ from typing import Any, Callable, Sequence
 from . import fixtures
 from .arms import Arm, arm as get_arm
 from .cases import Case
+from .inference import EQUIVALENT, INFERIOR, SUPERIOR, compare_all
 from .scoring import Observation, bottom_skills, compare, observe, score_arm
 from .session import Run, run_case
 from .transcript import read
@@ -32,10 +33,60 @@ from .transcript import read
 # retry spent waiting is a session held open for nothing.
 DEFAULT_WORKERS = 3
 MAX_WORKERS = 4
+# How close two arms must be before the run may call them equivalent rather
+# than merely undecided. Declared by the caller because it is a judgement
+# about what difference would be worth paying for, not a statistical fact.
+DEFAULT_MARGIN = 0.10
+
+
+# Trials per worker between decision checks. Small enough that a decided run
+# stops soon after it decides, large enough that the check is not paid for on
+# every single invocation.
+BLOCK_TRIALS = 4
+# Verdicts that mean more runs would not change the answer.
+SETTLED = frozenset({SUPERIOR, INFERIOR, EQUIVALENT})
 
 
 class RunnerError(RuntimeError):
     """Raised when the harness cannot produce a measurement it would stand behind."""
+
+
+def _decided(
+    observations: Sequence[Observation], arms: Sequence[Arm], margin: float
+) -> bool:
+    """Whether every arm pair already has a verdict more runs cannot move.
+
+    Stopping early is the difference between a comparison that gets run and one
+    that gets planned: the full matrix is hours, and most of those hours are
+    spent after the answer stopped changing. The stop is conservative -- one
+    undecided pair keeps the whole run going -- and it can only ever fire on a
+    verdict, never on a rate looking good so far.
+    """
+    if len(arms) < 2:
+        return False
+    rows = compare_all(
+        observations,
+        [arm.name for arm in arms],
+        baseline=_baseline(arms),
+        margin=margin,
+    )
+    return bool(rows) and all(row["verdict"] in SETTLED for row in rows)
+
+
+def _baseline(arms: Sequence[Arm]) -> str | None:
+    """The least-instrumented arm present, which every other arm is read against.
+
+    Fixing the direction matters more than which direction it is: read the other
+    way, "the index wins" and "the instruction loses" are the same number with
+    opposite signs, and a reader comparing two runs would have to check which
+    arms each one happened to be given. Fewest injections is the natural zero,
+    and it is what the arm table's delta column already uses.
+    """
+    if not arms:
+        return None
+    return min(
+        arms, key=lambda arm: (arm.expects_index + arm.expects_instruction, arm.name)
+    ).name
 
 
 def plan(
@@ -88,6 +139,8 @@ def execute(
     runner: Callable[..., Run] = run_case,
     workers: int = DEFAULT_WORKERS,
     suite: str = "unlabelled",
+    equivalence_margin: float = DEFAULT_MARGIN,
+    stop_when_decided: bool = True,
 ) -> dict[str, Any]:
     """Run the whole matrix and return the scored payload."""
     if not cases:
@@ -107,11 +160,17 @@ def execute(
         if workspace_root
         else Path(tempfile.mkdtemp(prefix="cp-activation-"))
     )
+    # Interleaved, not arm-major. Running every case of one arm before the next
+    # arm begins makes wall-clock position a property of the arm: over a matrix
+    # that takes hours, provider load, throttling, or a model rolled forward
+    # mid-run all land on whichever arm was running at the time, and the report
+    # attributes them to the injected context. The three runs of one trial now
+    # sit adjacent, which is also what makes them a pair worth comparing.
     work = [
         (arm, case, repetition)
-        for arm in arms
         for case in cases
         for repetition in range(1, repetitions + 1)
+        for arm in arms
     ]
     results: list[tuple[Observation, Run] | None] = [None] * len(work)
     done = threading.Lock()
@@ -173,12 +232,31 @@ def execute(
                     f"#{repetition} -> {'fired ' + ','.join(observation.fired) if observation.fired else 'silent'}"
                 )
 
+    stopped_at: int | None = None
     try:
         # Results are placed by index, never appended, so the report is
         # identical whatever order the pool finishes in. A matrix whose row
         # order depended on scheduling could not be diffed against the last one.
+        #
+        # Submitted in blocks rather than all at once so the run can stop once
+        # the answer stops changing. The arms are interleaved, so a block holds
+        # whole trials and the comparison after it is over complete pairs.
+        block = max(workers, len(arms)) * BLOCK_TRIALS
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            list(pool.map(_one, range(len(work))))
+            for start in range(0, len(work), block):
+                chunk = range(start, min(start + block, len(work)))
+                list(pool.map(_one, chunk))
+                if not stop_when_decided or start + block >= len(work):
+                    continue
+                done_so_far = [entry[0] for entry in results if entry is not None]
+                if _decided(done_so_far, arms, equivalence_margin):
+                    stopped_at = start + block
+                    if progress is not None:
+                        progress(
+                            f"stopping at {stopped_at} of {len(work)}: every arm "
+                            f"pair has a verdict, and more runs cannot change it"
+                        )
+                    break
     finally:
         if owned:
             # Workspaces hold nothing worth keeping and everything worth not
@@ -208,6 +286,16 @@ def execute(
         entry["activationDelta"] = deltas.get(entry["arm"])
         entry["bottomSkills"] = bottom_skills(entry)
 
+    # A subtraction between two rates is not a finding. The paired comparison
+    # is what lets the report say which arm won, or say the run did not decide,
+    # instead of leaving a reader to eyeball a five-point gap.
+    comparisons = compare_all(
+        observations,
+        [arm.name for arm in arms],
+        baseline=_baseline(arms),
+        margin=equivalence_margin,
+    )
+
     return {
         "schemaVersion": 1,
         "kind": "cognitive-powers-activation-eval",
@@ -232,12 +320,16 @@ def execute(
             "retriedRuns": sum(
                 1 for entry in results if entry and entry[1].attempts > 1
             ),
+            "stopWhenDecided": stop_when_decided,
+            "stoppedAt": stopped_at,
+            "plannedInvocations": len(work),
             "rateLimitedRuns": sum(
                 1 for entry in results if entry and entry[1].rate_limited
             ),
         },
         "plan": plan(arms, cases, repetitions),
         "arms": scored,
+        "comparisons": comparisons,
         "observations": [item._asdict() for item in observations],
         "transcripts": transcripts,
     }

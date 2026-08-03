@@ -49,6 +49,53 @@ def _arm_table(arms: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
+VERDICT_PROSE = {
+    "superior": "wins",
+    "inferior": "loses",
+    "equivalent": "matches within the declared margin",
+    "not-proven": "**not proven** — the interval spans a real gain and a real loss",
+    "no-paired-observations": "**undecidable** — no trial completed under both arms",
+}
+
+
+def _comparison_section(comparisons: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The paired verdicts, which are the only part that decides anything.
+
+    Printed above the per-arm detail because a reader who stops after the first
+    table should stop having read a verdict rather than two rates to subtract
+    in their head.
+    """
+    if not comparisons:
+        return []
+    lines = [
+        "## Paired comparison",
+        "",
+        "Same cases under both arms, so only the trials that disagreed carry "
+        "information. A difference is reported as decided only when its interval "
+        "clears zero, and as equivalent only when the whole interval fits inside "
+        "the declared margin.",
+        "",
+        "| A vs B | Difference (95%) | p | Pairs | A only | B only | Verdict |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for entry in comparisons:
+        difference = entry.get("difference") or {}
+        shown = (
+            f"{_signed(difference.get('point'))} "
+            f"[{_signed(difference.get('low'))}, {_signed(difference.get('high'))}]"
+            if difference
+            else DASH
+        )
+        lines.append(
+            f"| `{entry.get('armA')}` vs `{entry.get('armB')}` | {shown} "
+            f"| {entry.get('pValue')} | {entry.get('pairs')} "
+            f"| {entry.get('onlyA')} | {entry.get('onlyB')} "
+            f"| {VERDICT_PROSE.get(str(entry.get('verdict')), entry.get('verdict'))} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _skill_table(scored: Mapping[str, Any]) -> list[str]:
     lines = [
         "| Workflow | Activation | Passed / complete | Misrouted | Incomplete |",
@@ -89,6 +136,7 @@ def as_markdown(payload: Mapping[str, Any]) -> str:
     ]
     lines.extend(_arm_table(arms))
     lines.append("")
+    lines.extend(_comparison_section(payload.get("comparisons", [])))
 
     for scored in arms:
         lines.extend(
