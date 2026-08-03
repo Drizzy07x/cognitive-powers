@@ -427,9 +427,7 @@ def bound_snippets(
 
 
 def resolve_data_root() -> Path:
-    configured = os.environ.get("COGNITIVE_POWERS_DATA") or os.environ.get(
-        "PLUGIN_DATA"
-    )
+    configured = os.environ.get("COGNITIVE_POWERS_DATA")
     return (
         Path(configured).expanduser().resolve()
         if configured

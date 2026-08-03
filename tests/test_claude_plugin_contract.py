@@ -640,6 +640,9 @@ class ClaudeEvidenceRootTests(unittest.TestCase):
         "CLAUDE_PLUGIN_ROOT",
     )
 
+    # Injected into hook processes by the host, invisible to work_state.py.
+    HOST_ONLY_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
+
     def setUp(self) -> None:
         self.hook = self._load("hook", PLUGIN_ROOT / "hooks" / "selective_hooks.py")
         self.durability = self._load(
@@ -685,32 +688,46 @@ class ClaudeEvidenceRootTests(unittest.TestCase):
             hook_root, writer_root = self._both_roots()
         self.assertEqual(hook_root, writer_root)
 
-    def test_agree_on_each_shared_variable(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
-            for variable in ("COGNITIVE_POWERS_DATA", "PLUGIN_DATA"):
-                with self.subTest(variable=variable):
-                    with self._environment(**{variable: raw}):
-                        hook_root, writer_root = self._both_roots()
-                    self.assertEqual(hook_root, writer_root)
-                    self.assertEqual(hook_root, Path(raw).resolve())
+    def _roots_for(self, **values: str) -> tuple[Path, Path]:
+        with self._environment(**values):
+            return self._both_roots()
 
-    def test_cognitive_powers_data_wins_over_plugin_data(self) -> None:
-        with tempfile.TemporaryDirectory() as first:
-            with tempfile.TemporaryDirectory() as second:
-                with self._environment(COGNITIVE_POWERS_DATA=first, PLUGIN_DATA=second):
-                    hook_root, writer_root = self._both_roots()
+    def test_agree_on_the_shared_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            hook_root, writer_root = self._roots_for(COGNITIVE_POWERS_DATA=raw)
         self.assertEqual(hook_root, writer_root)
-        self.assertEqual(hook_root, Path(first).resolve())
+        self.assertEqual(hook_root, Path(raw).resolve())
+
+    def test_the_configured_root_wins_over_a_host_only_variable(self) -> None:
+        """A host-only variable must not displace the configured root.
+
+        Both hosts inject one into hook processes, so the hook sees a value the
+        writer never will. Ignoring it is only half the contract: the root the
+        operator configured has to survive its presence.
+        """
+        for variable in self.HOST_ONLY_VARIABLES:
+            with self.subTest(variable=variable):
+                with (
+                    tempfile.TemporaryDirectory() as configured,
+                    tempfile.TemporaryDirectory() as injected,
+                ):
+                    hook_root, writer_root = self._roots_for(
+                        COGNITIVE_POWERS_DATA=configured, **{variable: injected}
+                    )
+                self.assertEqual(hook_root, writer_root)
+                self.assertEqual(hook_root, Path(configured).resolve())
 
     def test_a_host_only_variable_never_splits_the_store(self) -> None:
-        """Claude Code exports CLAUDE_PLUGIN_DATA to hook processes only.
+        """Each host exports a data variable to hook processes only.
 
-        The receipt writer is not a hook process and cannot see it, so reading
-        it in the hook would point the two at different directories.
+        Claude Code exports CLAUDE_PLUGIN_DATA and Codex exports PLUGIN_DATA.
+        The receipt writer is not a hook process and cannot see either, so
+        reading one in the hook would point the two at different directories.
         """
-        with tempfile.TemporaryDirectory() as raw:
-            with self._environment(CLAUDE_PLUGIN_DATA=raw):
-                hook_root, writer_root = self._both_roots()
+        for variable in self.HOST_ONLY_VARIABLES:
+            with self.subTest(variable=variable):
+                with tempfile.TemporaryDirectory() as raw:
+                    hook_root, writer_root = self._roots_for(**{variable: raw})
                 self.assertEqual(hook_root, writer_root)
                 self.assertNotEqual(hook_root, Path(raw).resolve())
 

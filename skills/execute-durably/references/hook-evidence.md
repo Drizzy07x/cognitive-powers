@@ -1,8 +1,8 @@
 # Selective hook evidence
 
-The plugin hook observes the host's file-writing tools after they complete: `apply_patch`, `Edit`, and `Write` on Codex, and `Edit`, `Write`, and `NotebookEdit` on Claude Code. It appends a per-session, hash-chained JSONL ledger under `COGNITIVE_POWERS_DATA`, `PLUGIN_DATA`, or `~/.codex/cognitive-powers`, in that order. It does not observe every possible write path, run tests, block tools, or replace durable criteria.
+The plugin hook observes the host's file-writing tools after they complete: `apply_patch`, `Edit`, and `Write` on Codex, and `Edit`, `Write`, and `NotebookEdit` on Claude Code. It appends a per-session, hash-chained JSONL ledger under `COGNITIVE_POWERS_DATA`, or `~/.codex/cognitive-powers` when that is unset. It does not observe every possible write path, run tests, block tools, or replace durable criteria.
 
-That root is shared with `work_state.py` by design, and both resolve it the same way on every host. A host-specific data variable is deliberately not consulted: Claude Code exports `CLAUDE_PLUGIN_DATA` to hook processes only, so honouring it here would point the hook at a root that no receipt writer can reach.
+That root is shared with `work_state.py` by design, and both resolve it the same way on every host. A host-injected data variable is deliberately not consulted: Claude Code exports `CLAUDE_PLUGIN_DATA` and Codex exports `PLUGIN_DATA` to hook processes only, so honouring either here would point the hook at a root that no receipt writer can reach.
 
 At `Stop`, a warning means the latest recorded edit is not covered by a current receipt. First produce a real JSON command receipt with `work_state.py run` or `run-green`, then confirm that criterion through `work_state.py verify`. Record the hook receipt only after that independent confirmation:
 

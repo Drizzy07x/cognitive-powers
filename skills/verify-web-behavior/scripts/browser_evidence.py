@@ -67,9 +67,7 @@ def _project_key(root: Path) -> str:
 
 
 def _default_data_root() -> Path:
-    configured = os.environ.get("COGNITIVE_POWERS_DATA") or os.environ.get(
-        "PLUGIN_DATA"
-    )
+    configured = os.environ.get("COGNITIVE_POWERS_DATA")
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / ".codex" / "cognitive-powers").resolve()

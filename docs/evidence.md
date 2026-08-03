@@ -132,9 +132,9 @@ The integration-evaluation fixture is offline and keeps
 paired receipts before making an improvement claim.
 
 Durable session data is stored outside the target repository under
-`COGNITIVE_POWERS_DATA`, `PLUGIN_DATA`, or `~/.codex/cognitive-powers` in that
-order. An override that resolves inside the repository is rejected before state
-is created.
+`COGNITIVE_POWERS_DATA`, or `~/.codex/cognitive-powers` when that is unset. A
+host-injected data variable is never consulted. An override that resolves inside
+the repository is rejected before state is created.
 
 ## What each optional suite does and does not prove
 

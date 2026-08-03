@@ -960,7 +960,6 @@ def build_report(
         if data_root is not None
         else Path(
             os.environ.get("COGNITIVE_POWERS_DATA")
-            or os.environ.get("PLUGIN_DATA")
             or Path.home() / ".codex" / "cognitive-powers"
         )
     )

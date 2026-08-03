@@ -128,7 +128,9 @@ def run(cases_path: Path = DEFAULT_CASES) -> dict[str, object]:
         source.parent.mkdir(parents=True)
         source.write_text("value = 1\n", encoding="utf-8")
         environment = os.environ.copy()
-        environment.update({"PLUGIN_ROOT": str(PLUGIN_ROOT), "PLUGIN_DATA": str(data)})
+        environment.update(
+            {"PLUGIN_ROOT": str(PLUGIN_ROOT), "COGNITIVE_POWERS_DATA": str(data)}
+        )
         payload = {
             "session_id": "extension-benchmark",
             "turn_id": "t1",

@@ -28,10 +28,19 @@ class PluginHookTests(unittest.TestCase):
         self.repo.mkdir()
         self.env = os.environ.copy()
         self.env.update(
-            {"PLUGIN_ROOT": str(PLUGIN_ROOT), "PLUGIN_DATA": str(self.data)}
+            {"PLUGIN_ROOT": str(PLUGIN_ROOT), "COGNITIVE_POWERS_DATA": str(self.data)}
         )
+        # The hosts inject these into hook processes and no receipt writer can
+        # see them, so every hook run here is also a check that they are ignored.
+        self.injected = self.base / "host-injected"
+        self.env["PLUGIN_DATA"] = str(self.injected)
+        self.env["CLAUDE_PLUGIN_DATA"] = str(self.injected)
 
     def tearDown(self) -> None:
+        self.assertFalse(
+            self.injected.exists(),
+            "a host-injected data variable must never receive hook state",
+        )
         self.temporary.cleanup()
 
     def run_hook(
@@ -203,7 +212,7 @@ class PluginHookTests(unittest.TestCase):
 
     def test_data_path_inside_plugin_root_is_rejected(self) -> None:
         env = dict(self.env)
-        env["PLUGIN_DATA"] = str(PLUGIN_ROOT / "hook-data-must-not-exist")
+        env["COGNITIVE_POWERS_DATA"] = str(PLUGIN_ROOT / "hook-data-must-not-exist")
         result = self.run_hook("post-tool-use", self.payload(), env=env)
         self.assertEqual(result.returncode, 0)
         self.assertFalse((PLUGIN_ROOT / "hook-data-must-not-exist").exists())
@@ -467,27 +476,25 @@ class PluginHookTests(unittest.TestCase):
         warning = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
         self.assertIn("no current", json.loads(warning.stdout)["systemMessage"])
 
-    def test_cognitive_data_override_is_used_when_plugin_data_is_absent(self) -> None:
-        alternate = self.base / "cognitive-data"
+    def test_an_unconfigured_hook_falls_back_past_the_injected_root(self) -> None:
+        """Without COGNITIVE_POWERS_DATA the hook must reach the shared default.
+
+        This is the shape a real host produces: it exports its own data variable
+        into the hook process and nothing else. Honouring that variable would
+        put the ledger somewhere ``work_state.py`` never looks, so the fallback
+        has to win over it.
+        """
+        home = self.base / "home"
+        home.mkdir()
         env = dict(self.env)
-        env.pop("PLUGIN_DATA")
-        env["COGNITIVE_POWERS_DATA"] = str(alternate)
+        env.pop("COGNITIVE_POWERS_DATA")
+        env.update({"HOME": str(home), "USERPROFILE": str(home)})
 
         result = self.run_hook("post-tool-use", self.payload("Write"), env=env)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((alternate / "hooks" / "events").glob("*.jsonl"))), 1)
-
-    def test_cognitive_data_override_precedes_plugin_data(self) -> None:
-        preferred = self.base / "preferred-cognitive-data"
-        env = dict(self.env)
-        env["COGNITIVE_POWERS_DATA"] = str(preferred)
-
-        result = self.run_hook("post-tool-use", self.payload("Write"), env=env)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(list((preferred / "hooks" / "events").glob("*.jsonl"))), 1)
-        self.assertFalse((self.data / "hooks" / "events").exists())
+        events = home / ".codex" / "cognitive-powers" / "hooks" / "events"
+        self.assertEqual(len(list(events.glob("*.jsonl"))), 1)
 
     def test_structured_fake_receipt_without_durable_state_is_rejected(self) -> None:
         self.run_hook("post-tool-use", self.payload("Write"))

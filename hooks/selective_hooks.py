@@ -104,15 +104,13 @@ def _plugin_root() -> Path:
 
 def _roots(data_override: str | None = None) -> tuple[Path, Path] | None:
     plugin_root = _plugin_root()
-    # CLAUDE_PLUGIN_DATA is deliberately absent. Claude Code exports it to hook
-    # processes only, so work_state.py -- launched as an ordinary tool call --
-    # never sees it. Honouring it here would point the hook at a root no
-    # receipt writer can reach, splitting evidence storage on that host.
-    configured = (
-        data_override
-        or os.environ.get("COGNITIVE_POWERS_DATA")
-        or os.environ.get("PLUGIN_DATA")
-    )
+    # Host-injected data variables are deliberately absent: Claude Code exports
+    # CLAUDE_PLUGIN_DATA and Codex exports PLUGIN_DATA to hook processes only,
+    # so work_state.py -- launched as an ordinary tool call -- never sees
+    # either. Honouring one here would point the hook at a root no receipt
+    # writer can reach, splitting evidence storage on that host.
+    # COGNITIVE_POWERS_DATA is the plugin's own variable: every process sees it.
+    configured = data_override or os.environ.get("COGNITIVE_POWERS_DATA")
     data_root = (
         Path(configured).expanduser().resolve() if configured else _default_data_root()
     )
@@ -857,7 +855,7 @@ def record_validation(
 ) -> int:
     roots = _roots(data_override)
     if roots is None:
-        print("PLUGIN_DATA must resolve outside PLUGIN_ROOT", file=sys.stderr)
+        print("COGNITIVE_POWERS_DATA must resolve outside PLUGIN_ROOT", file=sys.stderr)
         return 2
     plugin_root, data_root = roots
     ledger = _ledger_path(data_root, session_id)

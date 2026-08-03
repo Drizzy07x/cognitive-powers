@@ -145,9 +145,7 @@ def resolve_root(value: str | Path) -> Path:
 def resolve_data_root(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
-    configured = os.environ.get("COGNITIVE_POWERS_DATA") or os.environ.get(
-        "PLUGIN_DATA"
-    )
+    configured = os.environ.get("COGNITIVE_POWERS_DATA")
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / ".codex" / "cognitive-powers").resolve()

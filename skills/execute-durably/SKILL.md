@@ -27,7 +27,7 @@ Set `$python` to a working Python 3 executable and verify it with `& $python --v
 & $python <skill-root>/scripts/work_state.py --root <repo> init --session <id> --objective "<outcome>" --criterion "<criterion 1>" --criterion "<criterion 2>"
 ```
 
-The script writes under `COGNITIVE_POWERS_DATA`, `PLUGIN_DATA`, or the fallback `~/.codex/cognitive-powers`; it never writes state into the target repository.
+The script writes under `COGNITIVE_POWERS_DATA`, or the fallback `~/.codex/cognitive-powers`; it never writes state into the target repository.
 
 ## 2. Resume from state, not conversation
 

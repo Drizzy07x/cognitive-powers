@@ -7,15 +7,15 @@ Read this reference before starting or resuming an `execute-durably` session.
 State is external to the repository. Resolution order:
 
 1. `COGNITIVE_POWERS_DATA`
-2. `PLUGIN_DATA`
-3. `~/.codex/cognitive-powers`
+2. `~/.codex/cognitive-powers`
 
 This order is host-independent, and the selective edit hook resolves it the
 same way. The final entry keeps its historical name so one machine running
 both hosts keeps a single store; set `COGNITIVE_POWERS_DATA` to relocate it.
-Do not introduce a host-specific data variable here: the hook and the receipt
-writer run in different processes, and only a root both can resolve lets the
-`Stop` gate match a receipt to the edit it covers.
+No host-injected data variable takes part: Claude Code exports
+`CLAUDE_PLUGIN_DATA` and Codex exports `PLUGIN_DATA` to hook processes only.
+The hook and the receipt writer run in different processes, and only a root
+both can resolve lets the `Stop` gate match a receipt to the edit it covers.
 
 Each repository receives a SHA-256-derived project key:
 
@@ -27,7 +27,7 @@ Each repository receives a SHA-256-derived project key:
   evidence/
 ```
 
-The resolved data root must be outside the target repository; every command rejects an in-repository `--data-root`, `COGNITIVE_POWERS_DATA`, or `PLUGIN_DATA` before creating session files.
+The resolved data root must be outside the target repository; every command rejects an in-repository `--data-root` or `COGNITIVE_POWERS_DATA` before creating session files.
 
 `state.json` is the current snapshot. `ledger.jsonl` is the append-only write-ahead history and includes a recovery snapshot that is omitted from compact `status` output. Events are flushed before the atomic `state.json` replacement, so `load_state` can recover if the snapshot write is interrupted. Every ledger line must be a complete JSON event; malformed lines fail closed instead of being skipped, including a truncated final write.
 

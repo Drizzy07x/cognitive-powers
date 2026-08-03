@@ -8,7 +8,7 @@ The lookup script emits schema version 1 with:
 - SHA-256 of the untruncated provider response;
 - local dependency evidence and cache status.
 
-Cache files live under `COGNITIVE_POWERS_DATA`, `PLUGIN_DATA`, or `~/.codex/cognitive-powers` in that order:
+Cache files live under `COGNITIVE_POWERS_DATA`, or `~/.codex/cognitive-powers` when it is unset:
 
 ```text
 <data-root>/external-context/<project-key>/<lookup-key>.json
