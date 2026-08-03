@@ -66,8 +66,11 @@ every push, the real install/upgrade/rollback nightly or on dispatch, the whole 
 Nine of the thirteen 1.7.1-era defects lived in steps a tag push alone ran, and the layering exists
 so that class of masking cannot re-form.
 
-Two runners are deliberately outside the gate and fail locally without their provider:
-`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
+Three runners are deliberately outside the gate. Two fail locally without their provider:
+`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright). The third,
+`evals/run_activation_eval.py`, spawns the real `claude` binary and costs money on every case, which
+is the same reason by a different route — but everything it delegates to is pure and does run in the
+gate, so a defect in the judgement is caught offline even though the measurement is not.
 
 `docs/operations.md` is the runbook for everything the gate does not do: lock and state-schema
 recovery, durable resume across a compaction, verifying an installed release, the release
