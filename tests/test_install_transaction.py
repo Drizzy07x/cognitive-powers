@@ -18,22 +18,104 @@ FAKE = ROOT / "tests" / "fixtures" / "fake_codex_cli.py"
 FAKE_GH = ROOT / "tests" / "fixtures" / "fake_gh_cli.py"
 
 
-class InstallerProfileLocationTests(unittest.TestCase):
-    """Locating the rollback copy must not depend on a folder Unix may lack.
+def _bash_candidates() -> list[str]:
+    """Every plausible bash on this host, best first."""
+    seen: set[str] = set()
+    candidates: list[str] = []
 
-    GetFolderPath verifies the directory on Unix and returns an empty string
-    when it is missing, and a profile that has never been written to has no
-    ~/.local/share. Join-Path then refuses the empty string, so the installer
-    died before it could prepare any recovery -- which is what every Unix cell
-    hit once the disposable Codex home let it get that far.
+    def offer(path: str | None) -> None:
+        if path and path not in seen and Path(path).is_file():
+            seen.add(path)
+            candidates.append(path)
+
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if entry:
+            offer(shutil.which("bash", path=entry))
+    git = shutil.which("git")
+    if git:
+        # Git for Windows ships a real bash in a sibling directory of the
+        # git.exe it puts on PATH, and puts neither bash on PATH itself.
+        for relative in ("bin/bash.exe", "usr/bin/bash.exe"):
+            offer(str(Path(git).resolve().parent.parent / relative))
+    return candidates
+
+
+def _posix_bash() -> str | None:
+    """A bash that can actually host this suite, or None if the host has none.
+
+    Resolving the name proves nothing on Windows, where three different things
+    answer to `bash` and two of them cannot run these scenarios.
+
+    Microsoft's WSL launcher is what PATH resolves first, and it fails in two
+    ways of its own: with no distribution installed -- the CI runner -- it exits
+    non-zero and says so in UTF-16, and with one installed it is a real shell in
+    a filesystem that has no C: drive, so it reports 127 for an installer named
+    the only way this fixture can name it. Either way every install.sh scenario
+    ran something other than the installer, the harness read that failure as the
+    installer's, and the equivalence test concluded that install.ps1 and
+    install.sh issue different commands -- an answer that says nothing about
+    either installer. That is the failure this repository has already recorded
+    twice: a harness that cannot distinguish "the thing under test is broken"
+    from "the thing under test never ran".
+
+    Git for Windows then ships two. The one in bin/ is a wrapper that prepends
+    its own /mingw64/bin to PATH, ahead of anything the caller exported, so the
+    fixture's shims stop shadowing and the transaction is measured against real
+    Git -- the same detachment the .cmd-only shims caused, arriving by a
+    different route. The one in usr/bin/ leaves PATH alone.
+
+    So probe for the three capabilities that are actually required rather than
+    for the name: a shell, one that can read install.sh where this suite points
+    it, and one through which a directory this suite prepends to PATH really
+    shadows the command it means to replace.
     """
-
-    def test_local_application_data_is_created_rather_than_verified(self) -> None:
-        source = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn(
-            '[Environment]::GetFolderPath("LocalApplicationData", "Create")', source
+    probe_home = tempfile.mkdtemp(prefix="cognitive-powers-bash-probe-")
+    try:
+        shadowed = Path(probe_home) / "git"
+        shadowed.write_text(
+            "#!/bin/sh\nprintf %s posix-shell\n", encoding="utf-8", newline="\n"
         )
-        self.assertNotIn('GetFolderPath("LocalApplicationData")', source)
+        shadowed.chmod(0o755)
+        environment = {
+            **os.environ,
+            "PATH": probe_home + os.pathsep + os.environ.get("PATH", ""),
+        }
+        for candidate in _bash_candidates():
+            try:
+                probe = subprocess.run(
+                    [
+                        candidate,
+                        "-c",
+                        'test -f "$1" && git',
+                        "bash",
+                        INSTALLER_SH.as_posix(),
+                    ],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    # The WSL launcher writes UTF-16, which is not decodable as
+                    # the ANSI codepage; a probe that raised here would be
+                    # reporting the same absence as a crash.
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    timeout=60,
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if probe.returncode == 0 and probe.stdout.strip() == "posix-shell":
+                return candidate
+        return None
+    finally:
+        shutil.rmtree(probe_home, ignore_errors=True)
+
+
+BASH = _posix_bash()
+NO_POSIX_BASH = (
+    "no POSIX bash is installed, so install.sh cannot be exercised; on Windows "
+    "the bash on PATH is Microsoft's WSL launcher rather than a shell, and Git "
+    "for Windows supplies one that works"
+)
 
 
 class InstallTransactionScenarios:
@@ -88,6 +170,15 @@ class InstallTransactionScenarios:
         )
         self.personal_root = self.base / "personal"
         self.personal_root.mkdir()
+        # Both installers read XDG_DATA_HOME off Windows, so pointing it inside
+        # the fixture is what keeps a recovery copy here instead of in the
+        # developer's real profile. install.ps1 answered from .NET before, which
+        # consults no variable on macOS: the copies went to the account's own
+        # Library/Application Support and accumulated there across cases, so a
+        # scenario that leaves exactly one recovery directory saw the leftovers
+        # of every scenario before it.
+        self.xdg_data_home = self.base / "xdg"
+        self.xdg_data_home.mkdir()
         self.state_path = self.base / "state.json"
         python = Path(sys.executable)
         # Resolved before the shim exists, so it names the runner's real Git.
@@ -240,13 +331,13 @@ class InstallTransactionScenarios:
                 "HOME": str(self.base / "home"),
                 "USERPROFILE": str(self.base / "home"),
                 "CODEX_HOME": str(self.base / "codex-home"),
+                # POSIX spelling on every host: install.sh reads this one under
+                # Git Bash on Windows too, where str() would hand it a path
+                # written in backslashes.
+                "XDG_DATA_HOME": self.xdg_data_home.as_posix(),
             }
         )
-        env.update(self.extra_environment())
         return env
-
-    def extra_environment(self) -> dict[str, str]:
-        return {}
 
     def read_state(self) -> dict:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -259,7 +350,10 @@ class InstallTransactionScenarios:
         installer aborts at its first real call and no assertion about the
         transaction can hold. Resolve each command the way the installer will.
         """
-        search = str(self.bin) + os.pathsep + os.environ["PATH"]
+        # The installer's own PATH, not a second one assembled to look like it:
+        # a harness that adds a directory for the installer and leaves it out
+        # here would be checking a search order nothing runs under.
+        search = self.installer_environment()["PATH"]
         for name in ("codex", "gh", "git", "python"):
             resolved = self.resolve_on_path(name, search)
             with self.subTest(command=name):
@@ -267,9 +361,13 @@ class InstallTransactionScenarios:
                 self.assert_inside_fixture_bin(name, resolved)
 
     def assert_inside_fixture_bin(self, name: str, resolved: str) -> None:
+        # One directory has more than one spelling: macOS puts the temporary
+        # directory under /var, which is a symlink to /private/var, so the
+        # fixture's own path and a resolved one name the same place and compare
+        # unequal. Canonicalize both sides rather than either.
         self.assertEqual(
-            Path(resolved).parent,
-            self.bin,
+            Path(os.path.realpath(resolved)).parent,
+            Path(os.path.realpath(self.bin)),
             f"{name} resolves to {resolved}, outside the fixture",
         )
 
@@ -641,10 +739,16 @@ class InstallTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         self.assertNotIn("empty string", output)
 
     def local_application_data(self) -> Path:
-        # install.ps1 locates recovery marketplaces through GetFolderPath.
-        # Where that lands differs by platform and .NET version, and modeling
-        # it here guessed wrong twice -- so ask the same pwsh, under the same
-        # profile overrides run_installer uses, and let the platform answer.
+        if os.name != "nt":
+            # Off Windows install.ps1 reads XDG_DATA_HOME, exactly as install.sh
+            # does, so the value this fixture exports is the answer. It used to
+            # ask .NET, which on macOS reports the account's own
+            # Library/Application Support whatever HOME says -- so the suite was
+            # asserting against the developer's real profile.
+            return self.xdg_data_home
+        # On Windows the .NET answer is the rule, and where it lands is not
+        # something to model: ask the same pwsh, under the same profile
+        # overrides run_installer uses, and let the platform answer.
         completed = subprocess.run(
             [
                 "pwsh",
@@ -661,10 +765,7 @@ class InstallTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         return Path(completed.stdout.strip())
 
 
-@unittest.skipUnless(
-    shutil.which("bash") is not None,
-    "bash is not installed; install.sh cannot be exercised",
-)
+@unittest.skipUnless(BASH is not None, NO_POSIX_BASH)
 class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
     """The POSIX installer, held to the same scenarios.
 
@@ -674,15 +775,6 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
     is the failure this suite already learned once on the PowerShell side, where
     Windows-only .cmd shims left Linux and macOS measuring the real binaries.
     """
-
-    def setUp(self) -> None:
-        super().setUp()
-        # install.sh reads XDG_DATA_HOME first, which is the same directory
-        # .NET reports as LocalApplicationData on Unix. Setting it exercises the
-        # platform's own rule instead of a guess, and keeps the recovery
-        # directory inside the fixture rather than in the developer's profile.
-        self.xdg_data_home = self.base / "xdg"
-        self.xdg_data_home.mkdir(exist_ok=True)
 
     @property
     def recovery_scenario_skip(self) -> str:
@@ -698,12 +790,27 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
             "the Windows fixture supplies drive-letter paths"
         )
 
+    def installer_environment(self) -> dict[str, str]:
+        environment = super().installer_environment()
+        # The shell _posix_bash settles on under Windows is Git's MSYS bash,
+        # which is the one that leaves PATH alone -- and so the one whose
+        # coreutils are not on it. install.sh dies at its first `dirname`
+        # without them. They go after the fixture's own bin and before the
+        # host's PATH: ahead of the fixture they would shadow the shims, which
+        # is exactly what disqualified Git's other bash, and behind the host
+        # they would lose `find` and `sort` to the Windows programs of that
+        # name.
+        environment["PATH"] = os.pathsep.join(
+            (str(self.bin), str(Path(BASH).parent), os.environ.get("PATH", ""))
+        )
+        return environment
+
     def installer_path(self) -> Path:
         return INSTALLER_SH
 
     def installer_argv(self, script: Path | None = None) -> list[str]:
         return [
-            "bash",
+            BASH,
             (script or INSTALLER_SH).as_posix(),
             "--release-ref",
             "v1.6.0",
@@ -740,7 +847,7 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         # extensionless shim; bash can, and bash is what resolves these names
         # when the installer runs. Ask the shell that will actually do it.
         completed = subprocess.run(
-            ["bash", "-c", 'command -v "$1"', "bash", name],
+            [BASH, "-c", 'command -v "$1"', "bash", name],
             env={**os.environ, "PATH": search},
             capture_output=True,
             text=True,
@@ -754,21 +861,24 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         # bash answers in its own path vocabulary, which on Windows is a POSIX
         # spelling of a drive-letter path. Comparing that to a WindowsPath
         # compares two notations, not two locations, so let bash canonicalize
-        # the fixture directory too and compare like with like.
+        # the fixture directory too and compare like with like. Only the fixture
+        # side was canonicalized at first, which is a second notation gap on
+        # macOS: `command -v` answers with the /var spelling PATH carried, and
+        # `pwd -P` resolves the same directory to /private/var.
+        self.assertEqual(
+            self.canonical_directory(str(PurePosixPath(resolved).parent)),
+            self.canonical_directory(self.bin.as_posix()),
+            f"{name} resolves to {resolved}, outside the fixture",
+        )
+
+    def canonical_directory(self, directory: str) -> str:
         completed = subprocess.run(
-            ["bash", "-c", 'cd "$1" && pwd -P', "bash", self.bin.as_posix()],
+            [BASH, "-c", 'cd "$1" && pwd -P', "bash", directory],
             capture_output=True,
             text=True,
             check=True,
         )
-        self.assertEqual(
-            str(PurePosixPath(resolved).parent),
-            completed.stdout.strip(),
-            f"{name} resolves to {resolved}, outside the fixture",
-        )
-
-    def extra_environment(self) -> dict[str, str]:
-        return {"XDG_DATA_HOME": self.xdg_data_home.as_posix()}
+        return completed.stdout.strip()
 
     def local_application_data(self) -> Path:
         return self.xdg_data_home
@@ -786,7 +896,7 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         for candidate in ("1.6.0", "v1.6", "main", "v1.6.0; rm -rf /"):
             with self.subTest(release_ref=candidate):
                 result = subprocess.run(
-                    ["bash", INSTALLER_SH.as_posix(), "--release-ref", candidate],
+                    [BASH, INSTALLER_SH.as_posix(), "--release-ref", candidate],
                     env=self.installer_environment(),
                     capture_output=True,
                     text=True,
@@ -813,8 +923,8 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
 
 
 @unittest.skipUnless(
-    shutil.which("pwsh") is not None and shutil.which("bash") is not None,
-    "comparing the installers needs both pwsh and bash",
+    shutil.which("pwsh") is not None and BASH is not None,
+    "comparing the installers needs both pwsh and a POSIX bash",
 )
 class InstallerEquivalenceTests(unittest.TestCase):
     """The two installers must issue the same commands, not merely both pass.
@@ -877,6 +987,52 @@ class InstallerEquivalenceTests(unittest.TestCase):
             posix_log,
             "the installers issued different command sequences",
         )
+
+    def test_both_installers_keep_recovery_in_one_directory(self) -> None:
+        """A recovery copy either installer wrote must be one the other finds.
+
+        Each script said in a comment that it applied the other's rule for this
+        directory, and on Linux both did. install.ps1 asked .NET for
+        LocalApplicationData, which on macOS is Library/Application Support
+        under the account's own home and consults neither XDG_DATA_HOME nor
+        HOME, so the recovery marketplace one installer preserved sat where the
+        other's preflight would never look -- and a rerun refused the very
+        recovery its counterpart had created. Two agreeing comments are not an
+        agreeing rule, so point both at one profile and require both to land in
+        it.
+        """
+        if os.name == "nt":
+            self.skipTest(
+                "install.ps1 keeps recovery under LocalApplicationData on "
+                "Windows, which is that platform's rule and not one install.sh "
+                "shares; only install.ps1 is documented for Windows"
+            )
+        shared = Path(tempfile.mkdtemp())
+        try:
+            for harness in (InstallTransactionTests, InstallShTransactionTests):
+                case = harness("setUp")
+                case.setUp()
+                try:
+                    case.xdg_data_home = shared
+                    case.state(
+                        installed=[case.plugin()],
+                        marketplaces=[case.marketplace()],
+                        failures={"plugin marketplace remove cognitive-powers": 2},
+                    )
+                    result = case.run_installer()
+                    self.assertNotEqual(result.returncode, 0, harness.__name__)
+                finally:
+                    case.tearDown()
+            preserved = sorted(
+                path.name for path in (shared / "cognitive-powers").glob("rollback-*")
+            )
+            self.assertEqual(
+                len(preserved),
+                2,
+                f"the two installers left {preserved} in one shared data home",
+            )
+        finally:
+            shutil.rmtree(shared, ignore_errors=True)
 
     def test_a_clean_install_issues_the_same_commands(self) -> None:
         self.assert_installers_agree()

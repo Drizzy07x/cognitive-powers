@@ -352,13 +352,16 @@ if [ "$configured_count" -gt 1 ]; then
     die "More than one marketplace named '$marketplace' is configured."
 fi
 
-# DIVERGENCE (profile location): [Environment]::GetFolderPath(
-# "LocalApplicationData", "Create") is how install.ps1 finds this directory, and
-# on Unix .NET answers $XDG_DATA_HOME or $HOME/.local/share. Spelling that rule
-# out directly keeps the two scripts pointed at one directory, so a recovery
-# marketplace written by either is recognized by both -- and "Create" is
-# reproduced by mkdir -p, because a profile that has never been written to has
-# no ~/.local/share yet and the recovery copy has to live somewhere.
+# DIVERGENCE (profile location): install.ps1's Get-RecoveryParent spells this
+# same rule out for every host except Windows, so the two scripts stay pointed
+# at one directory and a recovery marketplace written by either is recognized by
+# both. It used to leave the answer to .NET's LocalApplicationData, which
+# matches this rule only on Linux: on macOS that is Library/Application Support
+# under the account's own home and consults neither variable, so each installer
+# refused to resume from the other's recovery copy. mkdir -p reproduces the
+# "Create" the .NET call used to do, because a profile that has never been
+# written to has no ~/.local/share yet and the recovery copy has to live
+# somewhere.
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 recovery_parent="$data_home/cognitive-powers"
 # Created here rather than at the point of use, because the recognition check

@@ -218,7 +218,7 @@ knowing at the console:
 |---|---|---|
 | `python` | `python3`, then `python` | PEP 394 makes a bare `python` absent on most distributions. `COGNITIVE_POWERS_PYTHON` overrides the choice and is honoured by both scripts, so one documented variable pins the interpreter on either host. |
 | `ConvertFrom-Json` | the preflight-verified interpreter | The interpreter is proven runnable before the first document is parsed, in the position `install.ps1` already proves it. |
-| `GetFolderPath("LocalApplicationData")` | `${XDG_DATA_HOME:-$HOME/.local/share}` | The same directory .NET reports on Unix, so a recovery marketplace written by either script is recognized by both. |
+| `${XDG_DATA_HOME:-$HOME/.local/share}`, and `GetFolderPath("LocalApplicationData")` on Windows only | `${XDG_DATA_HOME:-$HOME/.local/share}` | One rule on every host both scripts run on, so a recovery marketplace written by either is recognized by both. `install.ps1` used to ask .NET everywhere, which answers this rule only on Linux: on macOS it reports `Library/Application Support` under the account's own home and consults neither variable, so each script refused to resume from the other's recovery copy. A macOS recovery copy preserved by `install.ps1` before 1.9.0 is under `~/Library/Application Support/cognitive-powers` and has to be moved to `~/.local/share/cognitive-powers` to be recognized. |
 | `[IO.Path]::GetFullPath` | `cd` plus `pwd -P` | Resolves symlinks rather than normalizing lexically, which is what a symlinked `$TMPDIR` or `$HOME` requires. |
 | `[ValidatePattern]` | an explicit check before the preflight | The expected version is a substring of the ref, so a malformed ref would be verified against nonsense. |
 

@@ -130,6 +130,46 @@ function Read-CodexJsonBestEffort {
     }
 }
 
+function Get-RecoveryParent {
+    # DIVERGENCE (profile location): off Windows this spells out
+    # "${XDG_DATA_HOME:-$HOME/.local/share}", which is what install.sh spells
+    # out too, so that a recovery marketplace written by either installer is
+    # recognized by both. Leaving the answer to .NET made that true only on
+    # Linux: on macOS SpecialFolder.LocalApplicationData is
+    # Library/Application Support under the account's own home, and it consults
+    # neither variable -- so the two installers wrote their recovery copies to
+    # different directories and each refused to resume from the other's. It also
+    # meant the transaction suite, which overrides HOME to keep that copy inside
+    # its fixture, was in fact writing into the developer's real profile and
+    # accumulating rollback directories there across runs.
+    $parent = if ($IsWindows) {
+        # Windows keeps the .NET answer: it is the only rule that exists there,
+        # and no POSIX installer competes for the directory. "Create" costs
+        # nothing on a real profile and returns a path rather than the empty
+        # string Join-Path refuses if the folder is somehow absent.
+        Join-Path ([Environment]::GetFolderPath("LocalApplicationData", "Create")) "cognitive-powers"
+    }
+    else {
+        $dataHome = if (-not [string]::IsNullOrWhiteSpace($env:XDG_DATA_HOME)) {
+            $env:XDG_DATA_HOME
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+            Join-Path $env:HOME ".local/share"
+        }
+        else {
+            throw "Neither XDG_DATA_HOME nor HOME names a data directory, so there is nowhere to keep a recovery marketplace."
+        }
+        Join-Path $dataHome "cognitive-powers"
+    }
+    # Materialized here rather than at the point of use, because the recognition
+    # check canonicalizes this path and comparing an unresolvable path against a
+    # resolved one is a mismatch whatever the two actually name. A profile that
+    # has never been written to has no ~/.local/share yet, and the recovery copy
+    # has to live somewhere.
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    return $parent
+}
+
 function Assert-Verifier {
     # The postcondition needs a file that ships beside this script, and its
     # absence is knowable now -- so it is checked here, for the same reason
@@ -176,6 +216,7 @@ if ($LASTEXITCODE -ne 0) { throw "Unable to read configured Codex marketplaces."
 $configured = @($marketplaceState.marketplaces | Where-Object { $_.name -eq $marketplace })
 $personalMarketplace = @($marketplaceState.marketplaces | Where-Object { $_.name -eq $personalMarketplaceName })
 if ($configured.Count -gt 1) { throw "More than one marketplace named '$marketplace' is configured." }
+$recoveryParent = Get-RecoveryParent
 if ($configured.Count -eq 1) {
     $configuredSource = $configured[0].marketplaceSource.source
     $configuredSourceIsPinnedRepository = (
@@ -183,12 +224,11 @@ if ($configured.Count -eq 1) {
         $configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+|[0-9a-f]{40})$"
     )
     # A failed transaction restores the previous installation from a recovery
-    # marketplace under LocalApplicationData and preserves it. That state is
-    # this installer's own product, so a rerun must recognize it and proceed --
+    # marketplace under the data home and preserves it. That state is this
+    # installer's own product, so a rerun must recognize it and proceed --
     # re-pointing the marketplace at the new immutable SHA -- instead of
     # refusing the very recovery it created. Recognition is deliberately
     # narrow: the exact directory shape the transaction writes, nothing else.
-    $recoveryParent = Join-Path ([Environment]::GetFolderPath("LocalApplicationData", "Create")) "cognitive-powers"
     $configuredSourceIsRecoveryMarketplace = $false
     if (
         -not [string]::IsNullOrWhiteSpace($configuredSource) -and
@@ -266,13 +306,10 @@ if ($personalPrevious.Count -ne 0) {
     }
 }
 
-# On Unix GetFolderPath verifies the directory and returns an empty string when
-# it is missing, and a profile that has never been written to has no
-# ~/.local/share yet. Create materializes it and returns the path, which is
-# where the rollback copy has to live anyway; without it Join-Path refuses the
-# empty string and the installer dies before it can prepare any recovery.
-$rollbackBase = Join-Path ([Environment]::GetFolderPath("LocalApplicationData", "Create")) "cognitive-powers"
-$rollbackRoot = Join-Path $rollbackBase "rollback-$([guid]::NewGuid())"
+# The same directory the preflight recognized a preserved recovery under, taken
+# from the one resolver: a rollback written somewhere the recognition check does
+# not look would stop being resumable the moment it was needed.
+$rollbackRoot = Join-Path $recoveryParent "rollback-$([guid]::NewGuid())"
 $rollbackMarketplace = Join-Path $rollbackRoot "marketplace"
 $rollbackPrepared = $false
 $preserveRollback = $false
