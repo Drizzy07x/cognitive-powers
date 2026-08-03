@@ -162,6 +162,24 @@ skipped check, or a stale report is never counted as a pass — it appears under
 *Not tested*, and a claim with no adequate evidence is reported `unverified`
 rather than rounded up.
 
+## The three subagents
+
+Claude Code loads three roles from `agents/`. A workflow delegates to them by
+name; you do not invoke them directly.
+
+| Agent | Role |
+|---|---|
+| `executor` | Implement one work packet inside an explicitly declared set of owned paths, reporting the exact commands run and their observed results. |
+| `test-writer` | Write a focused test that demonstrates a real pre-fix failure, then confirms the intended behavior after implementation. |
+| `verifier` | Confirm or reject a finished claim. Read-only, and never the agent that produced the result. |
+
+Two constraints are enforced by the tool sets rather than by the prompts, because
+an instruction cannot prevent what the tools still permit. None of the three is
+granted `Agent`, so a worker cannot spawn workers and delegation stays one level
+deep. The verifier withholds the edit tools and runs under `isolation: worktree`,
+so anything it writes lands in a disposable checkout — which is what makes
+"read-only" true of your tree instead of merely asserted.
+
 ## Learn more
 
 | Document | What it covers |
