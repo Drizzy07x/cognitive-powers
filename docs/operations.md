@@ -184,11 +184,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.8.2
+& ./install.ps1 -ReleaseRef v1.9.0
 ```
 
 ```bash
-./install.sh --release-ref v1.8.2
+./install.sh --release-ref v1.9.0
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -232,7 +232,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.8.2
+  --installed-root <installed-root> --tag v1.9.0
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
