@@ -6,7 +6,6 @@ import json
 import os
 import stat
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -17,6 +16,7 @@ if str(PLUGIN_ROOT / "evals") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "evals"))
 
 from activation_core import fixtures, runner, transcript  # noqa: E402
+from tests.activation_eval_support import TempTreeTestCase  # noqa: E402
 from activation_core.arms import ARMS  # noqa: E402
 from activation_core.cases import Case  # noqa: E402
 from activation_core.report import as_markdown  # noqa: E402
@@ -108,7 +108,7 @@ def stream(*lines: str) -> str:
     return "\n".join(lines)
 
 
-class DetectionTests(unittest.TestCase):
+class DetectionTests(TempTreeTestCase):
     def test_a_skill_tool_use_is_an_activation(self) -> None:
         reading = transcript.read(
             stream(skill_call("diagnose-systematically"), result()), INSTALLED
@@ -212,7 +212,7 @@ class DetectionTests(unittest.TestCase):
         self.assertTrue(worked.worked_after_firing)
 
 
-class ArmVerificationTests(unittest.TestCase):
+class ArmVerificationTests(TempTreeTestCase):
     def read(self, *lines: str) -> transcript.Reading:
         return transcript.read(stream(*lines, result()), INSTALLED)
 
@@ -300,7 +300,7 @@ def make_observation(case: Case, reading: transcript.Reading, arm: str = "full")
     )
 
 
-class ScoringTests(unittest.TestCase):
+class ScoringTests(TempTreeTestCase):
     def full(self, *lines: str) -> transcript.Reading:
         return transcript.read(
             stream(hook_response(INDEX_TEXT), hook_response(STANDING_TEXT), *lines),
@@ -411,7 +411,7 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(rows["arms"][1]["activationDelta"], 0.5)
 
 
-class ReportTests(unittest.TestCase):
+class ReportTests(TempTreeTestCase):
     def test_markdown_shows_a_missing_rate_rather_than_a_zero(self) -> None:
         payload = {
             "run": {"model": "sonnet", "repetitions": 3, "cases": 1, "invocations": 3},
@@ -440,7 +440,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("3 x claude exited 1", rendered)
 
 
-class SessionShapeTests(unittest.TestCase):
+class SessionShapeTests(TempTreeTestCase):
     def test_argv_carries_the_flags_the_measurement_depends_on(self) -> None:
         argv = build_argv(
             make_case(),
@@ -500,7 +500,7 @@ def run_shaped(**overrides) -> Run:
     return Run(**values)
 
 
-class RateLimitTests(unittest.TestCase):
+class RateLimitTests(TempTreeTestCase):
     def test_a_healthy_run_is_never_retried_however_it_reads(self) -> None:
         self.assertFalse(
             looks_rate_limited(
@@ -595,7 +595,7 @@ class RateLimitTests(unittest.TestCase):
                 ARMS["full"],
                 1,
                 plugin_root=PLUGIN_ROOT,
-                workspace_root=Path(tempfile.mkdtemp(prefix="cp-retry-")),
+                workspace_root=self.temp_dir("cp-retry-"),
                 python_executable=sys.executable,
                 installed=INSTALLED,
                 backoff_seconds=1.0,
@@ -625,7 +625,7 @@ class RateLimitTests(unittest.TestCase):
                 ARMS["full"],
                 1,
                 plugin_root=PLUGIN_ROOT,
-                workspace_root=Path(tempfile.mkdtemp(prefix="cp-retry2-")),
+                workspace_root=self.temp_dir("cp-retry2-"),
                 python_executable=sys.executable,
                 installed=INSTALLED,
                 max_attempts=2,
@@ -651,16 +651,16 @@ class RateLimitTests(unittest.TestCase):
         self.assertIsNone(observation.passed)
 
 
-class FixtureTests(unittest.TestCase):
+class FixtureTests(TempTreeTestCase):
     def test_every_named_fixture_materializes(self) -> None:
-        base = Path(tempfile.mkdtemp(prefix="cp-fixture-"))
+        base = self.temp_dir("cp-fixture-")
         for name in fixtures.fixture_names():
             root = fixtures.materialize(name, base / name)
             self.assertTrue((root / "README.md").is_file())
 
     def test_an_unknown_fixture_is_refused_by_name(self) -> None:
         with self.assertRaisesRegex(KeyError, "unknown fixture"):
-            fixtures.materialize("nope", Path(tempfile.mkdtemp()))
+            fixtures.materialize("nope", self.temp_dir())
 
 
 STUB = """
@@ -691,7 +691,7 @@ sys.exit(0)
 """
 
 
-class SubprocessPathTests(unittest.TestCase):
+class SubprocessPathTests(TempTreeTestCase):
     """Exercise the real process path against a stand-in for the host.
 
     Not a mock of the code under test: ``run_case`` builds the argv, spawns the
@@ -762,7 +762,7 @@ class SubprocessPathTests(unittest.TestCase):
         self.assertFalse(observation.complete)
 
     def test_a_run_streams_and_stops_once_the_verdict_is_settled(self) -> None:
-        base = Path(tempfile.mkdtemp(prefix="cp-run-"))
+        base = self.temp_dir("cp-run-")
         outcome = run_case(
             make_case(),
             ARMS["full"],
@@ -789,7 +789,7 @@ class SubprocessPathTests(unittest.TestCase):
         # The clock cannot be checked inside the read loop alone: a session
         # that stalls with its pipe open produces no line to check it on, and
         # would hold the whole matrix.
-        base = Path(tempfile.mkdtemp(prefix="cp-run-hang-"))
+        base = self.temp_dir("cp-run-hang-")
         script = base / "stall.py"
         script.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
         if os.name == "nt":
@@ -822,7 +822,7 @@ class SubprocessPathTests(unittest.TestCase):
         self.assertLess(outcome.duration_seconds, 60.0)
 
     def test_a_negative_case_is_never_cut_short(self) -> None:
-        base = Path(tempfile.mkdtemp(prefix="cp-run-neg-"))
+        base = self.temp_dir("cp-run-neg-")
         outcome = run_case(
             make_case(case_id="quiet", expect=()),
             ARMS["full"],
@@ -840,7 +840,7 @@ class SubprocessPathTests(unittest.TestCase):
         self.assertEqual(outcome.exit_code, 0)
 
 
-class OrchestrationTests(unittest.TestCase):
+class OrchestrationTests(TempTreeTestCase):
     def test_the_plan_enumerates_every_intended_invocation(self) -> None:
         cases = [make_case(), make_case(case_id="quiet", expect=())]
         plan = runner.plan([ARMS["none"], ARMS["full"]], cases, 3)
@@ -882,7 +882,7 @@ class OrchestrationTests(unittest.TestCase):
             timeout_seconds=10.0,
             claude_executable="unused",
             artifacts=None,
-            workspace_root=Path(tempfile.mkdtemp(prefix="cp-exec-")),
+            workspace_root=self.temp_dir("cp-exec-"),
             runner=fake,
         )
         self.assertEqual(payload["run"]["invocations"], 4)
@@ -958,7 +958,7 @@ class OrchestrationTests(unittest.TestCase):
             timeout_seconds=10.0,
             claude_executable="unused",
             artifacts=None,
-            workspace_root=Path(tempfile.mkdtemp(prefix="cp-order-")),
+            workspace_root=self.temp_dir("cp-order-"),
             runner=fake,
             workers=4,
         )
@@ -1001,7 +1001,7 @@ class OrchestrationTests(unittest.TestCase):
             timeout_seconds=10.0,
             claude_executable="unused",
             artifacts=None,
-            workspace_root=Path(tempfile.mkdtemp(prefix="cp-boom-")),
+            workspace_root=self.temp_dir("cp-boom-"),
             runner=flaky,
             workers=2,
         )

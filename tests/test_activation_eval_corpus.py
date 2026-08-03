@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +11,7 @@ if str(PLUGIN_ROOT / "evals") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "evals"))
 
 from activation_core import yamlite  # noqa: E402
+from tests.activation_eval_support import TempTreeTestCase  # noqa: E402
 from activation_core.cases import (  # noqa: E402
     Case,
     CorpusError,
@@ -45,14 +45,7 @@ cases:
 """
 
 
-def write(text: str) -> Path:
-    directory = Path(tempfile.mkdtemp(prefix="cp-corpus-"))
-    path = directory / "cases.yaml"
-    path.write_text(text.lstrip("\n"), encoding="utf-8")
-    return path
-
-
-class YamliteTests(unittest.TestCase):
+class YamliteTests(TempTreeTestCase):
     def test_parses_the_shape_a_case_file_actually_uses(self) -> None:
         document = yamlite.loads(VALID)
         self.assertEqual(document["version"], 1)
@@ -109,9 +102,12 @@ class YamliteTests(unittest.TestCase):
             yamlite.loads('a: "open\n')
 
 
-class CaseLoadingTests(unittest.TestCase):
+class CaseLoadingTests(TempTreeTestCase):
+    def write(self, text: str) -> Path:
+        return self.temp_file(text.lstrip("\n"), name="cases.yaml", prefix="cp-corpus-")
+
     def test_valid_corpus_loads_with_defaults_applied(self) -> None:
-        cases = load_file(write(VALID), SKILLS)
+        cases = load_file(self.write(VALID), SKILLS)
         self.assertEqual(
             [case.case_id for case in cases], ["diagnose-click", "quiet-rename"]
         )
@@ -124,40 +120,40 @@ class CaseLoadingTests(unittest.TestCase):
     def test_unknown_key_is_an_error(self) -> None:
         text = VALID.replace("    quick: true", "    quik: true")
         with self.assertRaisesRegex(CorpusError, "unknown keys quik"):
-            load_file(write(text), SKILLS)
+            load_file(self.write(text), SKILLS)
 
     def test_a_misspelled_expect_cannot_silently_invert_polarity(self) -> None:
         text = VALID.replace(
             "    expect:\n      - diagnose", "    expcet:\n      - diagnose"
         )
         with self.assertRaises(CorpusError):
-            load_file(write(text), SKILLS)
+            load_file(self.write(text), SKILLS)
 
     def test_unknown_workflow_name_is_rejected(self) -> None:
         text = VALID.replace("diagnose-systematically", "diagnose-thoroughly")
         with self.assertRaisesRegex(CorpusError, "unknown workflow"):
-            load_file(write(text), SKILLS)
+            load_file(self.write(text), SKILLS)
 
     def test_a_workflow_cannot_be_expected_and_forbidden(self) -> None:
         text = VALID.replace(
             "    forbid: []", "    forbid:\n      - diagnose-systematically"
         )
         with self.assertRaisesRegex(CorpusError, "both expected and forbidden"):
-            load_file(write(text), SKILLS)
+            load_file(self.write(text), SKILLS)
 
     def test_mode_any_needs_more_than_one_expectation(self) -> None:
         text = VALID.replace(
             "    fixture: webshop", "    fixture: webshop\n    mode: any"
         )
         with self.assertRaisesRegex(CorpusError, "at least two"):
-            load_file(write(text), SKILLS)
+            load_file(self.write(text), SKILLS)
 
     def test_wrong_version_is_rejected(self) -> None:
         with self.assertRaisesRegex(CorpusError, "version"):
-            load_file(write(VALID.replace("version: 1", "version: 2")), SKILLS)
+            load_file(self.write(VALID.replace("version: 1", "version: 2")), SKILLS)
 
     def test_duplicate_ids_across_files_are_rejected(self) -> None:
-        directory = Path(tempfile.mkdtemp(prefix="cp-corpus-dir-"))
+        directory = self.temp_dir("cp-corpus-dir-")
         (directory / "a.yaml").write_text(VALID.lstrip("\n"), encoding="utf-8")
         (directory / "b.yaml").write_text(VALID.lstrip("\n"), encoding="utf-8")
         with self.assertRaisesRegex(CorpusError, "duplicate case id"):
@@ -165,7 +161,7 @@ class CaseLoadingTests(unittest.TestCase):
 
     def test_an_empty_directory_is_an_error_not_an_empty_corpus(self) -> None:
         with self.assertRaisesRegex(CorpusError, "no case files"):
-            load_corpus(Path(tempfile.mkdtemp(prefix="cp-empty-")), SKILLS)
+            load_corpus(self.temp_dir("cp-empty-"), SKILLS)
 
 
 def case(**overrides) -> Case:
@@ -184,7 +180,7 @@ def case(**overrides) -> Case:
     return Case(**values)
 
 
-class PassRuleTests(unittest.TestCase):
+class PassRuleTests(TempTreeTestCase):
     def test_should_fire_passes_only_on_the_named_workflow(self) -> None:
         subject = case()
         self.assertTrue(subject.satisfied_by(["diagnose-systematically"]))
@@ -221,7 +217,7 @@ class PassRuleTests(unittest.TestCase):
         self.assertFalse(subject.satisfied_by([]))
 
 
-class SelectionTests(unittest.TestCase):
+class SelectionTests(TempTreeTestCase):
     def setUp(self) -> None:
         self.cases = [
             case(case_id="a", quick=True),
@@ -240,7 +236,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual([item.case_id for item in chosen], ["a", "quiet"])
 
 
-class ShippedCorpusTests(unittest.TestCase):
+class ShippedCorpusTests(TempTreeTestCase):
     """The corpus that actually ships, checked against the tree it measures."""
 
     def setUp(self) -> None:
