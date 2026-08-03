@@ -37,6 +37,12 @@ detail string; do not summarise several failures into one sentence.
 A `skipped` optional provider is a supported configuration, not a defect. Say
 which capability is unavailable as a result rather than implying breakage.
 
+The report opens with the root and the version it checked, and `host.claude_code`
+and `host.codex` say which version each host actually activated. A `skipped`
+there means that host has no installation record, which is what a staged tree
+and CI look like. A `fail` means the checks below it describe a tree the host
+does not load, so report it before anything else they establish.
+
 ## 2. Add what the script cannot see
 
 The script runs beside the host, not inside it, so two facts are only
@@ -50,6 +56,10 @@ observable from this conversation. State both explicitly:
 
 Report a discrepancy between the installed tree and either observation as a
 finding. Do not infer that a skill is routable because its file exists.
+
+Compare the listing against the activated version rather than against the tree
+on disk. A listing short by exactly the workflows added after that version is
+the drift `host.claude_code` reports, seen from the other side.
 
 ## 3. Run the packaging checks only when relevant
 
