@@ -9,7 +9,7 @@ No source code, runtime, model, database, marketplace, plugin collection, genera
 - Graphify (MIT) and memU (Apache-2.0) are optional provider boundaries.
 - Context Mode (Elastic-2.0), Nacos (Apache-2.0), Ruflo (MIT), and Obsidian Skills (MIT) are detection or future-adapter boundaries.
 - LobeHub (LobeHub Community License) supplied clean-room architectural ideas only.
-- Agent Skills, CowAgent, Khazix Skills, Claude Plugins Official, vibe-coding-cn, AI-Research-SKILLs, MemOS, Superpowers, and Claude Code Skills informed independently implemented contracts.
+- Agent Skills, CowAgent, Khazix Skills, Claude Plugins Official, vibe-coding-cn, AI-Research-SKILLs, MemOS, Superpowers, Claude Code Skills, skill-eval-harness, and skill-eval-action informed independently implemented contracts.
 - VoltAgent and Composio awesome lists are discovery metadata only. Composio's audited revision had no detected repository license and is rejected for content adoption.
 - Evolver (GPL-3.0-or-later) is a benchmark reference only; no code or integration is included.
 
