@@ -15,6 +15,15 @@ name: Activation eval
 #
 # A fork PR has no secret and skips `measure` rather than failing. Failing
 # there would report a missing entitlement as a regression in the plugin.
+#
+# Three things bound what a run may spend, because "gated on a secret" bounds
+# who may start one and nothing about how much it costs once started. The
+# credential belongs to the `activation-eval` environment rather than to the
+# repository, so a paid run waits for a reviewer instead of beginning; the
+# plan is priced against a declared ceiling before the host is installed, so
+# a mistyped `reps` is refused rather than billed; and the per-invocation
+# budget is passed explicitly, so the number a session may spend moves in a
+# diff instead of being inherited from a script default.
 
 on:
   pull_request:
@@ -47,6 +56,15 @@ on:
 permissions:
   contents: read
 
+# One paid measurement per ref at a time. Every push to a pull request that
+# touches a skill starts another full quick suite, and without this the runs
+# stack: a branch pushed five times in a morning pays five times over for a
+# number that only the last push is about. Superseding is safe here because
+# the measurement is of the ref, not of any single commit on it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # A single run of a non-deterministic decision is a coin flip. Both numbers
   # are inputs rather than constants so a regression threshold can be moved
@@ -71,6 +89,19 @@ env:
   # on the fourth false positive out of 24, which is roughly a 4% chance of
   # failing a healthy configuration and the price of catching a real one.
   DEFAULT_MAX_FALSE_POSITIVE: "0.15"
+  # Per invocation, handed to the host as --max-budget-usd. The runner already
+  # defaults to this, and that is the problem: a ceiling nobody states is a
+  # ceiling nobody notices moving. Stated here, the spend a session is allowed
+  # is reviewable in the same diff as the run that spends it.
+  MAX_COST_USD: "0.75"
+  # Ceilings on the plan rather than on the bill, because the plan is knowable
+  # for free and the bill is not. Both are worst cases: invocations times
+  # MAX_COST_USD. The pull-request number is the tighter one because that path
+  # runs unattended and its size is set by the corpus rather than by a person
+  # -- 87 invocations today, so the headroom absorbs a few new quick cases and
+  # then asks for a deliberate edit instead of quietly costing more.
+  MAX_INVOCATIONS_PR: "120"
+  MAX_INVOCATIONS_DISPATCH: "1000"
 
 jobs:
   corpus:
@@ -95,6 +126,15 @@ jobs:
     name: Activation (${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'quick' }})
     needs: corpus
     runs-on: ubuntu-latest
+    # The only job that can spend money, so the credential is scoped to it
+    # rather than to the repository. An ANTHROPIC_API_KEY held as a repository
+    # secret is readable by every workflow that later gains a step, and it
+    # starts billing the moment a run reaches this job. Held as an environment
+    # secret on `activation-eval` with required reviewers, neither is true: no
+    # other workflow can resolve it, and this job waits for a person before it
+    # installs the host. Configure the environment before adding the secret --
+    # an environment without reviewers is only a label.
+    environment: activation-eval
     timeout-minutes: 180
     steps:
       - name: Report whether a provider credential is available
@@ -115,6 +155,55 @@ jobs:
         if: steps.credential.outputs.available == 'true'
         with:
           python-version: "3.13"
+      # Before the host is installed, not after: the plan is knowable without
+      # spawning anything, so a run that would exceed the ceiling should cost
+      # nothing to refuse. The count comes from the runner's own --validate-only
+      # rather than being re-derived here, because a second implementation of
+      # "how many invocations is this" would eventually disagree with the one
+      # that actually spends the money -- and it is the disagreeing case that
+      # would go unnoticed.
+      - name: Price the plan and refuse to exceed the declared ceiling
+        if: steps.credential.outputs.available == 'true'
+        env:
+          SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'quick' }}
+          ARMS: ${{ github.event_name == 'workflow_dispatch' && inputs.arms || 'full' }}
+          REPS: ${{ github.event_name == 'workflow_dispatch' && inputs.reps || '3' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `reps` is a free-text box on the dispatch form: 30 is one keystroke
+          # from 3 and multiplies every arm by every case by ten. argparse would
+          # take it and the provider would bill it, so it is checked as a small
+          # positive integer here rather than trusted.
+          if ! [[ "$REPS" =~ ^[1-9][0-9]?$ ]]; then
+            echo "reps must be an integer between 1 and 99; got '$REPS'" >&2
+            exit 1
+          fi
+          arm_flags=""
+          for arm in $ARMS; do arm_flags="$arm_flags --arm $arm"; done
+          plan=$(python evals/run_activation_eval.py \
+            --validate-only $arm_flags --reps "$REPS" --"$SUITE")
+          echo "$plan"
+          invocations=$(printf '%s\n' "$plan" |
+            sed -n 's/.*-> \([0-9][0-9]*\) host invocations.*/\1/p')
+          if [ -z "$invocations" ]; then
+            echo "could not read an invocation count from the plan" >&2
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ceiling="$MAX_INVOCATIONS_DISPATCH"
+          else
+            ceiling="$MAX_INVOCATIONS_PR"
+          fi
+          worst=$(python -c "import sys;print(f'{int(sys.argv[1])*float(sys.argv[2]):.2f}')" \
+            "$invocations" "$MAX_COST_USD")
+          echo "::notice::$invocations invocations, at most \$$worst at \$$MAX_COST_USD each (ceiling $ceiling)."
+          if [ "$invocations" -gt "$ceiling" ]; then
+            echo "plan of $invocations invocations exceeds the ceiling of $ceiling" >&2
+            echo "raise MAX_INVOCATIONS_* deliberately, or narrow the suite, arms or reps" >&2
+            exit 1
+          fi
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         if: steps.credential.outputs.available == 'true'
         with:
@@ -143,6 +232,7 @@ jobs:
             --python-executable "$(command -v python)" \
             --json-output activation.json \
             --markdown-output activation.md \
+            --max-cost-usd "$MAX_COST_USD" \
             --floor "${FLOOR:-$DEFAULT_FLOOR}" \
             --max-false-positive "$DEFAULT_MAX_FALSE_POSITIVE"
 

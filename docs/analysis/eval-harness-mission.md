@@ -169,10 +169,15 @@ difference", because an underpowered run is not a finding.
    `--max-cost-usd 0.75` ceiling. The budget is cutting off exactly the sessions that would have to
    reach a second workflow, and the harness files that under the same reason as a crash. Give
    budget termination its own reason before believing any number from this cohort.
-3. **Nothing has been measured on Codex.** The harness spawns `claude` and detects a `Skill` tool
+3. **One misroute reproduces under every configuration tried.**
+   `refactor-cleanly-coupon-rounding-copies` drew `legacy-safe-changes` under both arms of the
+   baseline. That is a property of the listings rather than noise, and it is the pair 1.7.4 already
+   had to separate once — `benchmarks/skill_routing_cases.json` has the `outranks` pin mechanism for
+   exactly this, and naming the wrong workflow costs more than naming none.
+4. **Nothing has been measured on Codex.** The harness spawns `claude` and detects a `Skill` tool
    use, which Codex has no equivalent of. Every rate in the baseline is a Claude Code rate.
-4. **The harness measures activation, not outcome.** A configuration that fires the right workflow
+5. **The harness measures activation, not outcome.** A configuration that fires the right workflow
    and produces worse work would score perfectly. That is a different mission.
-5. **Duplicate hook execution is unresolved.** Claude Code loads both hook manifests. The arm
+6. **Duplicate hook execution is unresolved.** Claude Code loads both hook manifests. The arm
    verifier records a doubled injection as incomplete, so it cannot silently corrupt a
    measurement — but it does mean some runs will be discarded rather than scored.
