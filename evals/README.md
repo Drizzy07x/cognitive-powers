@@ -82,9 +82,13 @@ output, and that text contains the literal string `cognitive-powers:<name>`. A h
 for it would score its own instrumentation as the result.
 
 Invocation is still a proxy for the workflow shaping the answer rather than proof of it.
-`workedAfterFiring` records whether any tool ran after the first invocation, which separates a
+`workedAfterFiring` records whether a tool ran *after* the first invocation, which separates a
 workflow that then did something from one that was named and abandoned. It is reported as evidence
 and no rate is computed from it.
+
+Read it with one caveat. A should-fire run is stopped on the line carrying its Skill invocation, so
+nothing can follow it and the field is always false there. It is informative only on runs allowed to
+finish — misses and negatives.
 
 ## Reading a result
 

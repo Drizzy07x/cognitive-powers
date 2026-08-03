@@ -87,6 +87,7 @@ def execute(
     progress: Callable[[str], None] | None = None,
     runner: Callable[..., Run] = run_case,
     workers: int = DEFAULT_WORKERS,
+    suite: str = "unlabelled",
 ) -> dict[str, Any]:
     """Run the whole matrix and return the scored payload."""
     if not cases:
@@ -211,6 +212,10 @@ def execute(
         "schemaVersion": 1,
         "kind": "cognitive-powers-activation-eval",
         "run": {
+            # The report has always had a line for this and nothing ever wrote
+            # it, so every Markdown run printed "Suite: None" -- including the
+            # text the CI job pastes into its summary.
+            "suite": suite,
             "model": model,
             "repetitions": repetitions,
             "cases": len(cases),

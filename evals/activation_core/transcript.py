@@ -61,6 +61,7 @@ class Reading(NamedTuple):
     fired: tuple[str, ...]
     first_fired: str | None
     other_tools: tuple[str, ...]
+    tools_after_firing: tuple[str, ...]
     injections: Injections
     turns: int
     result_is_error: bool | None
@@ -69,15 +70,27 @@ class Reading(NamedTuple):
 
     @property
     def worked_after_firing(self) -> bool:
-        """Whether any tool ran after the first workflow was invoked.
+        """Whether a tool ran *after* the first workflow was invoked.
 
         A proxy, and named as one. Invoking a workflow is not the same as the
         workflow shaping the answer, and this is the cheapest observable that
         separates a workflow which then did something from one that was named
         and abandoned. It is evidence, not proof, and no rate is computed from
         it.
+
+        Position is the whole point, and the first version ignored it: it asked
+        only whether the run fired and whether any other tool appeared anywhere,
+        so a model that read three files and *then* named a workflow scored as
+        having worked afterwards. That is the exact case the field exists to
+        catch, reported as its opposite.
+
+        One consequence has to be read with it. A should-fire run is stopped on
+        the line carrying its Skill invocation, so nothing can follow and this
+        is always false there. The field is informative only on runs that were
+        allowed to finish -- misses, negatives, and anything run with the early
+        stop disabled.
         """
-        return self.first_fired is not None and bool(self.other_tools)
+        return bool(self.tools_after_firing)
 
 
 def _content(event: dict[str, Any]) -> list[dict[str, Any]]:
@@ -140,6 +153,7 @@ def read(stream: str, installed: Iterable[str]) -> Reading:
 
     fired: list[str] = []
     other_tools: list[str] = []
+    tools_after_firing: list[str] = []
     index = session_instruction = prompt_instruction = failed_hooks = 0
     turns = 0
     terminal: dict[str, Any] | None = None
@@ -158,6 +172,8 @@ def read(stream: str, installed: Iterable[str]) -> Reading:
                 tool = block.get("name")
                 if isinstance(tool, str):
                     other_tools.append(tool)
+                    if fired:
+                        tools_after_firing.append(tool)
         elif event.get("subtype") == "hook_response":
             text = _hook_text(event)
             if event.get("outcome") == "error" or event.get("exit_code"):
@@ -194,6 +210,7 @@ def read(stream: str, installed: Iterable[str]) -> Reading:
         fired=tuple(unique),
         first_fired=unique[0] if unique else None,
         other_tools=tuple(other_tools),
+        tools_after_firing=tuple(tools_after_firing),
         injections=injections,
         turns=turns,
         result_is_error=(

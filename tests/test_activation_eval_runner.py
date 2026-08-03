@@ -211,6 +211,39 @@ class DetectionTests(TempTreeTestCase):
         )
         self.assertTrue(worked.worked_after_firing)
 
+    def test_work_before_firing_does_not_count_as_work_after_it(self) -> None:
+        # The case the field exists to catch, and the one the first version
+        # reported as its opposite: a model that explored and then named a
+        # workflow it did nothing with scored as having worked afterwards,
+        # because position was never compared.
+        explored_then_named = transcript.read(
+            stream(
+                tool_use("Read", {}),
+                tool_use("Glob", {}),
+                skill_call("map-project"),
+                result(),
+            ),
+            INSTALLED,
+        )
+        self.assertEqual(explored_then_named.fired, ("map-project",))
+        self.assertEqual(len(explored_then_named.other_tools), 2)
+        self.assertEqual(explored_then_named.tools_after_firing, ())
+        self.assertFalse(explored_then_named.worked_after_firing)
+
+    def test_only_tools_after_the_first_invocation_are_kept(self) -> None:
+        reading = transcript.read(
+            stream(
+                tool_use("Read", {}),
+                skill_call("map-project"),
+                tool_use("Grep", {}),
+                result(),
+            ),
+            INSTALLED,
+        )
+        self.assertEqual(reading.other_tools, ("Read", "Grep"))
+        self.assertEqual(reading.tools_after_firing, ("Grep",))
+        self.assertTrue(reading.worked_after_firing)
+
 
 class ArmVerificationTests(TempTreeTestCase):
     def read(self, *lines: str) -> transcript.Reading:
@@ -886,6 +919,9 @@ class OrchestrationTests(TempTreeTestCase):
             runner=fake,
         )
         self.assertEqual(payload["run"]["invocations"], 4)
+        # The report renders this, and nothing used to write it.
+        self.assertEqual(payload["run"]["suite"], "unlabelled")
+        self.assertNotIn("Suite: None", as_markdown(payload))
         by_arm = {entry["arm"]: entry for entry in payload["arms"]}
         self.assertEqual(by_arm["none"]["shouldFire"]["passRate"], 0.0)
         self.assertEqual(by_arm["full"]["shouldFire"]["passRate"], 1.0)

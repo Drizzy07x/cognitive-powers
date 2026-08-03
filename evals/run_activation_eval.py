@@ -67,6 +67,19 @@ def _installed_workflows() -> frozenset[str]:
     return frozenset(load_skill_triggers(PLUGIN_ROOT))
 
 
+def _suite_label(args: argparse.Namespace, skills: list[str] | None) -> str:
+    """Name the selection, so a report says which corpus produced its rates.
+
+    A narrowed run and a whole-corpus run print the same tables, and without
+    this the two are indistinguishable once the file is opened a week later.
+    """
+    if skills:
+        return f"skills:{','.join(sorted(name.strip() for name in skills))}"
+    if args.quick and not args.full:
+        return "quick"
+    return "full"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -190,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             artifacts=artifacts,
             progress=lambda label: print(label, file=sys.stderr, flush=True),
             workers=args.workers,
+            suite=_suite_label(args, skills),
         )
     except runner.RunnerError as error:
         print(f"run failed: {error}", file=sys.stderr)

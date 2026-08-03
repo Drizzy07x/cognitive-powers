@@ -29,7 +29,7 @@ cases:
     fixture: pylib
     quick: true
     why: "Adding a case to a file that already has tests is routine work; there is no untested code needing a safety net first."
-  - id: nearmiss-es-puerto-dev-server
+  - id: nearmiss-es-version-package-json
     prompt: "en dos palabras, que version pone el package.json de esto"
     lang: es
     expect: []
@@ -47,7 +47,7 @@ cases:
     fixture: bare
     quick: false
     why: "Asking the interpreter version is one command, not a claim that a plugin runs on this host."
-  - id: nearmiss-es-quitar-prints
+  - id: nearmiss-es-docstring-una-linea
     prompt: "esto lo voy a tener abierto toda la tarde pero es una tonteria, ponle un docstring de una linea a value() en inventory.py y ya"
     lang: es
     expect: []
