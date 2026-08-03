@@ -33,7 +33,7 @@ item exists.
 | 2.6 | `.github/workflows/activation-eval.yml` | done, never run against a credential |
 | 2.7 | **Index decision: keep the 743-token catalogue, or cut to the instruction** | **not measured** |
 | 3 | Full matrix per arm, `activation-baseline-v1.md` | **not run** |
-| 4 | This document | done |
+| 4 | This document, and the 1.9.0 CHANGELOG entry covering the harness | done |
 
 Everything in the `done` rows is committed on `main` and covered by the offline gate. Nothing in the
 two bold rows has a number behind it.
@@ -116,10 +116,6 @@ six defects in the harness were found. It is not a baseline and was never scored
 paid `measure` job skips with a notice when `ANTHROPIC_API_KEY` is absent, which is every run so
 far. Its floor (0.70) and false-positive ceiling (0.15) are declared defaults, not calibrated ones —
 the calibration is the baseline that has not been taken.
-
-**1.9.0 owes a CHANGELOG entry.** `main` declares 1.9.0 and now carries this harness, but the 1.9.0
-section describes only the activation mission. The entry should be written before that version is
-published.
 
 ## How to resume
 
