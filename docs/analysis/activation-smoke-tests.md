@@ -79,3 +79,40 @@ injected on a resume, and a prompt tested there is testing the router alone.
 Deterministic baseline at the time of writing, over prompts 1-10 and the five controls: ten of ten
 named the right workflow and none of the controls drew a suggestion. Before the description rewrite
 the same prompts scored three of ten with two misroutes.
+
+## Confirmed against installed trees, 2026-08-02
+
+The paragraph above was written from the same working tree it describes, which is the weakest place
+to measure from: it states what the descriptions were tuned to do. The numbers below were taken by
+driving `hooks/skill_router.py` the way `hooks.claude.json` drives it — as a subprocess, one event
+per prompt, the prompt arriving as JSON on stdin and `CLAUDE_PLUGIN_ROOT` naming an installed tree
+that `git archive` produced from the commit, so nothing uncommitted and no `__pycache__` could
+reach the measurement.
+
+1.8.2 was run beside 1.9.0 rather than after it. A harness that reports a good result without ever
+having reproduced the bad one is not evidence, and the two misroutes below are the only known-bad
+result this claim has.
+
+| Prompt (verbatim) | Installed 1.8.2 | Installed 1.9.0 | Should be |
+|---|---|---|---|
+| `clean up this module, it is hard to read` | `map-project` | `refactor-cleanly` | `refactor-cleanly` |
+| `check that what you just built really works` | `execute-durably` | `verify-delivery` | `verify-delivery` |
+
+Both reproduce the 1.8.2 misroutes exactly as reported, and both name the owning workflow at 1.9.0.
+Over prompts 1-10 the same run scores 1.8.2 at three correct, five silent and two misrouted — the
+three-of-ten this document already claimed — and 1.9.0 at **ten of ten with no misroutes**. All five
+controls drew no named suggestion on either version.
+
+Two things this does not establish, both worth stating because the number invites the opposite
+reading:
+
+- **The `SessionStart` catalogue earned none of it.** `skill_activation.py` never ran in this
+  measurement, and it cannot: it renders context for the agent and feeds nothing into
+  `skill_routing.decide`. `_stem` is byte-identical across the two trees. The whole movement is the
+  nine rewritten `when_to_use` lines, which added `tidy or clean something up` and `double-check
+  whether something just finished actually works` — the vocabulary of the two prompts above. What
+  the index buys is a separate question this instrument cannot ask.
+- **The corpus is not held out.** These prompts were written before the rewrite but the rewrite was
+  written with them in view, so ten of ten is a fit, not a generalization. That is the same
+  construction `CLAUDE.md` already names for `benchmarks/skill_routing_cases.json`, reappearing one
+  corpus later, and it is what the separately tracked 103-case activation baseline exists to answer.
