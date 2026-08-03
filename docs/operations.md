@@ -184,7 +184,7 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.7.2
+& ./install.ps1 -ReleaseRef v1.8.2
 ```
 
 ```bash

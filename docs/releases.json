@@ -1,6 +1,8 @@
 {
-  "comment": "Published release tags, newest first. The documented rollback target and the bump tooling derive from this file; a release enters it when its tag is pushed and validated. CHANGELOG headings are not a substitute: 1.6.0 and 1.7.0 were described there but never tagged.",
+  "comment": "Published release tags, newest first. The documented rollback target and the bump tooling derive from this file; a release enters it when its tag is pushed and validated. CHANGELOG headings are not a substitute: 1.6.0 and 1.7.0 were described there but never tagged. Neither is a tag: v1.8.0 is pushed to origin and has no GitHub release, so it never went through publish-release.yml and nothing validated it. A tag that exists is evidence of a tag, not of a release.",
   "published": [
+    "v1.8.1",
+    "v1.7.3",
     "v1.7.2",
     "v1.7.1",
     "v1.5.2",
