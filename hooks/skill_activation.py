@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put the workflow catalogue in front of the agent at session start.
+"""Put the standing instruction in front of the agent at session start.
 
 Selection happens from descriptions the host lists, and nothing obliges the
 agent to consult them. Measured against prompts written independently of those
@@ -7,6 +7,22 @@ descriptions, the deterministic router named the right workflow for three
 requests in ten and stayed silent for five, so a workflow that fits can lose
 simply because nothing prompted the check. This hook removes the silence at the
 one moment every session passes through.
+
+What it injects is the instruction alone. Through 1.9.0 it also rendered the
+whole catalogue underneath -- nineteen entries, about 743 tokens -- on the
+reasoning that nothing had shown the catalogue should not ship, which is not
+evidence that it should. ``docs/analysis/activation-baseline-v1.md`` is the
+measurement that closes that: over 61 paired trials the two renderings are
+**equivalent** within the declared 0.10 margin, and identical on the 59
+single-workflow cases neither run truncated. So the catalogue stopped shipping
+and the instruction, which the host's own listing already backs, is what a
+session carries.
+
+``index_message`` stays, off by default and reachable through
+``COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX``. Deleting it would delete the only
+thing that can falsify the paragraph above: the eval harness's ``full`` arm is
+this function, and a decision whose disconfirming arm no longer exists cannot
+be re-run against the next model.
 
 Advisory in full, like ``semantic_index.py`` and ``skill_router.py``, and
 unlike the Stop gate in ``selective_hooks.py``: it never blocks a session and
@@ -60,8 +76,8 @@ HEADER = (
 )
 # The same standing order with no catalogue under it. The host already lists
 # every workflow's name and trigger conditions, so this wording claims only the
-# part the index does not duplicate, and it has to read correctly on its own:
-# it is what ships if the eval harness finds the index earns nothing.
+# part the index does not duplicate, and it has to read correctly on its own,
+# because the harness found the index earned nothing and this is what ships.
 INSTRUCTION_ONLY_HEADER = (
     "Cognitive Powers workflows are installed here, and this session already "
     "lists each one's name and trigger conditions. Before starting any "
@@ -192,12 +208,12 @@ def build(payload: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError):
         return {"status": "skipped", "reason": "skill catalogue is unreadable"}
 
-    # Two renderings, one event. The eval harness needs an arm that keeps the
-    # standing instruction and drops the catalogue, because that arm is exactly
-    # the state this hook would ship in if the catalogue turns out to buy
-    # nothing over what the host already loads. Selecting it here rather than
-    # in the harness means the arm under measurement is the shipped code path.
-    index = not os.environ.get("COGNITIVE_POWERS_DISABLE_ACTIVATION_INDEX")
+    # Two renderings, one event, and the default is the cheaper one because the
+    # measurement said the two are equivalent. Selecting between them here
+    # rather than in the harness is what makes the arm under measurement the
+    # shipped code path -- which is also why the losing rendering stays: an arm
+    # that no longer exists cannot re-decide this against the next model.
+    index = bool(os.environ.get("COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX"))
     message = (
         index_message(triggers, claude_code)
         if index

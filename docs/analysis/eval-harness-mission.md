@@ -31,12 +31,17 @@ item exists.
 | 2.4 | Scoring, JSON and Markdown reports, paired inference | done |
 | 2.5 | `evals/run.ps1` wrapper | done |
 | 2.6 | `.github/workflows/activation-eval.yml` | done, never run against a credential |
-| 2.7 | **Index decision: keep the 743-token catalogue, or cut to the instruction** | **not measured** |
-| 3 | Full matrix per arm, `activation-baseline-v1.md` | **not run** |
+| 2.7 | **Index decision: keep the 743-token catalogue, or cut to the instruction** | done — cut, on the number |
+| 3 | Full matrix per arm, [activation-baseline-v1.md](activation-baseline-v1.md) | done |
 | 4 | This document, and the 1.9.0 CHANGELOG entry covering the harness | done |
 
-Everything in the `done` rows is committed on `main` and covered by the offline gate. Nothing in the
-two bold rows has a number behind it.
+Everything in the `done` rows is committed on `main` and covered by the offline gate.
+
+2.7 and 3 closed on 2026-08-03. Two arms over the whole corpus at one repetition found `full` and
+`instruction` **equivalent** within the declared 0.10 margin over 61 paired trials, so the catalogue
+stopped shipping. What that measurement did *not* reach is listed at the end of the baseline and is
+not small: no `none` control, one model, one repetition, nothing on Codex, and a multi-workflow
+cohort confounded by the per-invocation budget.
 
 ## What is built
 
@@ -104,18 +109,14 @@ are spent after the answer has stopped changing. Three things cut it:
 
 ## What has not happened
 
-**The measurement.** No arm has been run over the corpus. There is no
-`activation-baseline-v1.md`, no activation rate for any configuration, and no answer to 2.7. The
-index still ships because nothing has yet shown it should not — which is not the same as evidence
-that it should.
+**The CI job has still never run against a provider credential.** The free `corpus` job is
+exercised; the paid `measure` job skips with a notice when `ANTHROPIC_API_KEY` is absent, which is
+every run so far. Its thresholds are no longer guesses — the baseline moved the floor to 0.75 and
+left the ceiling at 0.15 with its arithmetic recorded — but a threshold nothing has ever been run
+against in CI has not been exercised, only calibrated.
 
-What does exist is a 30-invocation pilot, which is how the cost figures below were obtained and how
-six defects in the harness were found. It is not a baseline and was never scored as one.
-
-**The CI job has never run against a provider credential.** The free `corpus` job is exercised; the
-paid `measure` job skips with a notice when `ANTHROPIC_API_KEY` is absent, which is every run so
-far. Its floor (0.70) and false-positive ceiling (0.15) are declared defaults, not calibrated ones —
-the calibration is the baseline that has not been taken.
+The baseline was taken on a workstation rather than through that job, so the two paths have never
+been shown to agree.
 
 ## How to resume
 
@@ -125,8 +126,8 @@ Free, spawns nothing, confirms the tree is intact:
 & $python evals/run_activation_eval.py --validate-only --full
 ```
 
-Then the run that answers 2.7. Two arms, whole corpus, one repetition, stopping as soon as the
-comparison is decided:
+The run that answered 2.7, kept here because it is the shape any re-measurement takes — two arms,
+whole corpus, one repetition, stopping as soon as the comparison is decided:
 
 ```powershell
 ./evals/run.ps1 -Full -Arm instruction,full -Reps 1 -EquivalenceMargin 0.10 -JsonOutput C:\tmp\activation.json
@@ -144,6 +145,11 @@ early and is stopped on the line carrying its invocation.
 | The arms differ only by noise, margin ±0.10 | ~80 | ~24 min |
 | Full 206 invocations, no early stop | 103 | ~31 min |
 
+What it actually cost, measured: 132 invocations before the stop fired, plus 54 for the negative
+pool the stop had skipped, over about 80 minutes of wall clock. Add the negative pool to every row
+above — it now runs whether the stop fires or not, which is the point of the fix the baseline
+records, and it is the part the cheap outcomes do not get out of.
+
 **Proving equivalence is the expensive outcome, and it has a ceiling.** At ±0.15 it needs ~38
 trials; at ±0.10, ~80; at ±0.05, ~310 — more trials than the corpus has cases. With 103 cases,
 **±0.10 is the tightest margin affordable at one repetition**. A claim that the index contributes
@@ -151,20 +157,20 @@ less than five points cannot be made from this corpus without growing it or addi
 The verdict for that case is `not-proven`, and it is reported rather than rounded to "no
 difference", because an underpowered run is not a finding.
 
-Whichever way it lands, the result goes in `activation-baseline-v1.md` and the 2.7 decision follows
-it: if `instruction` and `full` are equivalent within the declared margin, the session-start index
-comes out and `hooks/skill_activation.py` keeps only `standing_message()`.
-
 ## Open items
 
-1. **2.7 is unanswered.** Above.
-2. **Invocation is a proxy for the workflow shaping the answer, not proof of it.**
+1. **Invocation is a proxy for the workflow shaping the answer, not proof of it.**
    `workedAfterFiring` separates a workflow that then did something from one named and abandoned,
    but it is reported as evidence and no rate is computed from it — and it is always false on a
    should-fire run, which is stopped at its invocation. It is informative only on misses and
    negatives.
-3. **The CI thresholds are guesses until a baseline exists.** A floor of 0.70 that nothing has been
-   measured against can fail a healthy configuration or pass a broken one.
+2. **The multi-workflow cohort is unmeasured, not measured badly.** The baseline found every one of
+   the runs it discarded as `claude exited 1` to be a multi-workflow run at or above the
+   `--max-cost-usd 0.75` ceiling. The budget is cutting off exactly the sessions that would have to
+   reach a second workflow, and the harness files that under the same reason as a crash. Give
+   budget termination its own reason before believing any number from this cohort.
+3. **Nothing has been measured on Codex.** The harness spawns `claude` and detects a `Skill` tool
+   use, which Codex has no equivalent of. Every rate in the baseline is a Claude Code rate.
 4. **The harness measures activation, not outcome.** A configuration that fires the right workflow
    and produces worse work would score perfectly. That is a different mission.
 5. **Duplicate hook execution is unresolved.** Claude Code loads both hook manifests. The arm

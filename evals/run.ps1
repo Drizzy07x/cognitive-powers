@@ -13,7 +13,8 @@
     before spending anything.
 
 .PARAMETER Arm
-    Arms to run, comma-separated: -Arm none,instruction,full. Defaults to full.
+    Arms to run, comma-separated: -Arm none,instruction,full. Defaults to
+    instruction, which is the shipped configuration.
     PowerShell binds an array parameter once, so repeating the switch is an
     error rather than a second value -- the Python flag is repeatable, this is
     not, and the wrapper translates.
@@ -35,7 +36,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('none', 'instruction', 'full')]
-    [string[]]$Arm = @('full'),
+    [string[]]$Arm = @('instruction'),
 
     [ValidateRange(1, 25)]
     [int]$Reps = 3,

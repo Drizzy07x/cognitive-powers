@@ -128,6 +128,34 @@ class SkillActivationHookTests(unittest.TestCase):
         self.assertTrue(payload["suppressOutput"])
         self.assertIn("cognitive-powers:<name>", specific["additionalContext"])
 
+    def test_the_shipped_injection_is_the_instruction_without_the_catalogue(
+        self,
+    ) -> None:
+        """What the baseline decided, held by an assertion rather than a note.
+
+        ``docs/analysis/activation-baseline-v1.md`` found the two renderings
+        equivalent over 61 paired trials at a 0.10 margin, so the 743-token
+        catalogue stopped shipping. Nothing before this checked which rendering
+        the hook actually chooses, which is how it came to ship for two releases
+        on the strength of nothing having argued against it.
+        """
+        outcome = activation.build({"source": "startup"})
+        self.assertEqual(outcome["status"], "injected")
+        self.assertFalse(outcome["index"])
+        self.assertNotIn(activation.HEADER, outcome["message"])
+        self.assertIn(activation.INSTRUCTION_ONLY_HEADER, outcome["message"])
+
+    def test_the_catalogue_is_still_reachable_for_the_arm_that_lost(self) -> None:
+        # The eval harness's `full` arm is this branch. Deleting it would delete
+        # the only configuration that can re-decide the baseline against a
+        # different model, so it stays, off by default.
+        with mock.patch.dict(
+            os.environ, {"COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX": "1"}
+        ):
+            outcome = activation.build({"source": "startup"})
+        self.assertTrue(outcome["index"])
+        self.assertIn(activation.HEADER, outcome["message"])
+
     def test_resumed_session_is_not_injected_twice(self) -> None:
         # The text is already in a resumed session's history; paying for it
         # again buys nothing and doubles the cost of the longest sessions.

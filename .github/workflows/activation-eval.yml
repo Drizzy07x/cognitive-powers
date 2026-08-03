@@ -42,7 +42,7 @@ on:
       floor:
         description: Minimum should-fire activation rate per arm
         type: string
-        default: "0.70"
+        default: "0.75"
 
 permissions:
   contents: read
@@ -51,7 +51,25 @@ env:
   # A single run of a non-deterministic decision is a coin flip. Both numbers
   # are inputs rather than constants so a regression threshold can be moved
   # deliberately, in a diff, rather than by editing a script.
-  DEFAULT_FLOOR: "0.70"
+  #
+  # Both were declared defaults until 2026-08-03, when the first baseline gave
+  # them something to be measured against -- see
+  # docs/analysis/activation-baseline-v1.md.
+  #
+  # The floor moves 0.70 -> 0.75. The shipped arm activated on 57 of 62
+  # complete should-fire runs over the whole corpus, 95% interval [0.825,
+  # 0.965]. What this job actually gates is the quick suite, and that cohort
+  # was 15 of 15 here, interval [0.796, 1.000]. 0.75 clears the lower bound of
+  # both; 0.80 would sit above the quick cohort's and fail a healthy
+  # configuration on sampling noise.
+  DEFAULT_FLOOR: "0.75"
+  # The ceiling stays 0.15, deliberately and not for want of a number. The
+  # shipped arm drew one false positive in 19 complete should-not-fire runs,
+  # 0.053, but 19 runs put the 95% upper bound at 0.246 -- so 0.15 is already
+  # tighter than the measurement can defend and there is nothing to tighten it
+  # with. On the quick suite's 8 negative cases at three repetitions it trips
+  # on the fourth false positive out of 24, which is roughly a 4% chance of
+  # failing a healthy configuration and the price of catching a real one.
   DEFAULT_MAX_FALSE_POSITIVE: "0.15"
 
 jobs:
@@ -111,7 +129,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'quick' }}
-          ARMS: ${{ github.event_name == 'workflow_dispatch' && inputs.arms || 'full' }}
+          ARMS: ${{ github.event_name == 'workflow_dispatch' && inputs.arms || 'instruction' }}
           REPS: ${{ github.event_name == 'workflow_dispatch' && inputs.reps || '3' }}
           FLOOR: ${{ github.event_name == 'workflow_dispatch' && inputs.floor || '' }}
         run: |

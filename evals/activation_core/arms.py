@@ -23,7 +23,7 @@ SESSION_INSTRUCTION_MARKER = "this session already lists each one's name"
 PROMPT_INSTRUCTION_MARKER = "check this session's workflow index"
 
 DISABLE_ACTIVATION = "COGNITIVE_POWERS_DISABLE_ACTIVATION"
-DISABLE_ACTIVATION_INDEX = "COGNITIVE_POWERS_DISABLE_ACTIVATION_INDEX"
+ENABLE_ACTIVATION_INDEX = "COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX"
 DISABLE_ROUTER = "COGNITIVE_POWERS_DISABLE_ROUTER"
 
 
@@ -48,28 +48,29 @@ ARMS: dict[str, Arm] = {
     ),
     "instruction": Arm(
         name="instruction",
-        summary="Standing instruction only. The session-start catalogue is "
-        "suppressed; the per-prompt instruction and the session-start standing "
-        "rule remain. This is the state the plugin ships in if the catalogue "
-        "buys nothing.",
-        env={DISABLE_ACTIVATION_INDEX: "1"},
+        summary="Standing instruction only, with no session-start catalogue "
+        "under it. This is what the plugin ships, because the baseline found "
+        "the catalogue equivalent to it and 743 tokens dearer.",
+        env={},
         expects_index=False,
         expects_instruction=True,
     ),
     "full": Arm(
         name="full",
-        summary="Catalogue and instruction, as shipped at 1.8.2.",
-        env={},
+        summary="Catalogue and instruction, as shipped through 1.9.0. Kept as "
+        "an arm after it stopped being the default, because the decision that "
+        "retired it is only re-runnable while the arm that lost still exists.",
+        env={ENABLE_ACTIVATION_INDEX: "1"},
         expects_index=True,
         expects_instruction=True,
     ),
 }
 
-DEFAULT_ARM = "full"
+DEFAULT_ARM = "instruction"
 
 # Every toggle any arm can set. An arm that does not set one must clear it, or
 # the operator's own exported value silently becomes part of the measurement.
-ALL_TOGGLES = (DISABLE_ACTIVATION, DISABLE_ACTIVATION_INDEX, DISABLE_ROUTER)
+ALL_TOGGLES = (DISABLE_ACTIVATION, ENABLE_ACTIVATION_INDEX, DISABLE_ROUTER)
 
 
 def arm(name: str) -> Arm:

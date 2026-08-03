@@ -944,6 +944,28 @@ class OrchestrationTests(TempTreeTestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("no complete should-fire run", failures[0])
 
+    def test_the_gate_fails_a_ceiling_nothing_was_measured_against(self) -> None:
+        """A missing false-positive rate used to pass, which is the whole hole.
+
+        The arm has a healthy activation rate and twenty planned should-not-fire
+        cases none of which produced a rate. Read as a pass, that is a run that
+        never measured over-triggering reported exactly like one that measured
+        it and found none.
+        """
+        payload = {
+            "run": {"shouldNotFireCases": 20},
+            "arms": [
+                {
+                    "arm": "full",
+                    "shouldFire": {"passRate": 0.95},
+                    "falsePositiveRate": None,
+                }
+            ],
+        }
+        failures = runner.gate(payload, floor=0.7, max_false_positive=0.15)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("no false-positive rate", failures[0])
+
     def test_the_gate_fails_a_floor_and_a_false_positive_ceiling(self) -> None:
         payload = {
             "arms": [
@@ -1105,6 +1127,52 @@ class OrchestrationTests(TempTreeTestCase):
         self.assertIsNotNone(payload["run"]["stoppedAt"])
         verdicts = [row["verdict"] for row in payload["comparisons"]]
         self.assertEqual(verdicts, ["superior"])
+
+    def test_the_stop_never_skips_the_pool_the_ceiling_is_read_from(self) -> None:
+        """The stop decides which arm fires more, and nothing else.
+
+        Measured for real on 2026-08-03: the comparison settled after 132 of
+        206 invocations and every one of the twenty should-not-fire cases sat
+        after the stop, so both arms reported an activation rate with
+        ``falsePositiveRate: null`` beside it and `gate` passed them. An
+        activation rate with no false-positive rate is the one pairing this
+        corpus exists to keep together.
+        """
+        cases = [make_case(case_id=f"c{index:03d}") for index in range(60)]
+        cases += [
+            make_case(case_id=f"n{index:03d}", expect=(), quick=True)
+            for index in range(4)
+        ]
+        spawned = []
+
+        def fake(case, arm, repetition, **kwargs):
+            spawned.append((case.case_id, arm.name))
+            return self._arm_run(case, arm, repetition, passes=arm.name == "full")
+
+        payload = runner.execute(
+            cases=cases,
+            arms=[ARMS["instruction"], ARMS["full"]],
+            repetitions=1,
+            plugin_root=PLUGIN_ROOT,
+            installed=INSTALLED,
+            python_executable=sys.executable,
+            model="sonnet",
+            max_cost_usd=0.1,
+            timeout_seconds=10.0,
+            claude_executable="unused",
+            artifacts=None,
+            workspace_root=self.temp_dir("cp-neg-"),
+            runner=fake,
+            workers=1,
+            stop_when_decided=True,
+        )
+        self.assertIsNotNone(payload["run"]["stoppedAt"])
+        self.assertLess(len(spawned), 128)
+        negatives = {name for name, _ in spawned if name.startswith("n")}
+        self.assertEqual(len(negatives), 4, "the stop skipped should-not-fire cases")
+        for scored in payload["arms"]:
+            self.assertEqual(scored["shouldNotFire"]["complete"], 4)
+            self.assertIsNotNone(scored["falsePositiveRate"])
 
     def test_an_undecided_comparison_is_paid_in_full(self) -> None:
         """One undecided pair keeps the whole run going.

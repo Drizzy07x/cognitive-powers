@@ -64,8 +64,13 @@ An arm is a configuration of the context this plugin's own hooks inject.
 | Arm | Session-start catalogue | Standing instruction | Toggles |
 |---|---|---|---|
 | `none` | no | no | `COGNITIVE_POWERS_DISABLE_ACTIVATION`, `COGNITIVE_POWERS_DISABLE_ROUTER` |
-| `instruction` | no | yes | `COGNITIVE_POWERS_DISABLE_ACTIVATION_INDEX` |
-| `full` | yes | yes | none |
+| `instruction` | no | yes | none — this is what ships |
+| `full` | yes | yes | `COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX` |
+
+`instruction` became the default arm on 2026-08-03, when
+[activation-baseline-v1.md](../docs/analysis/activation-baseline-v1.md) found the two equivalent
+within a 0.10 margin over 61 paired trials and the catalogue 743 tokens dearer. `full` is kept
+because a decision is only re-runnable while the arm that lost still exists.
 
 **Every run is checked against the arm it asked for.** These hooks degrade silently by contract, so
 an arm that never took effect is otherwise indistinguishable from one that took effect and changed
@@ -117,6 +122,13 @@ attributes an hour of provider throttling to whichever arm was running.
 going, and the stop can only fire on a verdict, never on a rate that looks good
 so far. `--no-stop-when-decided` turns it off, which is what you want when the
 goal is per-skill rates over the whole corpus rather than a winner.
+
+The stop shortens the should-fire matrix and nothing else. The should-not-fire
+pool runs whether it fired or not, because the question the stop answers is
+which arm activates more often and that says nothing about over-triggering. It
+did not always work that way: the first real run settled after 132 of 206
+invocations with all twenty negative cases still ahead of it, and reported two
+activation rates with `falsePositiveRate: null` beside them.
 
 **Prefer more cases over more repetitions.** Repetitions of one case are
 correlated; distinct cases are independent pairs. For the comparison, the whole

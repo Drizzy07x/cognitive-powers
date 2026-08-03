@@ -61,6 +61,10 @@ def _decided(
     spent after the answer stopped changing. The stop is conservative -- one
     undecided pair keeps the whole run going -- and it can only ever fire on a
     verdict, never on a rate looking good so far.
+
+    It answers one question: which arm activates more often. It says nothing
+    about over-triggering, so the caller runs it over the should-fire matrix
+    alone and pays for the negative pool whatever this returns.
     """
     if len(arms) < 2:
         return False
@@ -232,6 +236,20 @@ def execute(
                     f"#{repetition} -> {'fired ' + ','.join(observation.fired) if observation.fired else 'silent'}"
                 )
 
+    # The stop rule and the negative pool answer different questions, so the
+    # matrix is split by polarity before either runs. Left as one list, the
+    # stop fired on a decided should-fire comparison and skipped every
+    # should-not-fire trial after it -- 40 planned invocations in the run that
+    # exposed this -- and both arms then reported an activation rate with
+    # `falsePositiveRate: null` beside it. That is the one pairing this corpus
+    # exists to keep together, and `cases.select` was already careful never to
+    # break it, so a stop that broke it anyway read as a run that measured
+    # over-triggering and found none.
+    fire_work = [index for index, (_, case, _) in enumerate(work) if case.should_fire]
+    negative_work = [
+        index for index, (_, case, _) in enumerate(work) if not case.should_fire
+    ]
+
     stopped_at: int | None = None
     try:
         # Results are placed by index, never appended, so the report is
@@ -243,20 +261,24 @@ def execute(
         # whole trials and the comparison after it is over complete pairs.
         block = max(workers, len(arms)) * BLOCK_TRIALS
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for start in range(0, len(work), block):
-                chunk = range(start, min(start + block, len(work)))
-                list(pool.map(_one, chunk))
-                if not stop_when_decided or start + block >= len(work):
+            for start in range(0, len(fire_work), block):
+                list(pool.map(_one, fire_work[start : start + block]))
+                if not stop_when_decided or start + block >= len(fire_work):
                     continue
                 done_so_far = [entry[0] for entry in results if entry is not None]
                 if _decided(done_so_far, arms, equivalence_margin):
                     stopped_at = start + block
                     if progress is not None:
                         progress(
-                            f"stopping at {stopped_at} of {len(work)}: every arm "
+                            f"stopping the comparison at {stopped_at} of "
+                            f"{len(fire_work)} should-fire invocations: every arm "
                             f"pair has a verdict, and more runs cannot change it"
                         )
                     break
+            # Unconditional, and after the stop rather than before it, because
+            # the cheap outcomes should stay cheap on the side the stop governs
+            # while the rate that has to accompany them is still paid for.
+            list(pool.map(_one, negative_work))
     finally:
         if owned:
             # Workspaces hold nothing worth keeping and everything worth not
@@ -321,7 +343,11 @@ def execute(
                 1 for entry in results if entry and entry[1].attempts > 1
             ),
             "stopWhenDecided": stop_when_decided,
+            # Counted in should-fire invocations, which is the only cohort the
+            # stop can shorten. The negative pool is absent from it because it
+            # runs whether the stop fired or not.
             "stoppedAt": stopped_at,
+            "shouldFireInvocations": len(fire_work),
             "plannedInvocations": len(work),
             "rateLimitedRuns": sum(
                 1 for entry in results if entry and entry[1].rate_limited
@@ -357,7 +383,14 @@ def gate(
     An arm that produced no complete should-fire run fails rather than passing
     silently. The alternative -- treating an unmeasurable arm as meeting its
     floor -- is how a broken harness reports a healthy plugin.
+
+    The same rule now covers the ceiling, which it did not: a missing
+    false-positive rate used to skip the comparison and leave the arm passing,
+    so a run that never measured over-triggering was indistinguishable from one
+    that measured it and found none. The two thresholds are one contract and a
+    threshold only half of an arm was held to is not a threshold.
     """
+    planned_negatives = payload.get("run", {}).get("shouldNotFireCases", 0)
     failures: list[str] = []
     for scored in payload.get("arms", []):
         name = scored["arm"]
@@ -372,7 +405,13 @@ def gate(
                 f"arm {name}: activation {rate:.2f} is below the floor {floor:.2f}"
             )
         false_positive = scored.get("falsePositiveRate")
-        if false_positive is not None and false_positive > max_false_positive:
+        if false_positive is None:
+            if planned_negatives:
+                failures.append(
+                    f"arm {name}: {planned_negatives} should-not-fire cases were "
+                    "planned and none completed, so no false-positive rate"
+                )
+        elif false_positive > max_false_positive:
             failures.append(
                 f"arm {name}: false positives {false_positive:.2f} exceed "
                 f"{max_false_positive:.2f}"
