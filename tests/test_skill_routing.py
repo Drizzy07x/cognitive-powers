@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -214,6 +215,110 @@ class SkillRoutingTests(unittest.TestCase):
         owners = {case["owner"] for case in data["spanish"]}
         self.assertEqual(owners, set(descriptions))
         self.assertGreaterEqual(len(data["spanish_quiet"]), 15)
+
+    def _evaluate_with(self, mutate) -> dict:
+        """Score a mutated copy of the case file, outside the repository.
+
+        The receipt rules keep generated material out of the working tree, and
+        a temporary file is also the only way to ask whether a threshold can
+        fail without editing the one the gate reads.
+        """
+        data = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+        mutate(data)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cases.json"
+            path.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n"
+            )
+            return routing.evaluate(PLUGIN_ROOT, path)
+
+    def test_natural_cases_cover_every_skill_and_pin_the_known_misroutes(self) -> None:
+        """Natural phrasing is a corpus, not a sample of the lucky workflows.
+
+        The per-skill cases were written against the descriptions, so they can
+        only show that one skill does not steal another's work; whether a
+        workflow fires at all on the way a request is typed is invisible to
+        them. Requiring one natural case per skill is what stops a twentieth
+        workflow inheriting that silence with the suite still green.
+        """
+        data = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+        descriptions = core.load_skill_descriptions(PLUGIN_ROOT)
+
+        self.assertEqual({case["owner"] for case in data["natural"]}, set(descriptions))
+        pinned = {
+            case["prompt"]: case["outranks"]
+            for case in data["natural"]
+            if case.get("outranks")
+        }
+        self.assertEqual(
+            pinned,
+            {
+                "clean up this module, it is hard to read": "map-project",
+                "check that what you just built really works": "execute-durably",
+            },
+        )
+
+    def test_the_natural_floor_can_actually_fail(self) -> None:
+        """A floor nothing can fall below is a number, not a gate.
+
+        This repository has shipped that three times -- a fake answering every
+        question alike, a rule stated in prose with no gate, a count nothing
+        checked -- so the threshold is asked to reject a rate it should reject
+        rather than trusted because the suite is green.
+        """
+        report = self._evaluate_with(
+            lambda data: data["thresholds"].update({"min_natural_rate": 1.01})
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertLess(report["metrics"]["natural_rate"], 1.01)
+
+    def test_a_missing_natural_corpus_is_louder_than_a_passing_one(self) -> None:
+        """Deleting the corpus must not read as a suite with nothing to say.
+
+        Losing every case for one workflow counts as deleting it: the rate
+        would still be computed, over the eighteen skills that kept theirs,
+        and the nineteenth would read as measured.
+        """
+
+        def drop_one_skill(data: dict) -> None:
+            data["natural"] = [
+                case for case in data["natural"] if case["owner"] != "eli5"
+            ]
+
+        for label, mutate in (
+            ("corpus removed", lambda data: data.pop("natural")),
+            ("corpus emptied", lambda data: data.__setitem__("natural", [])),
+            ("one skill uncovered", drop_one_skill),
+        ):
+            with self.subTest(mutation=label):
+                with self.assertRaises(ValueError):
+                    self._evaluate_with(mutate)
+
+    def test_a_pinned_misroute_fails_the_suite_rather_than_the_rate(self) -> None:
+        """The pins are the half of this corpus a rate cannot express.
+
+        A rate absorbs one workflow losing its own request as long as another
+        gained one, which is precisely the trade that must not be silent for a
+        prompt already measured naming the wrong workflow. Pinned against a
+        skill the owner does not outrank, the suite has to fail -- proving both
+        that the comparison runs and that it reaches the pass condition.
+        """
+
+        def pin_a_losing_case(data: dict) -> None:
+            for case in data["natural"]:
+                if case["prompt"] == "why does the login redirect loop?":
+                    case["outranks"] = "audit-capabilities"
+
+        report = self._evaluate_with(pin_a_losing_case)
+        pins = [case for case in report["cases"] if case["kind"] == "natural-negative"]
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(len(pins), 3)
+        failed = [case for case in pins if not case["passed"]]
+        self.assertEqual(
+            [case["owner"] for case in failed], ["diagnose-systematically"]
+        )
 
     def test_checked_in_routing_contract_passes_without_quality_claim(self) -> None:
         report = routing.evaluate(PLUGIN_ROOT, CASES_PATH)

@@ -1,7 +1,7 @@
 ---
 name: verify-delivery
 description: Audit an already-completed implementation, diagnosis, research delivery, release, or benchmark against real evidence, separating what the evidence supports from what was only asserted.
-when_to_use: Use when asked to review finished work, to double-check whether something just finished actually works, to confirm a completion claim really holds, to check tests and Git state, to judge release readiness, or to find unsupported claims. Never use while implementing a change; this workflow audits finished work only.
+when_to_use: Use when asked to review finished work, to double-check whether something just finished actually works, to confirm a completion claim really holds, to check tests and Git state, to judge whether a release is ready to ship, or to find unsupported claims.
 disallowed-tools: Edit, Write, NotebookEdit
 ---
 

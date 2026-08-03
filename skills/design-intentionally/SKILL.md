@@ -1,7 +1,7 @@
 ---
 name: design-intentionally
 description: Define, implement, redesign, or audit deliberate web interface direction by turning visual intent into inspectable constraints and then verifying the rendered result.
-when_to_use: Use when an interface looks generic, unfinished, or off, and the look and feel is the point: a page or screen to be redesigned, branded or visually consequential UI, screenshot-driven work, responsive visual QA, or any claim about design quality or fidelity. Run it before implementation, not as an after-the-fact review.
+when_to_use: Use when an interface looks generic, unfinished, or off, and the look and feel is the point: a page, screen, or dashboard to be redesigned, branded or visually consequential UI, screenshot-driven work, responsive visual QA, or any claim about design quality or fidelity. Run it before implementation, not as an after-the-fact review.
 ---
 
 # Design Intentionally

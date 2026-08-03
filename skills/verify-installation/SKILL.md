@@ -1,7 +1,7 @@
 ---
 name: verify-installation
 description: Establish whether this installed plugin actually runs on the current host, by executing its interpreter, hooks, evidence storage, and optional providers instead of inspecting its packaging.
-when_to_use: Use when the plugin has just been installed, enabled, updated, or relocated, when its hooks or durable receipts appear not to work, or when a host upgrade may have changed what it can rely on. Not for auditing a delivery, a code change, or a skill catalogue.
+when_to_use: Use when the plugin has just been installed, enabled, relocated, or taken an update, when its hooks or durable receipts appear not to work, or when a host upgrade may have changed what it can rely on.
 disallowed-tools: Edit, Write, NotebookEdit
 ---
 

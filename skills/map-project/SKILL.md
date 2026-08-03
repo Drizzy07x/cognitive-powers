@@ -1,6 +1,6 @@
 ---
 name: map-project
-description: Build or refresh compact hierarchical project memory, using whichever instruction filename the host reads, holding only facts that future tasks cannot cheaply infer from the tree.
+description: Build or refresh compact hierarchical project memory in whichever instruction file the host loads, CLAUDE.md or AGENTS.md, holding only facts that future tasks cannot cheaply infer from the tree.
 when_to_use: Use when walking through an unfamiliar codebase for the first time and the orientation should be written down, when the user wants reusable repository guidance, when a large tree has several genuinely distinct domains, or when existing project memory is stale. Records module boundaries, ownership, and domain names. Skip during ordinary focused work unless project memory was requested.
 ---
 

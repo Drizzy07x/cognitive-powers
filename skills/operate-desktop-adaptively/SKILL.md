@@ -1,7 +1,7 @@
 ---
 name: operate-desktop-adaptively
-description: Operate and verify native Windows applications through an already-installed QCU, using guarded desktop observation and input that produces hashed evidence.
-when_to_use: Use for WPF, Win32, installer, or cross-application desktop workflows that need auditable evidence. Requires QCU already installed; this workflow never installs it or starts live input merely because it loaded.
+description: Operate and verify native Windows applications through an already-installed QCU, using guarded desktop observation and input - clicks, keystrokes, and window state - that produces hashed evidence.
+when_to_use: Use for WPF, Win32, installer, or cross-application desktop workflows that need auditable evidence, including clicking through an app and proving which dialog or window appeared. Requires QCU already installed.
 ---
 
 # Operate Desktop Adaptively

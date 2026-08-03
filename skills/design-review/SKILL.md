@@ -1,7 +1,7 @@
 ---
 name: design-review
-description: Review code structure against named depth red flags - shallow modules, information leakage, temporal decomposition, pass-through methods, conjoined functions, comments that restate the code, vague names, and non-obvious control flow - reporting each finding with its location, its comprehension cost, and the named fix. Use when the task involves judging a module boundary, an interface that feels wider than what it hides, or a structural pass over code just written or about to be merged.
-when_to_use: Use when asked whether a module is too shallow, an interface too wide, a name too vague to pick one meaning, an abstraction is leaking its internals across files, or the same decision is encoded twice. Also run it on a new public interface before it ships. Findings only; it changes no code.
+description: Review code structure against named depth red flags - shallow modules, information leakage, temporal decomposition, pass-through methods that only forward to the layer below, conjoined functions, comments that restate the code, vague names, and non-obvious control flow - reporting each finding with its location, its comprehension cost, and the named fix. Use when the task involves judging a module boundary, an interface that feels wider than what it hides, or a structural pass over code just written or about to be merged.
+when_to_use: Use when asked whether a module is too shallow, an interface too wide, a name too vague to pick one meaning, an abstraction is leaking its internals across files, or the same decision is encoded twice. Also run it on a new public interface before it ships.
 disallowed-tools: Edit, Write, NotebookEdit
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: solve-efficiently
-description: Use for cross-file implementation, reproduced defects, bounded primary-source decisions, or authorized real-host workflows. Do not use for obvious one-file edits.
+description: Use for cross-file implementation, implementing a feature or endpoint, reproduced defects, bounded primary-source decisions, or authorized real-host workflows. Do not use for obvious one-file edits.
 ---
 
 # Solve Efficiently

@@ -9,7 +9,8 @@
     "min_suggestion_rate": 0.85,
     "min_quiet_rate": 1.0,
     "min_spanish_rate": 0.93,
-    "max_misrouted": 3
+    "max_misrouted": 1,
+    "min_natural_rate": 0.75
   },
   "quiet": [
     "fix the typo in the README",
@@ -298,6 +299,182 @@
     "¿me puedes ayudar?",
     "desactiva cognitive powers",
     "el complemento cognitive powers esta roto, quitalo"
+  ],
+  "natural": [
+    {
+      "prompt": "help me implement pagination for the users endpoint",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "implement a retry wrapper around the http client",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "add rate limiting to the api and wire it through the cli",
+      "owner": "solve-efficiently"
+    },
+    {
+      "prompt": "clean up this module, it is hard to read",
+      "owner": "refactor-cleanly",
+      "outranks": "map-project"
+    },
+    {
+      "prompt": "this file is a mess, tidy it up without changing what it does",
+      "owner": "refactor-cleanly"
+    },
+    {
+      "prompt": "shorten this giant function and give the variables real names",
+      "owner": "refactor-cleanly"
+    },
+    {
+      "prompt": "check that what you just built really works",
+      "owner": "verify-delivery",
+      "outranks": "execute-durably"
+    },
+    {
+      "prompt": "did we actually finish everything we said we would?",
+      "owner": "verify-delivery"
+    },
+    {
+      "prompt": "before i ship this, tell me which claims are not backed by evidence",
+      "owner": "verify-delivery"
+    },
+    {
+      "prompt": "why does the login redirect loop?",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "the tests pass locally but fail in ci sometimes, work out why",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "track down what is causing this intermittent crash",
+      "owner": "diagnose-systematically"
+    },
+    {
+      "prompt": "is this class hiding enough to justify how wide its interface is?",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "these two helpers just forward to the layer below, is that ok?",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "tell me if this abstraction leaks its internals",
+      "owner": "design-review"
+    },
+    {
+      "prompt": "what does the installed version of this library actually expose?",
+      "owner": "use-current-docs"
+    },
+    {
+      "prompt": "look up the current api for the sdk we depend on",
+      "owner": "use-current-docs"
+    },
+    {
+      "prompt": "the checkout button does nothing, confirm it in a real browser",
+      "owner": "verify-web-behavior"
+    },
+    {
+      "prompt": "write an end to end test for the signup flow",
+      "owner": "verify-web-behavior"
+    },
+    {
+      "prompt": "write a claude.md so future sessions know this repo",
+      "owner": "map-project"
+    },
+    {
+      "prompt": "i am new to this codebase, give me reusable notes about its layout",
+      "owner": "map-project"
+    },
+    {
+      "prompt": "this will take several sessions, keep progress somewhere it survives",
+      "owner": "execute-durably"
+    },
+    {
+      "prompt": "resume the migration from wherever it stopped",
+      "owner": "execute-durably"
+    },
+    {
+      "prompt": "i need to change this code and there are no tests anywhere near it",
+      "owner": "legacy-safe-changes"
+    },
+    {
+      "prompt": "touch this untested class without breaking whoever calls it",
+      "owner": "legacy-safe-changes"
+    },
+    {
+      "prompt": "make the dashboard look intentional instead of default bootstrap",
+      "owner": "design-intentionally"
+    },
+    {
+      "prompt": "redesign the landing page and show me screenshots",
+      "owner": "design-intentionally"
+    },
+    {
+      "prompt": "explain this paper to me like i am five",
+      "owner": "eli5"
+    },
+    {
+      "prompt": "what does this dense paragraph actually mean in plain words?",
+      "owner": "eli5"
+    },
+    {
+      "prompt": "write a reusable system prompt for our review agent",
+      "owner": "engineer-prompts"
+    },
+    {
+      "prompt": "audit this instruction set for success criteria nobody can observe",
+      "owner": "engineer-prompts"
+    },
+    {
+      "prompt": "compare these two approaches with a proper experiment",
+      "owner": "research-systematically"
+    },
+    {
+      "prompt": "benchmark both libraries and do not let me fool myself",
+      "owner": "research-systematically"
+    },
+    {
+      "prompt": "keep your answers shorter from now on",
+      "owner": "communicate-efficiently"
+    },
+    {
+      "prompt": "give me a compact handoff for the next person",
+      "owner": "communicate-efficiently"
+    },
+    {
+      "prompt": "do we already have a skill that covers this recurring chore?",
+      "owner": "audit-capabilities"
+    },
+    {
+      "prompt": "which of our installed skills are stale or overlapping?",
+      "owner": "audit-capabilities"
+    },
+    {
+      "prompt": "i just installed the plugin, does it actually run here?",
+      "owner": "verify-installation"
+    },
+    {
+      "prompt": "the hooks do not seem to fire after the update",
+      "owner": "verify-installation"
+    },
+    {
+      "prompt": "drive this windows installer and capture what it shows",
+      "owner": "operate-desktop-adaptively"
+    },
+    {
+      "prompt": "click through the wpf app and prove the dialog appears",
+      "owner": "operate-desktop-adaptively"
+    },
+    {
+      "prompt": "i do not know the path through this site yet, go find it",
+      "owner": "explore-web-adaptively"
+    },
+    {
+      "prompt": "poke around the vendor portal until you find the export page",
+      "owner": "explore-web-adaptively"
+    }
   ],
   "skills": [
     {

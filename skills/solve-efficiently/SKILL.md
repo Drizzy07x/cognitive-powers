@@ -1,6 +1,6 @@
 ---
 name: solve-efficiently
-description: Execute cross-file or multi-module work, fix a defect from a supplied reproduction while preserving unrelated behavior, or answer a bounded technical decision from supplied primary sources, using progressive context discovery and verified completion.
+description: Execute cross-file or multi-module work, implement a feature or endpoint, fix a defect from a supplied reproduction while preserving unrelated behavior, or answer a bounded technical decision from supplied primary sources, using progressive context discovery and verified completion.
 when_to_use: Use when one piece of work touches several modules or layers at once - implementation, persistence, CLI, browser, or tests; when boundaries must be discovered before editing; when the repository context payload must be reduced; or when Cognitive Powers is requested by name. Skip only for an obvious one-file change with a nearby test.
 ---
 

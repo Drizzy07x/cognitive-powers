@@ -90,11 +90,22 @@ skill's own bag and wins the prompts it meant to hand over. Measured on `refacto
 two such clauses, one Spanish prompt misrouted and Spanish routing fell to 0.92; removing them
 returned 0 misroutes and 0.94. Separate siblings in the body, which the router never scores.
 
-**The routing benchmark measures disambiguation between siblings, not whether a skill fires at
-all.** Its prompts were written against the descriptions, so under-triggering is invisible to it by
-construction: 59 of 60 checked-in positives reach their own skill, and no natural-phrasing corpus
-exists in `benchmarks/skill_routing_cases.json` that could expose the gap. A green suite means no
-skill steals another's work; it is not evidence that any skill activates on real requests.
+**The per-skill corpus measures disambiguation between siblings; the `natural` corpus measures
+whether a skill fires at all.** The per-skill prompts were written against the descriptions, so
+under-triggering is invisible to them by construction — 59 of 60 reach their own skill while
+"clean up this module, it is hard to read" named `map-project` and "help me implement pagination"
+named nothing. `natural` in `benchmarks/skill_routing_cases.json` is that blind spot measured: 43
+prompts in the register a request actually arrives in, one per skill at minimum, scored through
+`decide` rather than the ranking beneath it, held to `min_natural_rate`. Two prompts additionally
+carry `outranks`, pinning a misroute that was seen once so a rate cannot absorb its return.
+
+Its floor is 0.75 against a measured 0.79–0.81, which is slack a rate this young needs and not a
+verdict that the remaining eight misses are acceptable; tighten it as the corpus earns a history,
+the way the Spanish floor went 0.80 → 0.93. Two limits are structural rather than pending work.
+A green `natural` still says nothing about whether the model *invokes* the workflow the hook names
+— that is `evals/`. And a request carrying no vocabulary any listing declares ("why does the login
+redirect loop?") cannot be reached by a lexical scorer at all; it is checked in as a miss on
+purpose, because deleting it would make the corpus flatter the router.
 
 **`evals/` measures activation; the routing benchmark measures ranking.** They answer different
 questions and neither substitutes for the other. `run_skill_routing_benchmarks.py` scores
@@ -180,15 +191,16 @@ stays true, because a provider named in a catalog is not a provider present on t
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
-- **Adding or removing a workflow moves seven carriers.** The `skills/<name>/` directory,
+- **Adding or removing a workflow moves eight carriers.** The `skills/<name>/` directory,
   `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
   `scripts/verify_installed.py`, the catalog in `skills-core/execute-durably/SKILL.md`, the
-  `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` corpus. The
-  last two are not optional extras: `run_skill_routing_benchmarks.py` raises `ValueError` when the
-  case names and the skill names are not the same set, and
+  `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` and `natural`
+  corpora. Those three are not optional extras: `run_skill_routing_benchmarks.py` raises
+  `ValueError` when the case names and the skill names are not the same set, and again when
+  `natural` does not cover every skill, and
   `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
   skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
-  skill rather than scoring it as perfect by omission. The seventh is
+  skill rather than scoring it as perfect by omission. The eighth is
   `evals/cases/should-fire.yaml`: `run_activation_eval.py --validate-only` exits 1 when a workflow
   has fewer than three should-fire prompts, so a new workflow that nobody wrote prompts for is
   reported as unmeasured rather than silently scoring nothing. Then rerun the benchmark: a new description

@@ -53,11 +53,25 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     # louder than passing. The thresholds, by contrast, are read with defaults
     # so that a cases file written before they existed still runs instead of
     # dying on a bare KeyError from a documented --cases flag.
-    for required in ("quiet", "spanish", "spanish_quiet"):
+    for required in ("quiet", "spanish", "spanish_quiet", "natural"):
         if not data.get(required):
             raise ValueError(
                 f"routing cases must carry a non-empty {required!r} corpus"
             )
+    # Every skill owes a natural case for the same reason it owes a Spanish
+    # one: the per-skill cases above were written against the descriptions, so
+    # they can only show that a skill does not steal a sibling's work. Whether
+    # it fires at all on the way a request is actually typed is invisible to
+    # them by construction, and a twentieth workflow added without a natural
+    # case would inherit that silence while the suite stayed green.
+    natural_owners = {str(case["owner"]) for case in data["natural"]}
+    if natural_owners != set(descriptions):
+        missing = sorted(set(descriptions) - natural_owners)
+        unknown = sorted(natural_owners - set(descriptions))
+        raise ValueError(
+            f"natural cases do not cover every skill; missing={missing}, "
+            f"unknown={unknown}"
+        )
 
     results: list[dict[str, object]] = []
     positive_total = 0
@@ -206,6 +220,62 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             }
         )
 
+    # The same requests as a user types them. The per-skill corpus above was
+    # written against the descriptions, so it measures disambiguation between
+    # siblings and cannot see a workflow that never fires: 59 of 60 positives
+    # reached their own skill while "clean up this module, it is hard to read"
+    # named map-project and "help me implement pagination" named nothing. This
+    # corpus is the measured instance of that blind spot, so it scores the
+    # decision the hook makes rather than the ranking underneath it.
+    natural_total = 0
+    natural_passed = 0
+    natural_misrouted = 0
+    for case in data["natural"]:
+        owner = str(case["owner"])
+        prompt = str(case["prompt"])
+        outcome = decide(prompt, descriptions)
+        named = outcome.get("skill") if outcome["status"] == "suggested" else None
+        passed = named == owner
+        natural_total += 1
+        natural_passed += int(passed)
+        if named is not None and not passed:
+            natural_misrouted += 1
+        results.append(
+            {
+                "skill": owner,
+                "kind": "natural",
+                "prompt": prompt,
+                "suggested": named,
+                "named": named,
+                "suggestion_reason": outcome.get("reason"),
+                "passed": passed,
+            }
+        )
+        # A prompt that already named the wrong workflow once is not left to
+        # the rate. The rate can absorb a regression by improving elsewhere;
+        # this cannot, because the failure it records is a confident wrong
+        # answer rather than a missing one.
+        outranks = case.get("outranks")
+        if outranks is None:
+            continue
+        if outranks not in descriptions or outranks == owner:
+            raise ValueError(f"invalid outranks for {owner}: {outranks}")
+        ranking = rank_skills(prompt, descriptions)
+        owner_rank = _rank_of(owner, ranking)
+        loser_rank = _rank_of(str(outranks), ranking)
+        results.append(
+            {
+                "skill": owner,
+                "kind": "natural-negative",
+                "prompt": prompt,
+                "owner": owner,
+                "outranks": outranks,
+                "owner_rank": owner_rank,
+                "rank": loser_rank,
+                "passed": owner_rank < loser_rank,
+            }
+        )
+
     if not positive_total or not negative_total or not adversarial_total:
         raise ValueError(
             "routing cases must carry positive, negative, and adversarial cases"
@@ -214,6 +284,7 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
     top_k_rate = positive_top_k / positive_total
     suggestion_rate = positive_suggested / positive_total
     spanish_rate = spanish_passed / spanish_total if spanish_total else 1.0
+    natural_rate = natural_passed / natural_total if natural_total else 1.0
     quiet_rate = quiet_passed / quiet_total if quiet_total else 1.0
     negative_rate = negative_passed / negative_total
     adversarial_rate = adversarial_passed / adversarial_total
@@ -229,23 +300,28 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
         and negative_rate >= float(thresholds["min_negative_rate"])
         and adversarial_rate >= float(thresholds["min_adversarial_rate"])
         and spanish_rate >= float(thresholds.get("min_spanish_rate", 0.80))
+        and natural_rate >= float(thresholds.get("min_natural_rate", 0.75))
         # Naming the wrong workflow is not the same failure as naming none,
-        # and the rates could not tell them apart. Both corpora are held to one
-        # ceiling rather than Spanish getting a carve-out English does not:
+        # and the rates could not tell them apart. All three corpora are held to
+        # one ceiling rather than Spanish getting a carve-out English does not:
         # map-project is misrouted in English too, so exempting only Spanish
         # would encode an asymmetry the data does not have.
-        and (positive_misrouted + spanish_misrouted)
+        and (positive_misrouted + spanish_misrouted + natural_misrouted)
         <= int(thresholds.get("max_misrouted", 3))
         and not collisions
         and all(
             bool(result["passed"])
             for result in results
-            # Spanish rides on its rate alone. A lexicon cannot be complete,
-            # and demanding every case here would be answered by widening it
-            # until it matches anything -- which the quiet corpus, held to the
-            # full bar in both languages, exists to make expensive. Every other
-            # kind keeps the bar it had.
-            if result["kind"] != "spanish"
+            # Spanish and natural phrasing ride on their rates alone. A lexicon
+            # cannot be complete, and demanding every case here would be
+            # answered by widening it until it matches anything -- which the
+            # quiet corpus, held to the full bar in both languages, exists to
+            # make expensive. The same holds for phrasing: a request can arrive
+            # in words no listing can honestly claim. Their "natural-negative"
+            # rows are the exception and stay in, because a prompt that has
+            # already named the wrong workflow once is not evidence a rate may
+            # absorb. Every other kind keeps the bar it had.
+            if result["kind"] not in {"spanish", "natural"}
             and (result["kind"] != "positive" or int(result["top_k"]) == 1)
         )
     )
@@ -263,6 +339,9 @@ def evaluate(root: Path, cases_path: Path) -> dict[str, object]:
             "spanish_cases": spanish_total,
             "spanish_rate": round(spanish_rate, 4),
             "misrouted_spanish": spanish_misrouted,
+            "natural_cases": natural_total,
+            "natural_rate": round(natural_rate, 4),
+            "misrouted_natural": natural_misrouted,
             "quiet_cases": quiet_total,
             "quiet_rate": round(quiet_rate, 4),
             "negative_cases": negative_total,
@@ -284,13 +363,17 @@ def format_report(report: Mapping[str, object]) -> str:
         "Skill routing benchmark",
         f"skills={report['skill_count']} positives={metrics['positive_cases']} rank1={metrics['rank1_rate']:.2f} top-k={metrics['top_k_rate']:.2f}",
         f"suggested={metrics['suggestion_rate']:.2f} spanish={metrics['spanish_rate']:.2f} of {metrics['spanish_cases']} quiet={metrics['quiet_rate']:.2f} of {metrics['quiet_cases']}",
-        f"misrouted={metrics['misrouted_positives']} positives, {metrics['misrouted_spanish']} spanish",
+        f"natural={metrics['natural_rate']:.2f} of {metrics['natural_cases']}",
+        f"misrouted={metrics['misrouted_positives']} positives, {metrics['misrouted_spanish']} spanish, {metrics['misrouted_natural']} natural",
         f"negative-owner={metrics['negative_owner_rate']:.2f} adversarial-owner={metrics['adversarial_owner_rate']:.2f} collisions={len(report['collisions'])}",
     ]
     for case in report["cases"]:
-        # Spanish counts toward its rate, not toward the pass/fail gate, so it
-        # is reported as a miss rather than as a failure it does not cause.
-        label = "MISS" if case["kind"] == "spanish" else "FAIL"
+        # Spanish and natural phrasing count toward their rates, not toward the
+        # pass/fail gate, so they are reported as misses rather than as
+        # failures they do not cause. "natural-negative" is not in this set:
+        # it does fail the suite, and printing it as a miss would understate
+        # what it means.
+        label = "MISS" if case["kind"] in {"spanish", "natural"} else "FAIL"
         named = case.get("named") if case["kind"] != "quiet" else case.get("suggested")
         if not case["passed"]:
             # Name what fired. A quiet failure printed a bare dash, which is
