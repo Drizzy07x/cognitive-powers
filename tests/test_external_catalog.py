@@ -22,7 +22,7 @@ class ExternalCatalogTests(unittest.TestCase):
 
     def test_current_catalog_is_complete_and_valid(self) -> None:
         self.assertEqual(catalog.validate_catalog(self.payload), [])
-        self.assertEqual(len(self.payload["sources"]), 19)
+        self.assertEqual(len(self.payload["sources"]), 21)
 
     def test_labels_resolve_to_immutable_commits(self) -> None:
         source = catalog.resolve_label(self.payload, "semantic:graphify")

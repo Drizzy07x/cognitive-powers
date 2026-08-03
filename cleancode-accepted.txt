@@ -27,7 +27,7 @@ tests/test_clean_code_guard.py:39:orphan-marker
 hooks/skill_router.py:78:function-length
 hooks/skill_router.py:105:function-length
 
-# Documented design, not a defect: CLAUDE.md, "Four hooks, three shapes", makes
+# Documented design, not a defect: CLAUDE.md, "Five hooks, three shapes", makes
 # semantic_index advisory in full and silent on every error. Both sites now
 # carry a comment saying so. Handling either one would turn a cache miss into a
 # startup message, which is the behaviour the contract exists to prevent.

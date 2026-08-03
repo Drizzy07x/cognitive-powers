@@ -141,19 +141,31 @@ def _apply(root: Path, version: str) -> list[str]:
         _write(root, "install.sh", updated)
         changed.append("install.sh")
 
+    # The rollback command names the newest published release; every other bare
+    # release tag in either document names the release being declared. The same
+    # literal can play both roles across a bump, so the rollback phrase is
+    # protected positionally rather than by value.
+    #
+    # Only README.md carries that phrase. Running the protection over
+    # docs/operations.md as well caught its PowerShell *install* example, which
+    # is not a rollback: the 1.8.2 bump moved that line backwards to v1.7.2
+    # while its POSIX sibling three lines below moved forwards to v1.8.2, under
+    # a sentence promising the two could not diverge. An install example names
+    # the release being declared, like every other tag in that file.
     sentinel = "\0cp-rollback-target\0"
-    for relative in ("README.md", "docs/operations.md"):
-        text = _read(root, relative)
-        # The rollback command names the newest published release; every other
-        # bare release tag in the document names the release being declared.
-        # The same literal can play both roles across a bump, so the rollback
-        # phrase is protected positionally rather than by value.
-        updated = re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", sentinel, text)
-        updated = TAG_PATTERN.sub(f"v{version}", updated)
-        updated = updated.replace(sentinel, f"-ReleaseRef {rollback}")
-        if updated != text:
-            _write(root, relative, updated)
-            changed.append(relative)
+    readme = _read(root, "README.md")
+    updated = re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", sentinel, readme)
+    updated = TAG_PATTERN.sub(f"v{version}", updated)
+    updated = updated.replace(sentinel, f"-ReleaseRef {rollback}")
+    if updated != readme:
+        _write(root, "README.md", updated)
+        changed.append("README.md")
+
+    operations = _read(root, "docs/operations.md")
+    updated = TAG_PATTERN.sub(f"v{version}", operations)
+    if updated != operations:
+        _write(root, "docs/operations.md", updated)
+        changed.append("docs/operations.md")
     return changed
 
 
@@ -187,6 +199,18 @@ def check(root: Path) -> dict[str, object]:
     readme = _read(root, "README.md")
     if f"-ReleaseRef {rollback}" not in readme:
         problems.append(f"README rollback target is not {rollback}")
+    # The runbook has no rollback command, so every tag in it names the release
+    # being declared. Checking it here is what makes the divergence the 1.8.2
+    # bump produced fail the gate instead of sitting under a sentence claiming
+    # it cannot happen.
+    operations = _read(root, "docs/operations.md")
+    stale = sorted(
+        {tag for tag in TAG_PATTERN.findall(operations) if tag != f"v{version}"}
+    )
+    if stale:
+        problems.append(
+            f"docs/operations.md names {', '.join(stale)}, declared v{version}"
+        )
     if problems:
         raise BumpError("; ".join(problems))
     return {"version": version, "rollback": rollback, "aligned": True}

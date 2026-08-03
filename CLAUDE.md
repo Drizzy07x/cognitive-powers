@@ -66,8 +66,11 @@ every push, the real install/upgrade/rollback nightly or on dispatch, the whole 
 Nine of the thirteen 1.7.1-era defects lived in steps a tag push alone ran, and the layering exists
 so that class of masking cannot re-form.
 
-Two runners are deliberately outside the gate and fail locally without their provider:
-`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright).
+Three runners are deliberately outside the gate. Two fail locally without their provider:
+`run_semantic_benchmarks.py` (CodeGraph) and `run_browser_benchmarks.py` (Playwright). The third,
+`evals/run_activation_eval.py`, spawns the real `claude` binary and costs money on every case, which
+is the same reason by a different route — but everything it delegates to is pure and does run in the
+gate, so a defect in the judgement is caught offline even though the measurement is not.
 
 `docs/operations.md` is the runbook for everything the gate does not do: lock and state-schema
 recovery, durable resume across a compaction, verifying an installed release, the release
@@ -93,7 +96,24 @@ construction: 59 of 60 checked-in positives reach their own skill, and no natura
 exists in `benchmarks/skill_routing_cases.json` that could expose the gap. A green suite means no
 skill steals another's work; it is not evidence that any skill activates on real requests.
 
-**Four hooks, three shapes.** `hooks/semantic_index.py` (SessionStart) and `hooks/skill_router.py`
+**`evals/` measures activation; the routing benchmark measures ranking.** They answer different
+questions and neither substitutes for the other. `run_skill_routing_benchmarks.py` scores
+`skill_routing.decide` on prompts written against the descriptions, so a workflow that never fires
+on natural phrasing is invisible to it. `evals/run_activation_eval.py` spawns the real `claude`
+binary against a corpus written from the SKILL.md *bodies* and reads which workflows the session
+actually invoked. It is outside the gate for the same reason the semantic and browser runners are —
+it costs money — but everything it delegates to is pure and tested: `evals/activation_core/`
+holds the YAML subset loader, the corpus rules, the transcript reader, the arm definitions and the
+scorer. Two invariants there are load-bearing. Detection is **structural only** — an assistant
+`tool_use` named `Skill` whose `input.skill` names an installed workflow — because the router
+injects the literal text `cognitive-powers:<name>` into the same stream and a substring scan would
+score the harness's own instrumentation. And a run whose observed injections disagree with its arm,
+including one delivered twice, is recorded as *incomplete* rather than scored: these hooks degrade
+silently by contract, so an arm that never took effect otherwise reads as an arm that changed
+nothing.
+
+**Five hooks, three shapes.** `hooks/semantic_index.py` and `hooks/skill_activation.py`
+(both SessionStart) and `hooks/skill_router.py`
 (UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
 is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
 indistinguishable from a session that changed nothing. When editing it, ask what an early return
@@ -160,7 +180,7 @@ stays true, because a provider named in a catalog is not a provider present on t
   workflows delegate to the specialized ones by name, and Claude Code hides a
   `disable-model-invocation` skill from the model entirely, so one moved there becomes unreachable.
   Asserted by `tests/test_claude_plugin_contract.py`.
-- **Adding or removing a workflow moves six carriers.** The `skills/<name>/` directory,
+- **Adding or removing a workflow moves seven carriers.** The `skills/<name>/` directory,
   `SPECIALIZED_SKILLS` in `tests/test_claude_plugin_contract.py`, `CLAUDE_WORKFLOW_COUNT` in
   `scripts/verify_installed.py`, the catalog in `skills-core/execute-durably/SKILL.md`, the
   `skills` array in `benchmarks/skill_routing_cases.json`, and that file's `spanish` corpus. The
@@ -168,7 +188,10 @@ stays true, because a provider named in a catalog is not a provider present on t
   case names and the skill names are not the same set, and
   `test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus` requires one Spanish case per
   skill. Registering a skill in the corpus is not tuning it — the benchmark refuses an unregistered
-  skill rather than scoring it as perfect by omission. Then rerun the benchmark: a new description
+  skill rather than scoring it as perfect by omission. The seventh is
+  `evals/cases/should-fire.yaml`: `run_activation_eval.py --validate-only` exits 1 when a workflow
+  has fewer than three should-fire prompts, so a new workflow that nobody wrote prompts for is
+  reported as unmeasured rather than silently scoring nothing. Then rerun the benchmark: a new description
   changes the ranking of prompts that were never about it. A Spanish case whose content words
   `SPANISH_TERMS` in `scripts/skill_routing.py` cannot translate ranks first yet draws no
   suggestion — that is how 1.8.0 shipped four silent cases — and the 0.93 Spanish floor now fails

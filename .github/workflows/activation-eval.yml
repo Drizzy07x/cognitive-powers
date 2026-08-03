@@ -1,0 +1,151 @@
+name: Activation eval
+
+# Measures whether the workflows actually fire on requests phrased the way
+# requests arrive. Two jobs, split by what they cost.
+#
+# `corpus` is free and always runs: it loads and validates every case, checks
+# that no workflow has fewer than three should-fire prompts, and runs the unit
+# tests for the judgement path. A corpus defect should be caught before any
+# provider is paid, not after ninety runs.
+#
+# `measure` spawns the real CLI and costs money, so it is gated on a secret
+# being present and narrowed to the quick suite on pull requests. The full
+# matrix is dispatch-only, because three arms over the whole corpus is roughly
+# a thousand invocations and nothing about a pull request justifies that.
+#
+# A fork PR has no secret and skips `measure` rather than failing. Failing
+# there would report a missing entitlement as a regression in the plugin.
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - "skills-core/**"
+      - "hooks/**"
+      - "evals/**"
+      - ".github/workflows/activation-eval.yml"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Corpus to run
+        type: choice
+        options: [quick, full]
+        default: quick
+      arms:
+        description: Space-separated arms (none, instruction, full)
+        type: string
+        default: "none instruction full"
+      reps:
+        description: Repetitions per case
+        type: string
+        default: "3"
+      floor:
+        description: Minimum should-fire activation rate per arm
+        type: string
+        default: "0.70"
+
+permissions:
+  contents: read
+
+env:
+  # A single run of a non-deterministic decision is a coin flip. Both numbers
+  # are inputs rather than constants so a regression threshold can be moved
+  # deliberately, in a diff, rather than by editing a script.
+  DEFAULT_FLOOR: "0.70"
+  DEFAULT_MAX_FALSE_POSITIVE: "0.15"
+
+jobs:
+  corpus:
+    name: Corpus and judgement path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.13"
+      - name: Validate the corpus without spawning anything
+        run: python evals/run_activation_eval.py --validate-only --full
+      - name: Test the judgement path
+        run: >-
+          python -m unittest
+          tests.test_activation_eval_corpus
+          tests.test_activation_eval_runner
+          tests.test_skill_activation
+          -v
+
+  measure:
+    name: Activation (${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'quick' }})
+    needs: corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Report whether a provider credential is available
+        id: credential
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No ANTHROPIC_API_KEY; the paid activation run is skipped."
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.credential.outputs.available == 'true'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        if: steps.credential.outputs.available == 'true'
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: steps.credential.outputs.available == 'true'
+        with:
+          node-version: "24"
+
+      - name: Install the Claude Code CLI
+        if: steps.credential.outputs.available == 'true'
+        run: npm install --global --no-audit --no-fund @anthropic-ai/claude-code
+
+      - name: Run the activation eval
+        if: steps.credential.outputs.available == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'quick' }}
+          ARMS: ${{ github.event_name == 'workflow_dispatch' && inputs.arms || 'full' }}
+          REPS: ${{ github.event_name == 'workflow_dispatch' && inputs.reps || '3' }}
+          FLOOR: ${{ github.event_name == 'workflow_dispatch' && inputs.floor || '' }}
+        run: |
+          set -euo pipefail
+          arm_flags=""
+          for arm in $ARMS; do arm_flags="$arm_flags --arm $arm"; done
+          python evals/run_activation_eval.py \
+            $arm_flags \
+            --reps "$REPS" \
+            --"$SUITE" \
+            --python-executable "$(command -v python)" \
+            --json-output activation.json \
+            --markdown-output activation.md \
+            --floor "${FLOOR:-$DEFAULT_FLOOR}" \
+            --max-false-positive "$DEFAULT_MAX_FALSE_POSITIVE"
+
+      - name: Publish the report to the job summary
+        if: always() && steps.credential.outputs.available == 'true'
+        run: |
+          if [ -f activation.md ]; then
+            cat activation.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The run produced no report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Kept whatever the outcome. A failed threshold is exactly the run whose
+      # per-case detail someone needs, and re-running it to get the artifact
+      # would pay for the measurement twice.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.credential.outputs.available == 'true'
+        with:
+          name: activation-${{ github.run_id }}
+          path: |
+            activation.json
+            activation.md
+          retention-days: 30
+          if-no-files-found: warn

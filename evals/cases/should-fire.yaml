@@ -1,0 +1,722 @@
+# Should-fire corpus: one workflow per case.
+#
+# Written against the SKILL.md bodies and deliberately NOT against the
+# frontmatter descriptions. The routing benchmark's prompts were written
+# against those descriptions, which is why it cannot see a workflow that
+# never fires on natural phrasing; repeating that here would reproduce the
+# blind spot in the corpus meant to close it.
+#
+# Every prompt was reviewed a second time for description vocabulary, for
+# reading like specification prose, and for a label a cold reader would
+# disagree with.
+
+version: 1
+suite: should-fire
+cases:
+  - id: audit-capabilities-checklist-from-memory
+    prompt: "third time this quarter i've typed out the same seven line checklist into chat from memory, half the team does it slightly differently and one of them swears he wrote it down somewhere"
+    lang: en
+    expect:
+      - audit-capabilities
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Describes a repeated procedure and its scattered prior art as a complaint, naming no action at all, which is how recurrence is usually reported out loud."
+  - id: audit-capabilities-eight-things-in-folder
+    prompt: "we've got eight of these little how-to files in the repo now and come release day i honestly can't tell which one i'm supposed to follow, two of them talk about the changelog. i was about to write another one for the migration dance but i bet that's already sitting in one of them"
+    lang: en
+    expect:
+      - audit-capabilities
+    forbid:
+      - verify-installation
+    fixture: webshop
+    quick: false
+    why: "Overlap and duplication surface as everyday confusion about which of several similar things to use, and the mention of an installed folder is the near-miss that could pull the installation checker instead."
+  - id: audit-capabilities-es-comandos-solapados
+    prompt: "cada uno del equipo hace el despliegue a su manera y ya tenemos tres carpetas de comandos que se pisan entre ellas, antes de escribir otra más quiero saber qué de eso ya está cubierto y qué sobra"
+    lang: es
+    expect:
+      - audit-capabilities
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Natural Spanish for a team whose tooling has fragmented, asking both what is covered and what is redundant, which is the removal half of the audit that English cases rarely reach."
+  - id: audit-capabilities-same-four-steps
+    prompt: "same four steps every time i add a new item type here and i've done it three times this month, is there already something set up for that or am i about to write the same thing twice"
+    lang: en
+    expect:
+      - audit-capabilities
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "A developer notices a procedure recurring and asks whether existing coverage exists before adding more, which is the real trigger, phrased as a hunch rather than as a gap analysis request."
+  - id: communicate-efficiently-es-ticket-cuatro-lineas
+    prompt: "tengo que dejar apuntado en el ticket cómo quedó esto para el que entre mañana, el tío no lee más de cuatro líneas, eso sí el error exacto y la ruta del archivo tienen que salir tal cual"
+    lang: es
+    expect:
+      - communicate-efficiently
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Spanish developer shorthand where the audience sets the length and the exact strings are non-negotiable, a scenario about a written ticket rather than about the assistant's own chat replies."
+  - id: communicate-efficiently-marta-picks-this-up
+    prompt: "marta picks this up tomorrow while i'm out, last time i left someone a wall of text and they missed the one line that mattered and redid a whole migration, she needs what's done what isn't and the two commands and nothing else"
+    lang: en
+    expect:
+      - communicate-efficiently
+    forbid:
+      - verify-delivery
+    fixture: pylib
+    quick: false
+    why: "A consequential transfer told through the cost of getting it wrong last time; the done/not-done framing is exactly what would misroute to the completion auditor."
+  - id: communicate-efficiently-standup-cutoff
+    prompt: "our standup channel cuts off at 500 characters and mine always gets truncated right in the middle of the error string, write today's one for me so the whole thing fits"
+    lang: en
+    expect:
+      - communicate-efficiently
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Pure situation with no request attached, and the constraint that literals must survive compression is implied by the symptom rather than stated."
+  - id: communicate-efficiently-writing-me-novels
+    prompt: "you're writing me novels man, i just need what changed and what's still red, don't drop the exact command though"
+    lang: en
+    expect:
+      - communicate-efficiently
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "This is verbatim how someone tells an assistant to shorten its reports, including the one carve-out that matters, and it never uses a word from the skill's own vocabulary."
+  - id: design-intentionally-any-bootstrap-template
+    prompt: "the cart page could be any bootstrap template on the internet, give it some character of its own"
+    lang: en
+    expect:
+      - design-intentionally
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Terse and dismissive, conveying sameness by naming what it resembles instead of using any evaluative adjective from the listing."
+  - id: design-intentionally-cofounder-placeholder
+    prompt: "showed the storefront to my cofounder and she asked if it was still a placeholder, on my phone the headings and the buttons are all the same weight and everything is arial, we demo it thursday"
+    lang: en
+    expect:
+      - design-intentionally
+    forbid:
+      - verify-web-behavior
+    fixture: webshop
+    quick: true
+    why: "Carries a witness reaction, two concrete typographic symptoms and a deadline; the phone detail is the near-miss that a browser-evidence workflow would try to claim."
+  - id: design-intentionally-es-login-desde-cero
+    prompt: "voy a montar la pantalla de login desde cero, no hay nada hecho todavía y no quiero el típico formulario centrado con un botón azul, es una tienda de café de especialidad y quiero que se note en cuanto entras"
+    lang: es
+    expect:
+      - design-intentionally
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Greenfield scenario in Spanish that supplies a rejected direction and a brand context up front, which is the intent-before-implementation case the English prompts do not cover."
+  - id: design-intentionally-palette-at-2am
+    prompt: "we go live next month and right now the colors are whatever i grabbed off a palette site at 2am and every section is a white card with a shadow"
+    lang: en
+    expect:
+      - design-intentionally
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Describes an unowned visual system and a repeated layout formula as a confession, with no verb asking for anything to be done."
+  - id: design-review-es-clase-antes-de-publicar
+    prompt: "acabo de dejar lista una clase que van a usar otros dos equipos y antes de publicarla quiero una opinión sobre si está bien partida, porque la mitad de los métodos no hacen más que llamar al de abajo y pasarle lo mismo"
+    lang: es
+    expect:
+      - design-review
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Spanish request for a second opinion on a new shared interface, describing forwarding layers by what they do rather than by any term the listing uses."
+  - id: design-review-four-places-one-field
+    prompt: "every time i add a field i end up editing four different files and i always forget one of them, nothing is broken exactly, it just feels like that format rule is spelled out in three or four separate spots and i want to know where they all are"
+    lang: en
+    expect:
+      - design-review
+    forbid:
+      - refactor-cleanly
+    fixture: pylib
+    quick: true
+    why: "Reports leaked knowledge through the maintenance tax it imposes, explicitly rules out a bug, and asks only for locations rather than a rewrite."
+  - id: design-review-new-hire-three-call-sites
+    prompt: "new hire asked me what inventory.py is responsible for and i had to walk him through three call sites before i could answer, i couldn't say it in one sentence and half of what it does probably belongs somewhere else"
+    lang: en
+    expect:
+      - design-review
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Comprehension cost measured the way people actually measure it, by how long it took to answer a colleague, with no request phrased as an instruction."
+  - id: design-review-split-holds-up
+    prompt: "before i merge this can you tell me if splitting login.js and cart.js the way i did actually holds up or if i just moved lines between files"
+    lang: en
+    expect:
+      - design-review
+    forbid:
+      - refactor-cleanly
+    fixture: webshop
+    quick: false
+    why: "Asks for a verdict on a boundary just drawn, and the merge-time cleanup framing is precisely where the tidying sibling would steal it."
+  - id: diagnose-systematically-checkout-stalls
+    prompt: "was fine on friday, now i hit checkout and the page just sits there. console is empty, network tab shows nothing going out. i did pull main this morning"
+    lang: en
+    expect:
+      - diagnose-systematically
+    forbid:
+      - verify-web-behavior
+    fixture: webshop
+    quick: false
+    why: "A narrative symptom report with the observations a developer actually pastes, including the environment change they half suspect, and no existing browser test to run."
+  - id: diagnose-systematically-ci-one-in-four
+    prompt: "one of the inventory tests passes locally every time and fails in ci maybe once every four runs, its been like that for two weeks and people just hit rerun until its green"
+    lang: en
+    expect:
+      - diagnose-systematically
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "Describes a long-tolerated situation without asking for anything, which is the most common way an unreliable failure gets mentioned and the phrasing least likely to match any description."
+  - id: diagnose-systematically-es-stock-negativo
+    prompt: "cada tanto el stock termina en negativo despues de un pedido y no consigo pillar cuando pasa, sera una de cada veinte veces"
+    lang: es
+    expect:
+      - diagnose-systematically
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Colloquial Spanish with a wrong-result symptom and a guessed frequency, typed the way a developer reports something they have watched happen but cannot pin down."
+  - id: diagnose-systematically-login-dead
+    prompt: "login is busted again and i havent touched that file in weeks, any clue whats going on"
+    lang: en
+    expect:
+      - diagnose-systematically
+    forbid:
+      - solve-efficiently
+    fixture: webshop
+    quick: false
+    why: "Terse drive-by report with no reproduction attached, which is how a defect is first handed over and exactly where a general implementation router tends to steal the work."
+  - id: eli5-es-explicar-al-equipo
+    prompt: "un compañero me pasó el NOTES.md para justificar que cambiemos el algoritmo y no me queda claro que demuestra el documento y que se esta inventando el"
+    lang: es
+    expect:
+      - eli5
+    forbid: []
+    fixture: paper
+    quick: false
+    why: "Natural Spanish about a document arriving as an argument in a discussion, where the real need is telling what the source shows apart from what someone read into it."
+  - id: eli5-not-a-mathematician
+    prompt: "can you go through the notes doc and put it in words i could repeat to someone who isnt a mathematician"
+    lang: en
+    expect:
+      - eli5
+    forbid: []
+    fixture: paper
+    quick: false
+    why: "Terse request framed by the audience rather than by the act of explaining, which is how the need is usually expressed out loud."
+  - id: eli5-notes-second-equation
+    prompt: "walk me through NOTES.md, i get lost right after the second equation and i have to talk about it tomorrow"
+    lang: en
+    expect:
+      - eli5
+    forbid: []
+    fixture: paper
+    quick: true
+    why: "Names the document and the exact point comprehension broke, which is how a reader asks for help with something already written down rather than for new work."
+  - id: eli5-standup-handoff
+    prompt: "im presenting the notes doc at standup tomorrow and honestly half of it is equations i dont follow"
+    lang: en
+    expect:
+      - eli5
+    forbid:
+      - communicate-efficiently
+    fixture: paper
+    quick: false
+    why: "States a predicament with no verb asking for anything, and the mention of presenting is the bait that pulls toward a reporting-style sibling instead."
+  - id: engineer-prompts-es-agente-pr
+    prompt: "tengo un agente que revisa los PRs de este repo y nunca se sabe cuando deberia darse por terminado, a veces se queda dando vueltas y a veces edita cosas que no le tocaban"
+    lang: es
+    expect:
+      - engineer-prompts
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Spanish developer describing an agent that neither stops nor stays in scope, using everyday verbs instead of any vocabulary about contracts or conditions."
+  - id: engineer-prompts-nightly-helper
+    prompt: "we have a little helper that runs every night off a paragraph i typed in a hurry. most mornings i cant tell from what it wrote whether it actually did the job, and last week it touched a file nobody asked it to"
+    lang: en
+    expect:
+      - engineer-prompts
+    forbid: []
+    fixture: bare
+    quick: true
+    why: "Two real symptoms of an underspecified instruction set, told as a story about mornings and a bad week rather than as a request to specify anything."
+  - id: engineer-prompts-support-bot-overreach
+    prompt: "i wrote the instructions for our support bot in ten minutes and now it goes off doing things i never said it could, can you tighten them up"
+    lang: en
+    expect:
+      - engineer-prompts
+    forbid:
+      - verify-delivery
+    fixture: bare
+    quick: false
+    why: "Terse complaint about an agent acting outside what was intended, phrased as tightening instructions rather than as reviewing anything finished."
+  - id: engineer-prompts-three-copies
+    prompt: "three of us each keep our own copy of the instructions for the review bot in a notes app and they've drifted apart, nobody knows which one is the real one anymore"
+    lang: en
+    expect:
+      - engineer-prompts
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Describes a team situation with no action named at all, which is how the need for one stable authored instruction set usually surfaces."
+  - id: execute-durably-context-loss-refactor
+    prompt: "last time we tore into this file you ran out of room halfway and forgot what we'd already finished, we redid two files for nothing. cleaning up inventory.py is going to be at least that long"
+    lang: en
+    expect:
+      - execute-durably
+    forbid:
+      - solve-efficiently
+    fixture: pylib
+    quick: true
+    why: "Cites the concrete cost of losing the thread mid-task in a developer's own words, while the refactor framing is the strongest pull toward a general implementation router."
+  - id: execute-durably-es-migracion-larga
+    prompt: "mover el carrito y el login a la api nueva nos va a llevar varios dias entre unas cosas y otras, y quiero poder engancharlo donde lo dejamos sin tener que acordarme de nada"
+    lang: es
+    expect:
+      - execute-durably
+    forbid:
+      - solve-efficiently
+    fixture: webshop
+    quick: false
+    why: "Spanish phrasing of a multi-day migration where the stated worry is picking it back up cold, a case a cross-file implementation sibling would plausibly claim."
+  - id: execute-durably-morning-recap
+    prompt: "this one is going to run over several days, i dont want to spend every morning telling you again where we left it"
+    lang: en
+    expect:
+      - execute-durably
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Terse and about the annoyance of re-briefing, which is the felt version of needing progress kept somewhere outside the conversation."
+  - id: execute-durably-nine-items
+    prompt: "theres about nine things on this list, a few of them i need to be able to show actually ran rather than take your word for it, and im going to be in and out all week"
+    lang: en
+    expect:
+      - execute-durably
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "States the two conditions that make persisted state worth its cost, many checkable items and an interrupted week, without naming any of them as such."
+  - id: explore-web-adaptively-aseguradora-es
+    prompt: "necesito descargar los certificados de la web de la aseguradora pero cambiaron el diseño y ya no sé por dónde se entra, antes estaba en el menú de la izquierda. ¿puedes ir pantalla por pantalla y decirme cómo se llega ahora?"
+    lang: es
+    expect:
+      - explore-web-adaptively
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Everyday Spanish phrasing about an insurer's site that was redesigned, with no repository involved and no vocabulary borrowed from the listing."
+  - id: explore-web-adaptively-buried-report
+    prompt: "every month someone has to pull the usage numbers out of the vendor dashboard and it eats half an hour because the report is buried about five screens deep and they keep moving the menu. nobody has ever written the steps down"
+    lang: en
+    expect:
+      - explore-web-adaptively
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Describes a recurring situation and never asks for anything, which is how these requests usually arrive before someone says what they want done."
+  - id: explore-web-adaptively-invoice-moved
+    prompt: "the supplier portal moved everything around again and i cant find where the invoice pdfs live now. can you go through the site and tell me the actual clicks"
+    lang: en
+    expect:
+      - explore-web-adaptively
+    forbid:
+      - verify-web-behavior
+    fixture: webshop
+    quick: true
+    why: "Terse 4pm complaint about a third-party site whose layout shifted, asking for the click sequence rather than a check of known behavior."
+  - id: explore-web-adaptively-sso-appeared
+    prompt: "our nightly pull came back with an empty table on monday. i went to the page myself and the login now bounces through some sso screen that wasnt there before, and after that i got lost. need someone to walk it end to end and write down what you have to click now"
+    lang: en
+    expect:
+      - explore-web-adaptively
+    forbid:
+      - diagnose-systematically
+    fixture: webshop
+    quick: false
+    why: "Narrative with a real symptom where the cause is already known to be an external site change, so the work is walking the new route, not hunting a defect."
+  - id: legacy-safe-changes-archived-items
+    prompt: "have to make restock skip archived items. thing is nobody really knows what it spits out for the odd cases and i cant have any of that move"
+    lang: en
+    expect:
+      - legacy-safe-changes
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Terse and hedged, states the change and the constraint that today's output is fixed, without using any of the protective vocabulary from the listing."
+  - id: legacy-safe-changes-everyone-avoids
+    prompt: "inventory.py is the one everybody tiptoes around. product wants a per customer discount in there and whatever that function returns today is basically the contract, three other services parse it"
+    lang: en
+    expect:
+      - legacy-safe-changes
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Frames the situation socially rather than naming an action, and says current output is the spec without ever saying tests or coverage."
+  - id: legacy-safe-changes-iva-es
+    prompt: "me han pedido meter el iva reducido en el cálculo de precios de este módulo que lleva años sin tocarse. los tests que hay no cubren casi nada de lo que hace y me da pánico que cambie algo sin enterarme"
+    lang: es
+    expect:
+      - legacy-safe-changes
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "A different scenario in natural Spanish, a tax rule landing in an old pricing module, with the fear of a silent behaviour shift stated the way a developer would say it."
+  - id: legacy-safe-changes-predates-team
+    prompt: "this file predates everyone on the team. the big function in the middle does about six things at once and there is nothing anywhere that checks it. i need it to handle backorders but if any of the other numbers move accounting will be on me by friday"
+    lang: en
+    expect:
+      - legacy-safe-changes
+    forbid:
+      - refactor-cleanly
+    fixture: pylib
+    quick: true
+    why: "The way people actually describe an unprotected module plus a deadline, and the mention of a function doing six things is exactly the bait a cleanup sibling would take."
+  - id: map-project-heredado-es
+    prompt: "acabo de heredar este repo del equipo anterior y me voy a pasar aquí los próximos meses. déjame apuntado en algún sitio qué hay en cada carpeta y qué comandos son los buenos, que no quiero volver a averiguarlo cada vez"
+    lang: es
+    expect:
+      - map-project
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Natural Spanish for inheriting a codebase, asking for notes on folders and the commands that actually work, a different scenario from the English three."
+  - id: map-project-new-contractor
+    prompt: "new contractor starts monday. the readme is a badge and an install line, and there are four folders that look interchangeable but arent"
+    lang: en
+    expect:
+      - map-project
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Describes a situation with a deadline and never names an action, leaving the workflow to infer that written orientation is what is missing."
+  - id: map-project-note-in-repo
+    prompt: "can you drop something in the repo with the layout so the next session doesnt start from zero again"
+    lang: en
+    expect:
+      - map-project
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "One-line lowercase ask, the most common form this request takes, with no mention of memory, hierarchy or guidance."
+  - id: map-project-same-five-things
+    prompt: "every time i start a new chat i end up typing the same five things, where the tests are, which of the three scripts actually runs, and that the vendored folder is off limits. getting tired of it"
+    lang: en
+    expect:
+      - map-project
+    forbid:
+      - audit-capabilities
+    fixture: pylib
+    quick: true
+    why: "A complaint rather than a request, and the repetition angle is precisely what a capability-gap sibling would misread as a recurring procedure."
+  - id: operate-desktop-adaptively-altas-es
+    prompt: "tengo que dar de alta veinte usuarios en el programa ese antiguo que solo funciona en windows, hay que ir de una ventana a otra copiando datos y luego alguien me va a pedir pruebas de que quedó bien"
+    lang: es
+    expect:
+      - operate-desktop-adaptively
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "A cross-window data entry chore in an old Windows program, said the way a Spanish-speaking developer would say it, including the expectation of having to show proof afterwards."
+  - id: operate-desktop-adaptively-export-greys-out
+    prompt: "QA sent over steps for the export button in the windows app going grey once you undock the side panel, and it happens every time on their machine. i need someone to walk the app through those steps and grab what the window is showing at each one so i can stick it on the ticket"
+    lang: en
+    expect:
+      - operate-desktop-adaptively
+    forbid:
+      - diagnose-systematically
+    fixture: bare
+    quick: false
+    why: "Narrative with a symptom where the ask is to operate the window and capture its state, the phrasing most likely to be stolen by the defect-hunting sibling."
+  - id: operate-desktop-adaptively-release-checklist
+    prompt: "before every release one of us spends an afternoon clicking through the client on a clean machine with a paper checklist, forty odd steps, and at this point nobody really trusts the ticks on that sheet"
+    lang: en
+    expect:
+      - operate-desktop-adaptively
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "States a situation with no request in it at all, and the distrust of the paper ticks is the natural way someone hints they want real proof."
+  - id: operate-desktop-adaptively-setup-hangs
+    prompt: "the setup exe for our internal tool just sits there on the license screen on a fresh windows box. can you run it through and show me what's on screen at each step"
+    lang: en
+    expect:
+      - operate-desktop-adaptively
+    forbid: []
+    fixture: bare
+    quick: true
+    why: "Terse and concrete: a native program that has to be driven and observed screen by screen, phrased without any evidence or tooling vocabulary."
+  - id: refactor-cleanly-coupon-rounding-copies
+    prompt: "went to add a coupon line to the totals and found the same rounding math typed out in cart.js and again in the script tag inside index.html, with different decimals. im not asking for the coupon yet, just make those two survivable first and the numbers on screen have to come out exactly the same as today"
+    lang: en
+    expect:
+      - refactor-cleanly
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Narrative with the real-world symptom that triggers this work - a feature request that stalls on divergent copy-pasted logic - and it explicitly defers the feature, which is the distinguishing signal."
+  - id: refactor-cleanly-lose-fifteen-minutes
+    prompt: "src/inventory.py works but i lose 15 minutes every time i open it. can you split that thing into pieces with real names, output has to stay identical"
+    lang: en
+    expect:
+      - refactor-cleanly
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "Terse and hedged the way a developer types when the code is correct and only reading it hurts, with the no-behaviour-change constraint stated as 'output has to stay identical' rather than in the skill's own words."
+  - id: refactor-cleanly-new-hire-monday
+    prompt: "new person joins monday and shes going to live in src/inventory.py. right now theres one function in there doing the validation the price math and the log line all at once, half the locals are single letters, and theres a commented out block from whoever had it before me"
+    lang: en
+    expect:
+      - refactor-cleanly
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Describes a situation and a deadline without asking for any action at all, which is how comprehension debt usually gets raised in a real thread."
+  - id: refactor-cleanly-tests-es
+    prompt: "los tests de inventory están hechos un lío, hay uno que se llama test_2 y comprueba seis cosas a la vez así que cuando salta no sé ni qué se ha roto. déjalos de forma que se vea qué prueba cada uno, sin tocar src de momento"
+    lang: es
+    expect:
+      - refactor-cleanly
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Natural Spanish complaint about unreadable test code, a scenario the English prompts never touch, with the colloquial 'hechos un lío' and 'no sé ni qué se ha roto' a Spanish developer would actually type."
+  - id: research-systematically-dos-caminos-es
+    prompt: "tengo dos maneras de calcular lo mismo y cada vez que las mido me sale un resultado distinto, así que llevo días convencido de una y no puedo demostrarlo. quiero dejar por escrito qué voy a probar y cuándo paro antes de empezar, porque si no acabo justificando la que ya me gustaba"
+    lang: es
+    expect:
+      - research-systematically
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "A distinct Spanish scenario about noisy repeated measurements, ending in the honest admission that motivates freezing the plan and the stopping point beforehand."
+  - id: research-systematically-lookup-speed-claim
+    prompt: "i want a real number on whether the new lookup beats the old one before i go telling people it does, and i dont want to end up keeping the run that made me look good"
+    lang: en
+    expect:
+      - research-systematically
+    forbid:
+      - diagnose-systematically
+    fixture: pylib
+    quick: false
+    why: "Terse, and the self-distrust clause is exactly why someone reaches for a frozen protocol; the speed comparison makes defect diagnosis the obvious thief, so it is forbidden."
+  - id: research-systematically-review-caught-me
+    prompt: "last time i brought numbers to review the lead noticed id only written down the runs that agreed with me. the question is still open, the cache either helps or i imagined it, and this time whatever comes out has to hold up when someone else looks at it"
+    lang: en
+    expect:
+      - research-systematically
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Names no action, only the embarrassment of cherry-picked results and the need for an outside reader to accept the answer, which is the situation this process exists for."
+  - id: research-systematically-standup-argument
+    prompt: "we've been going round in circles in standup for two weeks about whether batching the writes actually helps. everyone has an anecdote and none of them agree. can we settle it for real, and write down up front what result would mean im wrong so nobody moves the goalposts afterwards"
+    lang: en
+    expect:
+      - research-systematically
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "The commonest real trigger - a team argument nobody can settle - and 'write down up front what would mean im wrong' is a falsifier request phrased the way an engineer says it out loud."
+  - id: solve-efficiently-campo-notas-es
+    prompt: "hay que añadir un campo de notas del cliente y eso acaba en el formulario, en lo que se guarda del carrito y en el resumen de confirmación. no tengo claro cuántos sitios tocan eso, mira tú primero y luego lo hacemos del tirón"
+    lang: es
+    expect:
+      - solve-efficiently
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Spanish request for a field that propagates through form, storage and confirmation, with the very common 'mira tú primero' handing discovery over before any edit."
+  - id: solve-efficiently-currency-symbol-three-places
+    prompt: "three different places build the price string, one in the markup one in cart.js and i think login.js has a copy for the receipt line. product now wants the currency symbol in front instead of behind"
+    lang: en
+    expect:
+      - solve-efficiently
+    forbid:
+      - refactor-cleanly
+    fixture: webshop
+    quick: false
+    why: "States a situation with no verb of instruction; the mention of duplicated code makes tidy-up the likely thief even though the request is a behaviour change across files."
+  - id: solve-efficiently-promo-code-box
+    prompt: "we want a promo code box at checkout. it lands in index.html, cart.js and probably whatever login.js does with the session. find where it all connects before you start typing"
+    lang: en
+    expect:
+      - solve-efficiently
+    forbid: []
+    fixture: webshop
+    quick: true
+    why: "Short feature request that already spans three files and explicitly asks for discovery before edits, phrased as an impatient instruction rather than a process description."
+  - id: solve-efficiently-qty-rename-spread
+    prompt: "renaming qty to quantity looked like a five minute job and then i found it in the markup in two js files and in one of the checks. ive already broken checkout once today so do the whole thing properly this time and tell me what you actually ran"
+    lang: en
+    expect:
+      - solve-efficiently
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Narrative with the symptom of a change whose reach was underestimated, plus the very human 'tell me what you actually ran' that a burned developer adds after breaking something."
+  - id: use-current-docs-callback-second-arg
+    prompt: "lost an hour on this yesterday. the example im following passes a callback as the second argument and ours blows up saying it wants a dict instead. that snippet came off a tutorial thats a good two years old, so go and look up what the signature should be against whats in our requirements file. dont answer off the top of your head"
+    lang: en
+    expect:
+      - use-current-docs
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Narrative with a concrete signature mismatch and the giveaway that the reference material is stale, ending in the explicit refusal to accept a recalled answer."
+  - id: use-current-docs-flag-de-build-es
+    prompt: "el comando de build que tenemos en los scripts del package.json peta con que la flag no existe, y en el changelog vi algo de que la cambiaron. ¿puedes mirar qué versión estamos usando y decirme cómo se escribe ahora esa flag? no me la inventes"
+    lang: es
+    expect:
+      - use-current-docs
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Spanish scenario about a command-line flag rather than a library call, with 'peta' and the flat 'no me la inventes' that Spanish developers add when they suspect a guessed answer."
+  - id: use-current-docs-package-json-pin
+    prompt: "before you touch cart.js look at what package.json actually pins for that http client, the options object i copied off stackoverflow is probably a couple of majors behind"
+    lang: en
+    expect:
+      - use-current-docs
+    forbid: []
+    fixture: webshop
+    quick: true
+    why: "Terse and specific about establishing the installed release first, with the copied-from-stackoverflow admission that is the real reason people ask for this check."
+  - id: use-current-docs-parseiso-renamed
+    prompt: "theres a deprecation warning in the test output saying parseIso got renamed, and were pinned to an old minor. nobody here knows if the new name exists in the version we have or only in the next major"
+    lang: en
+    expect:
+      - use-current-docs
+    forbid:
+      - diagnose-systematically
+    fixture: webshop
+    quick: false
+    why: "Pure situation report with no request attached; the warning in test output makes defect investigation the plausible thief when the actual need is a version-matched lookup."
+  - id: verify-delivery-claims-dont-match-state
+    prompt: "the previous session signed off saying everything was green and pushed but my log and origin dont line up and i never actually saw the test output myself. something is off in there"
+    lang: en
+    expect:
+      - verify-delivery
+    forbid: []
+    fixture: pylib
+    quick: true
+    why: "Narrative with a concrete symptom (local vs remote mismatch, unseen test output) and no request verb, the way a developer distrusts a prior report."
+  - id: verify-delivery-es-refactor-madrugada
+    prompt: "terminé el refactor de inventario ayer de madrugada y puse que quedaba todo cubierto, pero ya no me acuerdo si llegué a correr los tests ni de qué toqué de más"
+    lang: es
+    expect:
+      - verify-delivery
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Spanish developer admitting a late-night claim they cannot back up, with the natural hedging and dropped subjects of real chat."
+  - id: verify-delivery-merge-signoff
+    prompt: "cart branch is done and i already told the team it's good. before i hit merge can you go through it properly, i rushed the last bit"
+    lang: en
+    expect:
+      - verify-delivery
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Terse pre-merge handoff phrased as social pressure plus self-doubt, which is how sign-off requests actually arrive."
+  - id: verify-delivery-name-on-it-friday
+    prompt: "this goes out friday and im the one whose name ends up on it. i wasnt around while most of it got written and the summary reads a bit too clean"
+    lang: en
+    expect:
+      - verify-delivery
+    forbid:
+      - solve-efficiently
+    fixture: webshop
+    quick: false
+    why: "Describes a situation and an accountability worry without naming any action, so activation must come from the scenario rather than a verb."
+  - id: verify-installation-es-cambio-de-disco
+    prompt: "moví la carpeta de las extensiones a otro disco para hacer sitio y desde entonces no sé si aquello sigue enganchado o solo está ahí ocupando espacio. ¿hay forma de comprobarlo sin ir a ciegas?"
+    lang: es
+    expect:
+      - verify-installation
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Relocation scenario in casual Spanish, distinct from the English cases, ending in the doubt that only execution resolves."
+  - id: verify-installation-fresh-windows-box
+    prompt: "fresh windows box, python came from the store, everything else i dragged over from the old machine. before i put real work through this id rather know whats alive and what isnt"
+    lang: en
+    expect:
+      - verify-installation
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "A situation description whose details (Store Python, dragged-over files) are the real failure conditions, with no action requested."
+  - id: verify-installation-new-laptop
+    prompt: "set all this up again on the new laptop last night, no clue if any of it actually runs here or if i just copied a bunch of files around"
+    lang: en
+    expect:
+      - verify-installation
+    forbid:
+      - verify-delivery
+    fixture: bare
+    quick: false
+    why: "Terse post-migration doubt that separates files being present from anything executing, the exact distinction the workflow opens with."
+  - id: verify-installation-nothing-written
+    prompt: "since i pulled the new version this morning nothing lands in that folder under my home dir, its just empty. edits go through fine but afterwards theres nothing on disk"
+    lang: en
+    expect:
+      - verify-installation
+    forbid:
+      - diagnose-systematically
+    fixture: pylib
+    quick: true
+    why: "Reports the observable symptom of storage not being written after an update without naming the mechanism, which is how this breakage is noticed."
+  - id: verify-web-behavior-cart-empties-reports
+    prompt: "three people this week said their cart is empty when they come back to the tab later, i cant make it happen on my machine but theyre all describing the same thing"
+    lang: en
+    expect:
+      - verify-web-behavior
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "User-reported browser behavior with no verb at all, testing whether the situation alone is enough to reach the browser evidence path."
+  - id: verify-web-behavior-checkout-retry-culture
+    prompt: "the checkout spec goes red about one run in five and passes if you just rerun it, everyone hits retry now and nobody looks at why"
+    lang: en
+    expect:
+      - verify-web-behavior
+    forbid:
+      - diagnose-systematically
+    fixture: webshop
+    quick: false
+    why: "Narrative about an unstable browser test and the team habit around it, phrased as a complaint rather than a request."
+  - id: verify-web-behavior-es-estilos-pago
+    prompt: "toqué los estilos del formulario de pago y los unitarios pasan igual, pero quiero ver que de verdad se puede completar una compra antes de subir esto"
+    lang: es
+    expect:
+      - verify-web-behavior
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Spanish developer distinguishing passing unit tests from an actually completable purchase flow, a different scenario from the English cases."
+  - id: verify-web-behavior-login-button-dead
+    prompt: "login button just sits there on the deployed build, works fine when i run it locally. can someone actually click through it in a browser and see what it does"
+    lang: en
+    expect:
+      - verify-web-behavior
+    forbid: []
+    fixture: webshop
+    quick: true
+    why: "Known, reproducible UI symptom with an explicit ask to drive the real browser, the most common way this request is typed."

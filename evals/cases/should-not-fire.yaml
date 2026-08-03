@@ -1,0 +1,189 @@
+# Should-not-fire corpus: no workflow may be invoked.
+#
+# The binding constraint on everything else. A workflow firing here is a
+# worse failure than one that fails to fire, because noise on ordinary work
+# is what teaches an agent to stop reading the channel.
+#
+# `forbid` names the sibling each near miss sits beside, so a case that
+# fails says which workflow overreached rather than only that one did.
+
+version: 1
+suite: should-not-fire
+cases:
+  - id: nearmiss-button-colour
+    prompt: "the log in button in src/index.html is still browser default grey, make it #2b6cb0. just the colour nothing else"
+    lang: en
+    expect: []
+    forbid:
+      - design-intentionally
+    fixture: webshop
+    quick: true
+    why: "One CSS value with an exact target already chosen by the user, so there is no visual direction left to establish."
+  - id: nearmiss-es-one-more-test
+    prompt: "en tests/test_inventory.py mete un test mas para cuando la lista llega vacia, nada mas"
+    lang: es
+    expect: []
+    forbid:
+      - legacy-safe-changes
+      - verify-delivery
+    fixture: pylib
+    quick: true
+    why: "Adding a case to a file that already has tests is routine work; there is no untested code needing a safety net first."
+  - id: nearmiss-es-version-package-json
+    prompt: "en dos palabras, que version pone el package.json de esto"
+    lang: es
+    expect: []
+    forbid:
+      - communicate-efficiently
+    fixture: webshop
+    quick: false
+    why: "Explicitly asks for brevity, which tempts the reporting workflow, but the answer is a single number from package.json."
+  - id: nearmiss-es-que-python-tengo
+    prompt: "oye una cosa, que version de python tengo aqui"
+    lang: es
+    expect: []
+    forbid:
+      - verify-installation
+    fixture: bare
+    quick: false
+    why: "Asking the interpreter version is one command, not a claim that a plugin runs on this host."
+  - id: nearmiss-es-docstring-una-linea
+    prompt: "esto lo voy a tener abierto toda la tarde pero es una tonteria, ponle un docstring de una linea a value() en inventory.py y ya"
+    lang: es
+    expect: []
+    forbid:
+      - execute-durably
+    fixture: pylib
+    quick: true
+    why: "Mentions a long afternoon, which is the durable workflow's bait, while the actual task finishes in one pass."
+  - id: nearmiss-is-data-an-ok-name
+    prompt: "thinking of just calling the new param in restock() `data`. fine or would you pick something else"
+    lang: en
+    expect: []
+    forbid:
+      - design-review
+    fixture: pylib
+    quick: false
+    why: "A one-word naming opinion asked casually, not a structural sweep over a module boundary."
+  - id: nearmiss-just-run-tests
+    prompt: "run the test suite and tell me if its green, i havent touched anything since this morning"
+    lang: en
+    expect: []
+    forbid:
+      - verify-delivery
+    fixture: pylib
+    quick: true
+    why: "Running tests on an unchanged tree is a command, not an audit of a completion claim."
+  - id: nearmiss-known-off-by-one
+    prompt: "in src/inventory.py the qty vs min check uses < where it should be <=, thats the off by one i was seeing. just change it"
+    lang: en
+    expect: []
+    forbid:
+      - diagnose-systematically
+      - solve-efficiently
+    fixture: pylib
+    quick: true
+    why: "The cause is already stated by the user and the fix is one character, so there is nothing left to investigate."
+  - id: nearmiss-name-that-symbol
+    prompt: "in NOTES.md whats that Q in the correction term called again, just the name is fine"
+    lang: en
+    expect: []
+    forbid:
+      - eli5
+    fixture: paper
+    quick: false
+    why: "Naming one glyph is a lookup; the reader is not asking for the passage to be made accessible."
+  - id: nearmiss-python-is-operator
+    prompt: "remind me, is `is` ever safe for comparing small ints in python or am i imagining that"
+    lang: en
+    expect: []
+    forbid:
+      - use-current-docs
+    fixture: pylib
+    quick: false
+    why: "A general language-semantics question with no installed dependency or version behind it, unlike a real API-drift lookup."
+  - id: nearmiss-rename-one-var
+    prompt: "in src/inventory.py theres a var called o inside restock, call it order instead. thats the only thing i want changed"
+    lang: en
+    expect: []
+    forbid:
+      - refactor-cleanly
+    fixture: pylib
+    quick: true
+    why: "A single mechanical rename with the scope explicitly fenced off, which is ordinary editing rather than a readability pass."
+  - id: nearmiss-script-tag-present
+    prompt: "does index.html actually pull in cart.js or did i forget the script tag again"
+    lang: en
+    expect: []
+    forbid:
+      - verify-web-behavior
+    fixture: webshop
+    quick: false
+    why: "Answerable by reading one line of markup; nothing about it needs a browser to be driven."
+  - id: nearmiss-version-bump-two-files
+    prompt: "bump package.json to 0.3.0 and put the same version in the README title line so they match. two edits"
+    lang: en
+    expect: []
+    forbid:
+      - solve-efficiently
+      - execute-durably
+    fixture: webshop
+    quick: false
+    why: "Two files, but the user already named both and the change is textual, so multi-file does not mean cross-boundary."
+  - id: nearmiss-what-is-this-repo
+    prompt: "someone handed me this repo and i have a call in ten minutes, what does it actually do. just tell me, no need to write anything down"
+    lang: en
+    expect: []
+    forbid:
+      - map-project
+    fixture: pylib
+    quick: true
+    why: "Orientation asked for out loud and explicitly not as durable memory, which is the exact line the mapping workflow sits on."
+  - id: nofire-crow-raven
+    prompt: "whats the actual difference between a crow and a raven"
+    lang: en
+    expect: []
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Idle trivia typed between tasks, phrased exactly as it would be in a browser search bar."
+  - id: nofire-dinner-chicken
+    prompt: "cooking for 6 tonight and all i have is chicken thighs rice and one lemon. any ideas"
+    lang: en
+    expect: []
+    forbid: []
+    fixture: webshop
+    quick: false
+    why: "Off-topic personal question asked from inside a code workspace, which is where the pool is actually tested."
+  - id: nofire-es-que-veo-esta-noche
+    prompt: "me recomiendas algo para ver esta noche, algo cortito que estoy reventado"
+    lang: es
+    expect: []
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "End-of-day small talk in Spanish with no engineering content at all."
+  - id: nofire-haiku-tuesday
+    prompt: "write me a haiku about rain on a tuesday"
+    lang: en
+    expect: []
+    forbid: []
+    fixture: bare
+    quick: true
+    why: "Developers ask for throwaway creative writing mid-session; nothing here touches code or process."
+  - id: nofire-morning-greeting
+    prompt: "morning. hows it going"
+    lang: en
+    expect: []
+    forbid: []
+    fixture: bare
+    quick: false
+    why: "Pure greeting at session start, the most common zero-content message there is."
+  - id: nofire-octopus-plural
+    prompt: "is it octopuses or octopi. i have money on this"
+    lang: en
+    expect: []
+    forbid: []
+    fixture: pylib
+    quick: false
+    why: "Language trivia sent from a code repo, hedged and unpunctuated the way a real aside arrives."

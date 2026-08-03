@@ -159,7 +159,7 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
             if stamp_path.read_text(encoding="utf-8").strip() == stamp:
                 return {"status": "current", "reason": "worktree unchanged"}
         # Silence is this hook's contract, not an oversight: CLAUDE.md,
-        # "Four hooks, three shapes", makes semantic_index advisory in full.
+        # "Five hooks, three shapes", makes semantic_index advisory in full.
         # An unreadable stamp means the index is refreshed again, which is the
         # harmless direction; reporting it would spend a startup message on a
         # cache miss.
@@ -198,7 +198,7 @@ def refresh(payload: dict[str, Any], *, runner=subprocess.run) -> dict[str, Any]
     if stamp is not None:
         try:
             stamp_path.write_text(stamp, encoding="utf-8")
-        # Same contract as above (CLAUDE.md, "Four hooks, three shapes"). The
+        # Same contract as above (CLAUDE.md, "Five hooks, three shapes"). The
         # refresh already succeeded, so failing to record the stamp costs one
         # redundant rebuild next time and nothing else.
         except OSError:

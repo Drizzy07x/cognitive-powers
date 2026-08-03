@@ -179,7 +179,10 @@ The recorded failure modes of that harness are the most useful part for us:
 
 ## 6. Constraints that bound any description rewrite
 
-The routing benchmark is not advisory. Current values against their floors:
+The routing benchmark is not advisory. Values as measured **before** that mission, against their
+floors — a snapshot of what bounded the rewrite, not a live reading. The mission moved one of them:
+`min_spanish_rate` now reports 1.00 of 58, so the 0.02 of headroom below is the figure the work was
+planned against rather than the figure it left behind.
 
 | Metric | Floor | Current | Headroom |
 |---|---|---|---|

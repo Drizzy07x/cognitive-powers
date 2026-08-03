@@ -1,0 +1,90 @@
+# Requests where more than one workflow should fire.
+#
+# `mode: all` throughout: a request that needs two workflows is not served
+# by either one alone, so partial credit would report a half-answer as a
+# pass.
+
+version: 1
+suite: multi-skill
+cases:
+  - id: design-verify-web-storefront-facelift
+    prompt: "the storefront looks like a bootstrap template from 2014 and my cofounder can't stand it. give the landing page and the cart an actual feel, something warmer and less stock. once things move around click through add to cart and signing in so we know nothing came apart"
+    lang: en
+    expect:
+      - design-intentionally
+      - verify-web-behavior
+    forbid: []
+    fixture: webshop
+    quick: false
+    mode: all
+    why: "The complaint is aesthetic and stated as taste rather than as a spec, and the tacked-on 'click through add to cart' is the after-the-move regression worry that real people append to a restyling request."
+  - id: diagnose-legacy-verify-wrong-totals
+    prompt: "totals come out wrong on some orders, maybe one in twenty, nobody's pinned it down yet. inventory.py has no coverage worth the name so whatever you end up touching i need to know it didn't change anything else, and i'd like someone independent to sign off before this goes near prod"
+    lang: en
+    expect:
+      - diagnose-systematically
+      - legacy-safe-changes
+      - verify-delivery
+    forbid:
+      - refactor-cleanly
+    fixture: pylib
+    quick: false
+    mode: all
+    why: "An intermittent wrong result nobody has explained, sitting in code with no safety net, and a sign-off gate before production is one continuous sentence in real life even though it is three separate concerns."
+  - id: diagnose-verify-web-checkout-dead
+    prompt: "the log in button is dead. you press it, the page just sits there, console stays empty. work out why that is, and then i want that open the page and press log in path driven in a real browser so we're not just taking your word for it"
+    lang: en
+    expect:
+      - diagnose-systematically
+      - verify-web-behavior
+    forbid:
+      - explore-web-adaptively
+    fixture: webshop
+    quick: true
+    mode: all
+    why: "A dead click with no console error is the classic unknown-cause report, and the second half asks for a real browser run of a flow the user already knows, which is exactly the split between finding the cause and proving it at the user-visible seam."
+  - id: docs-solve-session-lib-es
+    prompt: "quiero meter passport para las sesiones del login, que ahora mismo no hay nada de eso montado. el package.json esta casi vacio, asi que mira que tenemos y que version nos toca coger, y no vayas de memoria con esa api que la cambiaron hace poco: mirate lo que publican ellos ahora. y ojo que esto toca login.js, cart.js y el index.html a la vez"
+    lang: es
+    expect:
+      - use-current-docs
+      - solve-efficiently
+    forbid: []
+    fixture: webshop
+    quick: false
+    mode: all
+    why: "Distrusting your own memory of an external API and asking which version is really installed is the honest phrasing a developer uses, and the closing warning about which files it drags in makes the cross-file work explicit without labelling it."
+  - id: legacy-safe-verify-rounding-change
+    prompt: "i have to make restock() in inventory.py round what it adds up to the nearest case of 12. the catch is tests/ only touches value(), and two other services import this module so i can't chase down every place it runs. nothing else about what it returns should shift for them. when it's done get a fresh pair of eyes on it before i merge"
+    lang: en
+    expect:
+      - legacy-safe-changes
+      - verify-delivery
+    forbid:
+      - refactor-cleanly
+    fixture: pylib
+    quick: false
+    mode: all
+    why: "Real requests state the change, the missing coverage, and the unenumerable callers in one breath, and asking for a fresh pair of eyes before merging is how people ask for an independent audit without calling it one."
+  - id: map-solve-inherited-warehouse-feed
+    prompt: "took this over from a contractor last week, never opened it before. first thing on my list is making stock counts come off the new warehouse feed, which as far as i can tell means inventory.py, wherever the counts get read in, and the tests. and honestly leave notes about how the thing hangs together, i'm not going to remember any of this next month"
+    lang: en
+    expect:
+      - map-project
+      - solve-efficiently
+    forbid: []
+    fixture: pylib
+    quick: false
+    mode: all
+    why: "Inheriting a repo and immediately having a task that spans several files is the ordinary way both needs arrive at once, and 'leave notes' is how someone asks for reusable orientation without asking for documentation."
+  - id: solve-durable-cart-through-login
+    prompt: "we're carrying the guest cart through sign in so nothing gets dropped when someone logs in. that's cart.js and login.js and the markup, plus whatever tests exist. this is going to take a few sittings and every time this chat gets long i lose where we were, so keep a running record somewhere that isn't this window and start from that tomorrow instead of me re-explaining"
+    lang: en
+    expect:
+      - solve-efficiently
+      - execute-durably
+    forbid: []
+    fixture: webshop
+    quick: true
+    mode: all
+    why: "Naming the three files carries the cross-layer shape without saying multi-module, and 'every time this chat gets long i lose where we were' is how a developer actually describes losing a thread to compaction."
