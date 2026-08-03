@@ -476,11 +476,27 @@ def post_tool_use(payload: dict[str, Any]) -> None:
     if cwd is None:
         return
     candidates = _candidate_paths(tool_name, _tool_input(payload))
+    files = _file_records(cwd, candidates, data_root)
+    if candidates and not files:
+        # Every path this call named resolved outside the working directory or
+        # inside the evidence store, so nothing of this session's work changed
+        # and no file exists to bind a receipt to. Arming the gate here printed
+        # a remediation nothing could satisfy: one write to a scratch directory
+        # under TEMP was enough, and an agent told to produce a receipt it
+        # cannot produce learns to fabricate one or to ignore the gate.
+        # An empty list is proof only when something was named. With no
+        # candidate at all -- a shell tool, or a patch whose headers did not
+        # parse -- the payload said nothing about what it touched, which is an
+        # absence of information rather than evidence, so that event still
+        # records and still warns. record_oversized_payload calls
+        # _append_event directly for the same reason and this guard never
+        # reaches it: its event carries payloadTruncated and no files at all.
+        return
     fields = {
         "turnId": _first(payload, "turnId", "turn_id"),
         "tool": tool_name,
         "cwd": str(cwd),
-        "files": _file_records(cwd, candidates, data_root),
+        "files": files,
     }
     _append_event(data_root, session_id, fields)
 

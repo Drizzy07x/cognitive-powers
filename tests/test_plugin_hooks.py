@@ -214,9 +214,10 @@ class PluginHookTests(unittest.TestCase):
         payload = self.payload("Write")
         payload["toolInput"] = {"file_path": str(outside)}
         self.run_hook("post-tool-use", payload)
-        event = json.loads(self.ledger().read_text(encoding="utf-8"))
-        self.assertEqual(event["files"], [])
-        self.assertNotIn("secret", self.ledger().read_text(encoding="utf-8"))
+        self.assertFalse(
+            self.ledger().exists(),
+            "a path outside the working directory is not this session's work",
+        )
 
     def test_data_root_under_the_working_directory_still_records_provenance(
         self,
@@ -256,8 +257,8 @@ class PluginHookTests(unittest.TestCase):
             json.loads(line)
             for line in self.ledger().read_text(encoding="utf-8").splitlines()
         ]
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[1]["files"], [], "the evidence store is not user work")
+        self.assertEqual(len(events), 1, "the evidence store is not user work")
+        self.assertNotIn("unrelated.txt", self.ledger().read_text(encoding="utf-8"))
 
     def test_an_oversized_payload_still_reaches_the_stop_gate(self) -> None:
         """A dropped edit must not be indistinguishable from no edit.
@@ -280,6 +281,58 @@ class PluginHookTests(unittest.TestCase):
         self.assertEqual(events[0]["files"], [], "no file identity was parsed")
         self.assertEqual(events[0]["cwd"], str(self.repo))
         self.assertEqual(events[0]["tool"], "Write")
+
+        stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertIn("no current", json.loads(stop.stdout)["systemMessage"])
+
+    def test_editing_only_outside_cwd_leaves_the_stop_gate_silent(self) -> None:
+        """A warning an honest agent cannot clear teaches it to ignore the gate.
+
+        A session whose every write lands outside the working directory -- a
+        scratch directory under TEMP is the routine case -- appended an event
+        carrying no files, and the gate armed on the event existing. The
+        remediation it printed could not be satisfied: there is no criterion to
+        bind a receipt to and no file left to hash. This is the sibling of the
+        oversized-payload case above and the two must stay apart, so this pins
+        the silent half and that one pins the warning half.
+        """
+        outside = self.base / "scratch" / "note.md"
+        outside.parent.mkdir()
+        outside.write_text("scratch\n", encoding="utf-8")
+
+        payload = self.payload("Write")
+        payload["toolInput"] = {"file_path": str(outside)}
+        result = self.run_hook("post-tool-use", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.ledger().exists())
+
+        stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertEqual(stop.returncode, 0, stop.stderr)
+        self.assertEqual(stop.stdout.strip(), "", "nothing under cwd changed")
+
+    def test_a_payload_naming_no_path_at_all_still_arms_the_stop_gate(self) -> None:
+        """Naming nothing is not the same evidence as naming only outsiders.
+
+        The guard above reads an empty file list as proof that nothing under the
+        working directory changed. That reading holds only because a path was
+        named and resolved elsewhere. A shell tool names none, and a patch whose
+        headers do not parse names none either, so the event says nothing about
+        what it touched -- the NotebookEdit defect this hook already records was
+        exactly that shape. Widening the guard to every empty list would turn
+        those from uninformative into invisible.
+        """
+        payload = self.payload("apply_patch")
+        payload["toolInput"] = {"patch": "@@\n-old\n+new"}
+        result = self.run_hook("post-tool-use", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["files"], [])
+        self.assertNotIn("payloadTruncated", events[0])
 
         stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
         self.assertIn("no current", json.loads(stop.stdout)["systemMessage"])
@@ -569,15 +622,9 @@ class PluginHookTests(unittest.TestCase):
             result = self.run_hook("post-tool-use", payload)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-        events = [
-            json.loads(line)
-            for line in self.ledger().read_text(encoding="utf-8").splitlines()
-        ]
-        self.assertTrue(events)
-        self.assertTrue(all(event["files"] == [] for event in events))
-        self.assertNotIn(
-            "do-not-record",
-            self.ledger().read_text(encoding="utf-8"),
+        self.assertFalse(
+            self.ledger().exists(),
+            "an escaped path records neither its identity nor an event",
         )
 
     def test_short_lock_contention_does_not_silently_drop_event(self) -> None:
