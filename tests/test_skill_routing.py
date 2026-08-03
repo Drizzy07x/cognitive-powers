@@ -173,10 +173,39 @@ class SkillRoutingTests(unittest.TestCase):
             ("diseño", "design"),
             ("página", "pagina"),
             ("análisis", "analysi"),
-            ("implementación", "implement"),
+            # "imple", not "implement": the stem is the fixpoint, and the
+            # English "implementation" these prompts have to meet reaches the
+            # same token only because both are stemmed all the way down.
+            ("implementación", "imple"),
         ):
             with self.subTest(text=text):
                 self.assertEqual(core.tokenize(text), [expected])
+
+    def test_stemming_a_stem_changes_nothing(self) -> None:
+        """A stem that is itself stemmable splits one concept into two tokens.
+
+        Stripping a single suffix and returning did exactly that: "implement"
+        became "imple" while "implementation" stopped at "implement", so the
+        only skill describing itself as spanning "implementation" shared no
+        token with a user asking to implement something -- and
+        diagnose-systematically, which writes "implement" in a clause about
+        not implementing, was the one that matched instead. Idempotence is the
+        property that was missing, so assert it directly rather than pinning
+        the handful of pairs noticed so far.
+        """
+        for word in self._repository_english():
+            with self.subTest(word=word):
+                self.assertEqual(core._stem(core._stem(word)), core._stem(word))
+
+    def test_a_word_and_its_longer_form_reach_one_token(self) -> None:
+        """The pairs the split was found through, kept as regression cases."""
+        for shorter, longer in (
+            ("implement", "implementation"),
+            ("document", "documentation"),
+            ("measure", "measurements"),
+        ):
+            with self.subTest(pair=(shorter, longer)):
+                self.assertEqual(core._stem(shorter), core._stem(longer))
 
     def test_spanish_cases_cover_every_skill_and_its_own_quiet_corpus(self) -> None:
         data = json.loads(CASES_PATH.read_text(encoding="utf-8"))

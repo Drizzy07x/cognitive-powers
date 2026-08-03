@@ -83,23 +83,39 @@ def _fold(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+_SUFFIXES = (
+    "ization",
+    "ation",
+    "ments",
+    "ment",
+    "ingly",
+    "edly",
+    "ing",
+    "ies",
+    "ed",
+    "es",
+    "s",
+)
+
+
+# Stripping one suffix and returning left the result stemmable, so a word and
+# the longer form built from it landed on different tokens: "implement" lost
+# "ment" and became "imple", while "implementation" lost "ation" and stopped at
+# "implement". A user asking to "implement" something therefore shared no token
+# with the one skill whose description says "implementation" -- and did share
+# one with diagnose-systematically, which says "implement" outright in a clause
+# about *not* implementing. The same split hid "documentation" from "document".
+# Stemming to a fixpoint is what makes the two forms one token; it cannot make
+# a stem shorter than the guard already allows, because the guard is rechecked
+# on every pass.
 def _stem(token: str) -> str:
-    for suffix in (
-        "ization",
-        "ation",
-        "ments",
-        "ment",
-        "ingly",
-        "edly",
-        "ing",
-        "ies",
-        "ed",
-        "es",
-        "s",
-    ):
-        if token.endswith(suffix) and len(token) > len(suffix) + 3:
-            return token[: -len(suffix)]
-    return token
+    while True:
+        for suffix in _SUFFIXES:
+            if token.endswith(suffix) and len(token) > len(suffix) + 3:
+                token = token[: -len(suffix)]
+                break
+        else:
+            return token
 
 
 # Spanish content words, mapped onto the English the descriptions are written
