@@ -223,11 +223,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.9.2
+& ./install.ps1 -ReleaseRef v1.10.0
 ```
 
 ```bash
-./install.sh --release-ref v1.9.2
+./install.sh --release-ref v1.10.0
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -271,7 +271,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.9.2
+  --installed-root <installed-root> --tag v1.10.0
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
@@ -327,15 +327,22 @@ running a pre-fix tree that reported the fixed version.
    schedule, on dispatch, and on the tag itself, so a bump left untagged
    overnight turns Validate red rather than shipping a README that lies. Close
    the window in the same session, or move the carriers back.
-4. Publish: dispatch `publish-release.yml` with the tag and the validation run
-   id, or let the auto-publish bridge do it when `AUTO_PUBLISH` is `true`.
-   `verify-release.yml` fires on publication and re-checks the assets and the
-   release body against the changelog.
-5. Post-publication: add the new tag to `docs/releases.json` (it records only
-   published releases, so it moves after the tag exists), advance the
-   `DRY_RUN_RELEASE_REF` repository variable to the new tag so the nightly dry
-   run exercises it, and update local installations -- a same-version cache is
-   never refreshed in place.
+4. Nothing. `AUTO_PUBLISH` is `true`, so the green tag run dispatches
+   `publish-release.yml` itself; `verify-release.yml` then re-checks the assets
+   and the release body against the changelog, and its `record-published-release`
+   job commits the new tag into `docs/releases.json` on `main`.
+
+   That entry used to be a manual post-publication step, and it was the only
+   step no gate could watch: it ran after every gate had finished, on a release
+   that was already out. It failed the way that shape of step always eventually
+   fails -- v1.10.0 shipped and was never recorded, so the documented rollback
+   target would have skipped past it. There is no longer a `DRY_RUN_RELEASE_REF`
+   variable either; the nightly dry run reads the newest entry of the same file,
+   which is now written by the job that proved the release real rather than by
+   whoever remembered.
+
+Local installations are the one thing still worth doing by hand, and only when
+an update is intended: a same-version cache is never refreshed in place.
 
 Updating an installed development plugin is a separate, explicitly authorized
 operation. After validation and only when an update is intended:

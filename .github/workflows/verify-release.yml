@@ -22,6 +22,8 @@ permissions:
 jobs:
   verify-published-assets:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.subject.outputs.tag }}
     steps:
       - name: Resolve the tag under verification
         id: subject
@@ -142,3 +144,70 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.subject.outputs.tag }}
         run: gh attestation verify "${{ runner.temp }}/release-download/cognitive-powers-${TAG#v}.tar" --repo "${{ github.repository }}"
+
+  record-published-release:
+    # The one checklist step no gate could ever watch, because it ran after
+    # every gate had finished on a release that was already out. It failed the
+    # way that shape of step always eventually fails: a release was published
+    # and never entered docs/releases.json, so the documented rollback target
+    # would have sent a reader recovering from a bad release past the release
+    # in between it. The changelog names which one; this file must carry no
+    # release literal, because a gate pinned to a version is not a gate.
+    #
+    # Recording it here binds the entry to the verification that just
+    # reproduced the archive from the tagged source and checked its
+    # provenance, so the record cannot exist without the evidence for it. It
+    # runs after that job and only when it succeeded: a release this workflow
+    # could not verify is one docs/releases.json must keep refusing to claim.
+    needs: verify-published-assets
+    if: needs.verify-published-assets.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Record the verified tag as published
+        env:
+          TAG: ${{ needs.verify-published-assets.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$TAG" <<'PY'
+          import json, pathlib, sys
+
+          tag = sys.argv[1]
+          path = pathlib.Path("docs/releases.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          published = payload["published"]
+          if tag in published:
+              raise SystemExit(0)
+          # Newest first, ordered by version rather than by arrival: a
+          # re-verification of an older release must not claim to be the
+          # newest, and the rollback target is read off the front of this list.
+          def key(entry: str) -> tuple[int, ...]:
+              return tuple(int(part) for part in entry[1:].split("."))
+
+          published.append(tag)
+          published.sort(key=key, reverse=True)
+          path.write_text(
+              json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+              newline="\n",
+          )
+          PY
+          if git diff --quiet -- docs/releases.json; then
+            echo "docs/releases.json already records $TAG"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/releases.json
+          git commit -m "chore: record $TAG as published"
+          # Rebase rather than force anything: main may have moved while the
+          # release was being verified, and this commit adds one line to one
+          # file that nothing else writes.
+          git pull --rebase origin main
+          git push origin HEAD:main

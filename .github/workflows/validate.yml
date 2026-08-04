@@ -4,8 +4,8 @@ name: Validate
 # - every push/PR: manifest reproducibility, checksum, witness (seconds, pure
 #   python, against a runner-local tag that is never pushed)
 # - schedule (nightly) or dispatch with release_dry_run: additionally the real
-#   install/upgrade/rollback against the standing published tag in
-#   vars.DRY_RUN_RELEASE_REF, plus the aggregate byte-identity and asset-shape
+#   install/upgrade/rollback against the standing published tag named by
+#   docs/releases.json, plus the aggregate byte-identity and asset-shape
 #   gates -- everything a tag run proves except the receipts that are bound to
 #   this exact commit by design
 # - tag push: the full release path, unchanged
@@ -71,6 +71,28 @@ jobs:
           python scripts/validate_all.py --offline
           --json-output "${{ runner.temp }}/cognitive-powers-validation.json"
 
+      - name: Resolve the standing published release
+        id: published
+        # Read from the file the publisher itself now writes, rather than from
+        # a repository variable a human had to remember to advance. That
+        # variable drifted the one way it could -- a release shipped and it
+        # still named the previous one -- so the nightly dry run kept
+        # exercising a superseded tag while reporting green, which is the
+        # failure a dry run exists to make impossible. A carrier only a
+        # checklist maintains eventually stops being maintained; this one is
+        # written by the job that proved the release real. No release literal
+        # appears here on purpose: the gate must not be pinned to a version.
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || inputs.release_dry_run == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=$(python -c "import json,pathlib;print(json.loads(pathlib.Path('docs/releases.json').read_text(encoding='utf-8'))['published'][0])")
+          if [[ ! "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "docs/releases.json does not name a release tag first: '$ref'" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - name: Install and verify the release ref in a disposable Codex home
         id: immutable-install
         # On a tag this installs the tag under validation; on a dry run it
@@ -80,10 +102,10 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_REF: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || vars.DRY_RUN_RELEASE_REF }}
+          RELEASE_REF: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.published.outputs.ref }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RELEASE_REF)) {
-            throw "no release ref: set the DRY_RUN_RELEASE_REF repository variable to the newest published tag"
+            throw "no release ref: docs/releases.json named none and this is not a tag run"
           }
           $codexProfile = Join-Path "${{ runner.temp }}" "codex-profile"
           $env:CODEX_HOME = Join-Path $codexProfile ".codex"
@@ -187,7 +209,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_REF: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || vars.DRY_RUN_RELEASE_REF }}
+          RELEASE_REF: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.published.outputs.ref }}
           TAG_COMMIT: ${{ startsWith(github.ref, 'refs/tags/') && github.sha || '' }}
         run: |
           $expected = $env:TAG_COMMIT
