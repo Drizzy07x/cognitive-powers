@@ -72,9 +72,9 @@ on every platform: on Windows `python3` resolves to a Microsoft Store alias that
 exits without running Python. Verify the configured path with
 `<path> --version` before entering it.
 
-The Codex host has no equivalent user-config expansion, so `hooks/hooks.json`
-names the interpreter directly: `python3` on POSIX and the `py` launcher on
-Windows. Both are hard prerequisites there -- if the spelling does not run,
+The Codex host has no equivalent user-config expansion, so
+`hooks/hooks.codex.json` names the interpreter directly: `python3` on POSIX and
+the `py` launcher on Windows. Both are hard prerequisites there -- if the spelling does not run,
 every Codex hook silently never fires. `doctor.py --validate-installation`
 executes that exact spelling as the `codex-hook-interpreter` check and names
 the Microsoft Store stub explicitly when it is the culprit. Both hosts now
@@ -106,7 +106,7 @@ none.
 **Shell tools do not arm it on either host.** `SUPPORTED_TOOLS` in
 `hooks/selective_hooks.py` lists `bash` and the Codex shell spellings so the hook
 still behaves on a host that ignores matchers, but no shipped manifest routes a
-shell call to it: `hooks/hooks.json` matches `apply_patch|Edit|Write` and
+shell call to it: `hooks/hooks.codex.json` matches `apply_patch|Edit|Write` and
 `hooks/hooks.claude.json` matches `Edit|Write|MultiEdit|NotebookEdit`.
 `scripts/run_extension_benchmarks.py` asserts `Bash` stays out of that matcher.
 Invoking `post_tool_use` directly with a shell tool name does append an event and
@@ -223,11 +223,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.9.1
+& ./install.ps1 -ReleaseRef v1.9.2
 ```
 
 ```bash
-./install.sh --release-ref v1.9.1
+./install.sh --release-ref v1.9.2
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -271,7 +271,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.9.1
+  --installed-root <installed-root> --tag v1.9.2
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.

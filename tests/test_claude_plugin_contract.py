@@ -54,6 +54,32 @@ SPECIALIZED_SKILLS = {
 # Claude Code truncates description plus when_to_use in the skill listing.
 LISTING_CAP = 1536
 
+# Every component path Claude Code discovers without being told to, from the
+# file-locations table in the plugin reference. A manifest component field adds
+# a custom path; it never replaces this scan. That is the whole reason a second
+# host's file parked on one of these is loaded no matter what either manifest
+# declares.
+CLAUDE_DISCOVERY_PATHS = (
+    ".lsp.json",
+    ".mcp.json",
+    "SKILL.md",
+    "agents",
+    "bin",
+    "commands",
+    "hooks/hooks.json",
+    "monitors/monitors.json",
+    "output-styles",
+    "settings.json",
+    "skills",
+    "themes",
+    "workflows",
+)
+# The only two this plugin means Claude Code to pick up by convention. The
+# assertion is equality rather than absence of the known-bad name: what shipped
+# broken was not this filename, it was a path being scanned that nobody had
+# listed, and only the full convention can catch the next one.
+CLAUDE_OWNED_DISCOVERY_PATHS = frozenset({"agents", "skills"})
+
 
 class DeclaredSurfaceSizeTests(unittest.TestCase):
     def test_verifier_count_matches_the_named_surface(self) -> None:
@@ -153,6 +179,55 @@ class ClaudeManifestTests(unittest.TestCase):
             "safe default; on Windows python3 is a Microsoft Store stub",
         )
         self.assertIn("Store", option["description"])
+
+
+class ClaudeDiscoveryCollisionTests(unittest.TestCase):
+    """Nothing a second host owns may sit where Claude Code reads by convention.
+
+    Through 1.9.1 the Codex hook manifest was `hooks/hooks.json`, which is
+    Claude Code's default hook location, so it was loaded on top of the
+    `hooks.claude.json` the manifest declares and every hook ran twice. It
+    stayed invisible on Windows for the reason the duplicate was harmless
+    there: the Codex spelling names `python3`, which resolves to the Store stub
+    and fails, so the collision read as noise rather than as double injection.
+
+    The rule was already written down for one field -- declaring `skills` would
+    put `skills-core/` on top of the default `skills/` scan, and a test says so
+    -- and applied to no other. A rule that holds for the field someone
+    happened to think about is a rule about that field, not about the scan.
+    """
+
+    def test_no_foreign_manifest_sits_on_a_claude_discovery_path(self) -> None:
+        present = {
+            relative
+            for relative in CLAUDE_DISCOVERY_PATHS
+            if (PLUGIN_ROOT / relative).exists()
+        }
+        self.assertEqual(
+            present,
+            set(CLAUDE_OWNED_DISCOVERY_PATHS),
+            "a path Claude Code scans by convention holds something this "
+            "plugin never declared for it; add it to the owned set on purpose "
+            "or move the file off the scan",
+        )
+
+    def test_the_codex_hook_manifest_stays_off_the_scan(self) -> None:
+        declared = load(CODEX_MANIFEST)["hooks"].removeprefix("./")
+        self.assertNotIn(declared, CLAUDE_DISCOVERY_PATHS)
+        self.assertTrue((PLUGIN_ROOT / declared).is_file())
+
+    def test_each_host_carries_its_own_hook_manifest(self) -> None:
+        """One file cannot hold both spellings, so neither may be shared.
+
+        Claude Code expands `${CLAUDE_PLUGIN_ROOT}` and takes exec-form `args`;
+        Codex expands `$PLUGIN_ROOT` and takes a shell string with a
+        `commandWindows` sibling. Each spelling is inert on the other host.
+        """
+        claude = load(CLAUDE_MANIFEST)["hooks"].removeprefix("./")
+        codex = load(CODEX_MANIFEST)["hooks"].removeprefix("./")
+        self.assertNotEqual(claude, codex)
+        for relative in (claude, codex):
+            self.assertTrue((PLUGIN_ROOT / relative).is_file(), relative)
 
 
 class ClaudeHookTests(unittest.TestCase):

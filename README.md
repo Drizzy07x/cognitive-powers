@@ -59,17 +59,17 @@ transaction; run whichever your host has, from a checkout, because each resolves
 the canonical verifier beside itself:
 
 ```powershell
-git clone --branch v1.9.1 --depth 1 https://github.com/Drizzy07x/cognitive-powers
+git clone --branch v1.9.2 --depth 1 https://github.com/Drizzy07x/cognitive-powers
 ./cognitive-powers/install.ps1
 ```
 
 ```bash
-git clone --branch v1.9.1 --depth 1 https://github.com/Drizzy07x/cognitive-powers && ./cognitive-powers/install.sh
+git clone --branch v1.9.2 --depth 1 https://github.com/Drizzy07x/cognitive-powers && ./cognitive-powers/install.sh
 ```
 
 Both create a local recovery copy before any removal, pin the marketplace to
 that commit SHA, verify exactly one enabled entry at the named version, and
-restore the prior state if a step fails. Pass `-ReleaseRef v1.9.0` (or
+restore the prior state if a step fails. Pass `-ReleaseRef v1.9.1` (or
 `--release-ref`, which `install.sh` also accepts) for an immutable rollback to
 an earlier published tag; 1.6.0 and 1.7.0 exist only as changelog sections,
 never as tags. Restart Codex before starting a new task. The release and

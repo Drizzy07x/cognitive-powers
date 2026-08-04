@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-release_ref="v1.9.1"
+release_ref="v1.9.2"
 
 repository="Drizzy07x/cognitive-powers"
 marketplace="cognitive-powers"

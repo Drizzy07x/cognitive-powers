@@ -30,7 +30,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(manifest["name"], "cognitive-powers")
         self.assertEqual(manifest["version"].split("+", 1)[0], declared_version())
         self.assertEqual(manifest["skills"], "./skills-core/")
-        self.assertEqual(manifest["hooks"], "./hooks/hooks.json")
+        self.assertEqual(manifest["hooks"], "./hooks/hooks.codex.json")
         self.assertTrue((PLUGIN_ROOT / "skills-core").is_dir())
         self.assertEqual(
             {
@@ -181,7 +181,7 @@ class PluginContractTests(unittest.TestCase):
             ".codex/agents/executor.toml",
             ".codex/agents/test-writer.toml",
             ".codex/agents/verifier.toml",
-            "hooks/hooks.json",
+            "hooks/hooks.codex.json",
             "hooks/selective_hooks.py",
             "scripts/validate_skills.py",
             "scripts/run_semantic_benchmarks.py",

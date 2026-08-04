@@ -237,13 +237,20 @@ them came from a candidate's documentation.
   directory instead.
 - Activation appears as an assistant `tool_use` block named `Skill` whose `input.skill` reads
   `cognitive-powers:<workflow>`.
-- **Claude Code loads both hook manifests.** `hooks/hooks.json`, the Codex manifest, is picked up in
-  addition to the `hooks/hooks.claude.json` the plugin declares, so every hook runs twice. Verified
+- **Claude Code loads both hook manifests.** `hooks/hooks.json`, the Codex manifest, was picked up in
+  addition to the `hooks/hooks.claude.json` the plugin declares, so every hook ran twice. Verified
   by falsification: deleting only `hooks/hooks.json` from a copy took `SessionStart` from four hook
   events to two and `UserPromptSubmit` from two to one. On Windows the duplicate always fails
-  (`python3` resolves to the Microsoft Store stub), which is why it has been invisible; where
-  `python3` resolves, the index and the standing instruction are injected twice. The harness must
-  detect this per run, because an arm measured under a double injection is not the arm.
+  (`python3` resolves to the Microsoft Store stub), which is why it stayed invisible here; where
+  `python3` resolves, the index and the standing instruction were injected twice. The harness must
+  still detect this per run, because an arm measured under a double injection is not the arm.
+
+  Fixed in 1.9.2 by moving the Codex manifest to `hooks/hooks.codex.json`, off the path Claude Code
+  auto-discovers, and declaring that path in `.codex-plugin/plugin.json`. The measurement above is
+  what the fix was written against and is kept for that reason. What makes it stay fixed is not the
+  rename but `test_no_foreign_manifest_sits_on_a_claude_discovery_path`: the collision was never
+  about this one filename, it was about a second host's file landing on a path this host reads by
+  convention, and only a check that knows the whole convention can see the next one arrive.
 
 There is no `--max-turns`. Cost control is `--max-budget-usd`, a restricted tool set, and stopping
 the process once the activation decision has been observed.

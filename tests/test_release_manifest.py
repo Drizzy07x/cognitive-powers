@@ -35,7 +35,7 @@ class ReleaseManifestTests(unittest.TestCase):
                     "name": "cognitive-powers",
                     "version": "1.6.0",
                     "skills": "./skills-core/",
-                    "hooks": "./hooks/hooks.json",
+                    "hooks": "./hooks/hooks.codex.json",
                 }
             ),
             encoding="utf-8",
@@ -44,7 +44,7 @@ class ReleaseManifestTests(unittest.TestCase):
             (root / "skills-core" / name / "SKILL.md").write_text(
                 name, encoding="utf-8"
             )
-        (root / "hooks" / "hooks.json").write_text(
+        (root / "hooks" / "hooks.codex.json").write_text(
             json.dumps({"hooks": {"Stop": []}}), encoding="utf-8"
         )
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)

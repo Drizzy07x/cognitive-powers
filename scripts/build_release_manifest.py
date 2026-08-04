@@ -98,7 +98,7 @@ def build_manifest(root: Path, tag: str, archive_path: Path) -> dict[str, Any]:
     )
     if skills != ["execute-durably", "solve-efficiently", "verify-delivery"]:
         raise ManifestError("tag must expose exactly the three supported skills")
-    hooks = json.loads(_checked(root, "show", f"{tag}:hooks/hooks.json")).get(
+    hooks = json.loads(_checked(root, "show", f"{tag}:hooks/hooks.codex.json")).get(
         "hooks", {}
     )
     if not isinstance(hooks, dict):
