@@ -31,6 +31,23 @@ Use when one component and its nearest tests are involved. Keep a short internal
 
 Use when behavior crosses modules, tools, data sources, or external state. Create an explicit plan with one observable outcome per step. Re-evaluate the plan when evidence changes the implementation path.
 
+## Address the registered role
+
+A plan assigns a `role`; the host is what turns that role into an agent with a
+tool set. Claude Code registers every shipped role under a plugin-scoped name —
+`cognitive-powers:executor`, `cognitive-powers:test-writer`,
+`cognitive-powers:verifier`, `cognitive-powers:investigator`,
+`cognitive-powers:researcher`, `cognitive-powers:reviewer` — and spawning one of
+those is what makes the role's constraints real: `investigator`, `researcher`,
+and `reviewer` cannot write because their tool sets refuse the edit tools, and
+no role can spawn descendants because none is granted `Agent`.
+
+Spawning a general-purpose worker and naming the role in its prompt leaves every
+one of those constraints to prose. Codex registers no agents from the plugin
+root and falls back to built-in workers; there the contracts still apply, but
+they are only described, so state which worker actually ran. Never make a
+durable criterion depend on a role being discoverable.
+
 ## Decide whether to delegate
 
 After bounded discovery, represent candidate work as explicit units and call the

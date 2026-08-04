@@ -48,7 +48,7 @@ Delegate only independent work. Before spawning, obtain the conservative plan by
 & $python <plugin-root>/scripts/orchestration_policy.py --agent-plan <json-or-stdin> --json
 ```
 
-Re-evaluate after each wave and allow at most one classified retry. Every worker prompt must name the deliverable, scope, permissions, and verification target. Keep one owner for coupled edits. Read [agent-roles.md](references/agent-roles.md) before assigning executor, test-writer, or verifier roles; custom TOML agents are optional and must not become an installation requirement.
+Re-evaluate after each wave and allow at most one classified retry. Every worker prompt must name the deliverable, scope, permissions, and verification target. Keep one owner for coupled edits. Spawn each unit as the role the plan assigned it, addressing the agent the host registered under that name rather than a general-purpose worker: a registered role's declared tool set enforces the contract that a prompt can only describe. Read [agent-roles.md](references/agent-roles.md) before assigning a role; it carries the registered names and the fallback for a host that registers none. Custom TOML agents are optional and must not become an installation requirement.
 
 For a medium or large implementation with independent file ownership, read [work-packets.md](references/work-packets.md), compile human-authored Markdown when applicable, and install one atomic packet plan before starting workers. Do not use packets for a focused edit. Packet checks are scoped implementation gates; they never replace integrated criteria or independent verification.
 

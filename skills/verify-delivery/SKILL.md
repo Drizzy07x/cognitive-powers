@@ -48,6 +48,8 @@ Read [two-axis-review.md](references/two-axis-review.md) for a code diff, cross-
 
 Prefer observable behavior and authoritative state over prose. Inspect the diff and relevant source, but run meaningful checks whenever execution is possible. A useful test must fail for the defect or missing behavior it is meant to detect, then pass for the implemented result.
 
+Independence is a property of who looks, not of how carefully. When this audit runs in the session that produced the delivery, the reader already knows which verdict would be convenient, and reading more carefully does not remove that. Spawn the host's registered verifier — `cognitive-powers:verifier` on Claude Code — and give it the objective, the relevant diff, the criterion, and the receipts without the verdict you expect. Its tool set refuses the edit tools and it runs under `isolation: worktree`, so the checks it runs cannot alter the tree it is judging; that containment is the reason to address the registered role rather than a general-purpose worker told to behave like one. Where the host registers no such role, run the checks here and record that the verdict had no independent source. That is a weaker result, not an equivalent one, and a durable criterion must not be closed as though it were.
+
 Classify every claim using [evidence-standard.md](references/evidence-standard.md):
 
 - `verified`: direct current evidence supports it.
@@ -73,7 +75,7 @@ Use [evaluation-protocol.md](references/evaluation-protocol.md) when comparing C
 
 For communication-efficiency claims, inspect `communicate-efficiently` usage receipts. Reject estimated counterfactuals, mismatched task IDs, unsuccessful variants, critical failures, and comparisons whose candidate quality is lower.
 
-For cross-cutting, release-critical, or independently delegated work, select the smallest useful set of perspectives from [review-angles.md](references/review-angles.md). Keep contract evidence out of the quality review and quality preferences out of the contract verdict. Do not force a security review unless the request or changed behavior materially includes a security boundary.
+For cross-cutting, release-critical, or independently delegated work, select the smallest useful set of perspectives from [review-angles.md](references/review-angles.md). Give each angle its own registered reviewer (`cognitive-powers:reviewer` on Claude Code) rather than running them as successive passes over one context: passes that share a context share its blind spot, and the second one tends to confirm the first. A reviewer returns findings only; the completion verdict stays with the verifier. Keep contract evidence out of the quality review and quality preferences out of the contract verdict. Do not force a security review unless the request or changed behavior materially includes a security boundary.
 
 When several passes report findings, normalize them through [finding-contract.md](references/finding-contract.md) and `scripts/review_protocol.py synthesize`. Bind every pass and finding to the same source identity, merge only identical issue keys, preserve disagreements as conflicts, and order material findings by severity and confidence.
 

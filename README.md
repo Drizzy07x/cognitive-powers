@@ -172,9 +172,9 @@ may not record what. Clearing it needs a verifier who is not the executor, so an
 agent working alone reports the armed gate rather than certifying itself. See
 [docs/operations.md](docs/operations.md) for the full contract.
 
-## The three subagents
+## The six subagents
 
-Claude Code loads three roles from `agents/`. A workflow delegates to them by
+Claude Code loads six roles from `agents/`. A workflow delegates to them by
 name; you do not invoke them directly.
 
 | Agent | Role |
@@ -182,9 +182,15 @@ name; you do not invoke them directly.
 | `executor` | Implement one work packet inside an explicitly declared set of owned paths, reporting the exact commands run and their observed results. |
 | `test-writer` | Write a focused test that demonstrates a real pre-fix failure, then confirms the intended behavior after implementation. |
 | `verifier` | Confirm or reject a finished claim. Read-only, and never the agent that produced the result. |
+| `investigator` | Establish a defect's mechanism or map unfamiliar code by running non-mutating commands, reporting evidence rather than a remedy. |
+| `researcher` | Gather external documentation and prior art, binding every finding to its source and to the version that source describes. |
+| `reviewer` | Judge a diff against a named standard and return findings only — never a completion verdict, which belongs to the verifier. |
+
+The last three are the roles `scripts/orchestration_policy.py` treats as
+read-only, which is also why they are the only ones it will place at depth two.
 
 Two constraints are enforced by the tool sets rather than by the prompts, because
-an instruction cannot prevent what the tools still permit. None of the three is
+an instruction cannot prevent what the tools still permit. None of the six is
 granted `Agent`, so a worker cannot spawn workers and delegation stays one level
 deep. The verifier withholds the edit tools and runs under `isolation: worktree`,
 so anything it writes lands in a disposable checkout — which is what makes

@@ -94,13 +94,25 @@ context; a workflow body loads when it is used.
 
 ## Agent roles
 
-Three agent roles register under plugin-scoped names such as
-`cognitive-powers:verifier`. None of them is granted `Agent`, so a worker cannot
-spawn its own workers and depth one is a property of the tool set rather than a
-request. The verifier withholds the edit tools and runs under `isolation:
-worktree`: it keeps `Bash`, because verification means running real checks, and
-`Bash` is exactly what a withheld-edit-tools list does not contain -- the
-disposable checkout is what makes the read-only claim true of your tree.
+Six agent roles register under plugin-scoped names: `cognitive-powers:executor`,
+`cognitive-powers:test-writer`, `cognitive-powers:verifier`,
+`cognitive-powers:investigator`, `cognitive-powers:researcher`, and
+`cognitive-powers:reviewer`. A workflow addresses a role by that exact name,
+because the registered definition is where the tool set lives and the tool set
+is what enforces a contract a prompt can only describe.
+
+None of them is granted `Agent`, so a worker cannot spawn its own workers and
+depth one is a property of the tool set rather than a request. The last three
+are the read-only roles in `scripts/orchestration_policy.py`, and the only ones
+it will place at depth two; each refuses the edit tools rather than merely
+omitting them.
+
+The verifier withholds the edit tools and runs under `isolation: worktree`: it
+keeps `Bash`, because verification means running real checks, and `Bash` is
+exactly what a withheld-edit-tools list does not contain -- the disposable
+checkout is what makes the read-only claim true of your tree. The investigator
+takes the same pairing for the same reason; the researcher and the reviewer are
+granted no execution tool at all, so nothing is left for a checkout to contain.
 
 ## Evidence MCP server
 

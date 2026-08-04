@@ -143,11 +143,21 @@ chain, recovery), `storage.py` (content-addressed objects, garbage collection), 
 byte-identical to `resolve_data_root()` in `durability.py`: if they diverge, receipts land outside
 the root the Stop gate checks and it rejects work that is in fact complete.
 
-**`agents/` ships three subagents** (`executor`, `test-writer`, `verifier`) whose frontmatter
-withholds `Agent` from the tool set. The depth-one rule is enforced by what the tools allow, not by
-what the prompt asks for — a worker able to spawn workers breaks it whatever its instructions say.
-`verifier` adds `disallowedTools` and `isolation: worktree` for the same reason: the agent that
-produced a result cannot be the one confirming it.
+**`agents/` ships six subagents** (`executor`, `test-writer`, `verifier`, `investigator`,
+`researcher`, `reviewer`) whose frontmatter withholds `Agent` from the tool set. The depth-one rule
+is enforced by what the tools allow, not by what the prompt asks for — a worker able to spawn
+workers breaks it whatever its instructions say. `verifier` adds `disallowedTools` and
+`isolation: worktree` for the same reason: the agent that produced a result cannot be the one
+confirming it. The last three are `READ_ONLY_ROLES` in `scripts/orchestration_policy.py`, so their
+tool sets refuse the edit tools too; `investigator` also takes `isolation: worktree`, because it is
+the other role granted `Bash` and a granted `Bash` is a write path whatever the prompt says.
+
+**Adding a role moves two directories, not one.** `test_agent_files_mirror_the_codex_roles`
+compares the `agents/*.md` stems against `.codex/agents/*.toml` and fails on any difference, so a
+Claude role shipped without its Codex counterpart is a red suite rather than a half-registered
+role. Both files are derived from the same contract in
+`skills/execute-durably/references/agent-roles.md`; the counts stated in `README.md`,
+`docs/features.md`, and this file are prose that no test can check.
 
 **Fail closed, and say what failed.** Corruption, unreadable evidence, unknown schema versions and
 torn writes raise a domain error rather than guessing or tracebacking. `UnicodeDecodeError` is a
