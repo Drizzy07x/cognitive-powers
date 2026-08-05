@@ -90,7 +90,7 @@ hosts keeps a single durable state. Override it with `COGNITIVE_POWERS_DATA`.
 ## Understand the completion gate
 
 The `Stop` hook warns when no current, hash-bound validation receipt covers the
-session's latest recorded edit. Four properties of that gate are read wrongly
+session's latest recorded edit. Five properties of that gate are read wrongly
 often enough to have been filed as defects; each is stated here because the
 behaviour is intended.
 
@@ -121,10 +121,29 @@ an `additionalContext` the agent can actually read. It emits no block decision,
 so an armed gate never stops a session from ending -- it states that the
 completion claim is unreceipted.
 
+**A session opened above the data root roots its durable session below.**
+`_event_cwd` keeps recording provenance where the working directory is an
+ancestor of the data root -- a drive root, the home directory -- so the gate
+arms there by design. The durable session cannot be rooted at that working
+directory: `work_state.py` refuses a workspace containing its own evidence
+store, in `session_directory` and again in `source_fingerprint`. Root it at the
+subdirectory the edits landed in; the receipt check asks only that the durable
+session and the recorded edit share one tree, in either direction. Prefer a
+subdirectory the host does not write to continuously, because the fingerprint
+covers the whole workspace and a tree the host keeps writing into goes stale
+between `run` and `verify`. Pointing `COGNITIVE_POWERS_DATA` outside the working
+directory is the other way out, and the warning names both rather than printing
+three steps whose precondition it left unstated.
+
 Clearing the gate takes two identities: `record-validation` requires the
 validator to differ from the executor. A single agent working alone therefore
 cannot honestly close its own gate, and should report the armed gate rather than
-self-certify.
+self-certify. What the check compares is two strings -- stripped in the hook,
+folded through `sanitize_identifier` in `work_state.py`, which is why one actor
+cannot present two Unicode spellings of one name. So what it enforces is that
+two names were given; what it is for is a second party that did not produce the
+result, and the registered `verifier` agent is that party. A second name chosen
+by the executor passes the check without satisfying it.
 
 ## Inspect durable state schema
 
