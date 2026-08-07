@@ -60,6 +60,43 @@ class ContextLensTests(unittest.TestCase):
             )
             self.assertEqual(result["scanned_files"], 1)
 
+    def test_function_words_neither_match_nor_earn_the_coverage_bonus(self) -> None:
+        """Prose that shares only function words used to win outright.
+
+        Terms were taken raw, so "how", "does", "the" and "a" each counted as a
+        matched term: they fed the per-term score, inflated the coverage ratio,
+        and triggered the all-terms bonus. Measured on this repository before
+        the fix, "how does the durable ledger verify a receipt" returned
+        exactly one file -- CHANGELOG.md -- with all eight terms "matched",
+        while every file implementing the thing asked about scored below it.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "ledger.py").write_text(
+                "def verify_receipt(ledger):\n    return chain_ok(ledger)\n",
+                encoding="utf-8",
+            )
+            (root / "prose.md").write_text(
+                "How does one do a thing? The answer is that the how of it "
+                "does not matter, and a how is a what. " * 60,
+                encoding="utf-8",
+            )
+
+            result = context_lens.select_context(
+                root, "how does the ledger verify a receipt", max_files=5
+            )
+
+            self.assertEqual(["ledger.py"], [item["path"] for item in result["files"]])
+            self.assertEqual(
+                ["ledger", "verify", "receipt"],
+                context_lens.normalize_terms("how does the ledger verify a receipt"),
+            )
+
+    def test_a_query_of_only_function_words_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with self.assertRaisesRegex(ValueError, "searchable term"):
+                context_lens.select_context(Path(temporary_directory), "how does the")
+
     def test_payload_respects_character_budget(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -75,6 +112,23 @@ class ContextLensTests(unittest.TestCase):
 
             self.assertLessEqual(result["payload_chars"], 60)
             self.assertEqual(result["files"][0]["path"], "large.txt")
+
+    def test_a_payload_that_grew_is_reported_as_growth(self) -> None:
+        """The lens may not round its own measurement toward flattering itself.
+
+        On a tree smaller than ``max_chars`` the excerpt markers cost more than
+        the selection saves. Flooring the ratio at zero reported "0.0%" for a
+        payload that had grown, which is the one direction this number must
+        never round in.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "tiny.py").write_text("# needle\n", encoding="utf-8")
+
+            result = context_lens.select_context(root, "needle", max_chars=12_000)
+
+            self.assertGreater(result["payload_chars"], result["corpus_chars"])
+            self.assertLess(result["char_reduction_pct"], 0)
 
     def test_invalid_query_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

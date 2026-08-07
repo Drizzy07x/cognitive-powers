@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 
 SCHEMA_VERSION = 1
@@ -86,6 +86,30 @@ def _run(
         ) from error
 
 
+def _counter(
+    container: dict[str, Any], field: str, warnings: list[str], label: str
+) -> int:
+    """Read a counter the provider stated, warning when it stated an unreadable one.
+
+    This gate decides whether the index may be believed, and it used to skip
+    any counter that was not already an ``int``: ``{"modified": "2"}`` -- the
+    provider saying two files changed -- filtered itself out of the sum and the
+    probe reported a clean, usable index. Every unrecognized shape resolved the
+    same way, so a CodeGraph whose status schema drifted would be trusted
+    precisely when it could no longer be understood.
+
+    A warning rather than a raise, because ``usable`` is already defined as
+    "initialized and nothing to warn about"; that is where fail-closed lives on
+    this surface. An absent counter still defaults to zero in silence, so an
+    older CLI that never emits one is not accused of anything.
+    """
+    value = container.get(field, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        warnings.append(f"{label} is not a whole number: {value!r}")
+        return 0
+    return value
+
+
 def probe_codegraph(
     root: str | Path,
     *,
@@ -142,21 +166,28 @@ def probe_codegraph(
     pending_total = 0
     if isinstance(pending, dict):
         pending_total = sum(
-            int(pending.get(key, 0))
+            _counter(pending, key, warnings, f"pendingChanges.{key}")
             for key in ("added", "modified", "removed")
-            if isinstance(pending.get(key, 0), int)
         )
+    elif pending is not None:
+        warnings.append("pendingChanges is not an object")
     if pending_total:
         warnings.append(f"index has {pending_total} pending source changes")
     index = status.get("index")
+    if index is not None and not isinstance(index, dict):
+        warnings.append("index is not an object")
     index_state = index.get("state") if isinstance(index, dict) else None
-    pending_refs = index.get("pendingRefs", 0) if isinstance(index, dict) else 0
+    pending_refs = (
+        _counter(index, "pendingRefs", warnings, "index.pendingRefs")
+        if isinstance(index, dict)
+        else 0
+    )
     reindex_recommended = (
         bool(index.get("reindexRecommended")) if isinstance(index, dict) else False
     )
     if index_state not in {None, "complete"}:
         warnings.append(f"index state is {index_state}")
-    if isinstance(pending_refs, int) and pending_refs:
+    if pending_refs:
         warnings.append(f"index has {pending_refs} unresolved references")
     if reindex_recommended:
         warnings.append("index rebuild is recommended")

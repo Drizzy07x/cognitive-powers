@@ -66,6 +66,38 @@ class ContextPipelineTests(unittest.TestCase):
         self.assertEqual(serialized["usage_metrics"]["selected_items"], 2)
         self.assertGreater(serialized["usage_metrics"]["estimated_selected_tokens"], 0)
 
+    def test_length_does_not_outrank_relevance(self) -> None:
+        """Ranking decided what the model reads, and it was ranking by size.
+
+        ``str.count`` over unfiltered query words spends a hit on every "a" and
+        every "the" in the text, so a long document that shares no content word
+        with the query outscored the one item that named all three. Measured
+        here before the fix: 281 against 6, after which the README took the
+        whole character budget and the relevant item was excluded outright.
+        """
+        items = [
+            pipeline.ContextItem(
+                "relevant",
+                "ledger.py",
+                "def verify_receipt(ledger):\n    return chain_ok(ledger)\n",
+                {},
+            ),
+            pipeline.ContextItem(
+                "readme",
+                "README.md",
+                "This project has a lot of prose about installation and usage. " * 40,
+                {},
+            ),
+        ]
+
+        selection = pipeline.RankedBudgetSelector().select(
+            items,
+            "how does the ledger verify a receipt",
+            pipeline.ContextBudget(max_items=1, max_chars=400),
+        )
+
+        self.assertEqual(["relevant"], [item.item_id for item in selection.items])
+
     def test_processor_filtered_item_remains_in_receipt(self) -> None:
         items = [
             pipeline.ContextItem("kept", "source", " useful \r\n"),

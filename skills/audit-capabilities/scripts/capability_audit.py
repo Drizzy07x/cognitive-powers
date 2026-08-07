@@ -111,11 +111,28 @@ def _terms(*values: str) -> set[str]:
 
 
 def _similarity(candidate: dict[str, Any], skill: dict[str, str]) -> float:
+    """How much of the smaller description the two already share.
+
+    Containment, not Jaccard. The question this answers is whether an existing
+    skill already covers the candidate, and the two texts are not the same size:
+    shipped listings hold 33 to 81 scored terms against a candidate summary's
+    six to ten. Dividing by the union therefore capped a *perfect subset* at
+    about 6/53 -- below the 0.24 the caller compares against, so `review-overlap`
+    could not fire for any realistically worded candidate. It was not rarely
+    reached; it was arithmetically out of range, and the only test covering it
+    used a one-sentence synthetic skill where the sizes happened to match.
+
+    Measured against the shipped catalogue, containment puts a restatement of
+    verify-delivery at 0.83, a flaky-test workflow at 0.36 against
+    diagnose-systematically, an unrelated packaging workflow at 0.00, and the
+    closest pair of real siblings at 0.2353 -- which is what 0.24 reads like a
+    threshold for.
+    """
     left = _terms(str(candidate["candidate_name"]), str(candidate["summary"]))
     right = _terms(skill["name"], skill["description"])
     if not left or not right:
         return 0.0
-    return len(left & right) / len(left | right)
+    return len(left & right) / min(len(left), len(right))
 
 
 def _parse_day(raw: object, field: str) -> date:

@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 from contextlib import closing
 from datetime import datetime, timezone
@@ -227,7 +229,20 @@ def undo_native(store: str | Path, receipt: str | Path | dict):
     if _file_sha(path) != data.get("after_sha256"):
         raise MemoryContextError("store changed after snapshot; undo refused")
     if data["before_exists"]:
-        shutil.copy2(data["snapshot"], path)
+        # The receipt already records what the snapshot must restore to, and
+        # nothing checked it. A snapshot corrupted, truncated, or replaced on
+        # disk was copied straight over the live store and reported as a
+        # successful undo -- the one operation whose whole purpose is to put
+        # back exactly what was there. Snapshots are ordinary files under
+        # .memory-context-snapshots that nothing prunes, so they stay exposed
+        # for as long as the user leaves them. A missing one used to escape as
+        # a bare FileNotFoundError from copy2 rather than as a refusal.
+        snapshot = Path(str(data["snapshot"]))
+        if not snapshot.is_file() or _file_sha(snapshot) != data.get("before_sha256"):
+            raise MemoryContextError(
+                f"snapshot does not match the receipt it belongs to: {snapshot}"
+            )
+        shutil.copy2(snapshot, path)
     elif path.exists():
         path.unlink()
     return {"undone": True, "store": str(path), "restored_sha256": _file_sha(path)}
@@ -265,8 +280,37 @@ def _read_native(path: Path):
     return json.loads(path.read_text(encoding="utf-8")).get("records", [])
 
 
+# scripts/skill_routing.py holds the tree's one tokenizer -- folding, English
+# and Spanish stopwords, and stemming to a fixpoint. Scoring memories with a
+# second, unfiltered one is the split CLAUDE.md warns about, and it cost what a
+# split costs: every record containing "the" matched every query containing
+# "the". Measured on a seven-record store, "how does the durable ledger verify
+# a receipt" matched all seven, and three of the five it returned shared
+# nothing with the query but that one word -- while inflating the two real
+# matches by counting it for them too.
+_ROUTING_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "skill_routing.py"
+_ROUTING: Any = None
+
+
+def _routing():
+    global _ROUTING
+    if _ROUTING is None:
+        if not _ROUTING_SCRIPT.is_file():
+            raise MemoryContextError(f"cannot load {_ROUTING_SCRIPT}")
+        spec = importlib.util.spec_from_file_location(
+            "cp_memory_skill_routing", _ROUTING_SCRIPT
+        )
+        if spec is None or spec.loader is None:
+            raise MemoryContextError(f"cannot load {_ROUTING_SCRIPT}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _ROUTING = module
+    return _ROUTING
+
+
 def _tokens(text):
-    return set(re.findall(r"[\w.-]+", str(text).lower()))
+    return set(_routing().tokenize(str(text)))
 
 
 def _filter(records, scope, query, limit):
@@ -309,10 +353,11 @@ def _filter(records, scope, query, limit):
     superseded = {item_id for rec in normalized for item_id in rec["supersedes"]}
     metrics["superseded_records"] = sum(rec["id"] in superseded for rec in normalized)
     valid = []
+    query_tokens = _tokens(query)
     for rec in normalized:
         if rec["id"] in superseded:
             continue
-        overlap = len(_tokens(query) & _tokens(rec["content"]))
+        overlap = len(query_tokens & _tokens(rec["content"]))
         if overlap == 0:
             continue
         metrics["query_matched_records"] += 1
@@ -392,8 +437,11 @@ def retrieve(
         raise MemoryContextError("retrieval requires explicit demand")
     if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
         raise MemoryContextError("limit must be a positive integer")
+    # "searchable", not merely "non-empty": scoring now drops function words,
+    # so a query made only of them shares nothing with any record and would
+    # return an empty result that reads as a store with nothing in it.
     if not _tokens(query):
-        raise MemoryContextError("query must not be empty")
+        raise MemoryContextError("query must contain at least one searchable term")
     if provider == "memu":
         exe = str(memu_executable) if memu_executable else shutil.which("memu")
         if not exe:

@@ -148,6 +148,45 @@ class DesignEvidenceTests(unittest.TestCase):
         self.assertFalse(receipt["desktopCaptured"])
         self.assertFalse(receipt["visualContractPassed"])
 
+    def test_browser_counters_refuse_instead_of_coercing_or_tracebacking(self) -> None:
+        """The same gate, and the same defect, as the durable store's copy.
+
+        ``int()`` accepted the string "1", truncated 1.9, read True as 1, and
+        raised ValueError on "many" and TypeError on null -- escaping as a
+        traceback rather than the EvidenceError every other malformed receipt
+        here produces. An absent ``unexpected`` is not a demonstrated zero.
+        """
+        browser = json.loads(self.browser.read_text(encoding="utf-8"))
+        for stats in (
+            {"expected": "1", "unexpected": 0},
+            {"expected": "many", "unexpected": 0},
+            {"expected": 1.9, "unexpected": 0},
+            {"expected": [1], "unexpected": 0},
+            {"expected": True, "unexpected": 0},
+            {"expected": 2, "unexpected": None},
+            {"expected": 2},
+        ):
+            with self.subTest(stats=stats):
+                self.browser.write_text(
+                    json.dumps({**browser, "stats": stats}), encoding="utf-8"
+                )
+                with self.assertRaises(evidence.EvidenceError) as raised:
+                    self.create(self.review_payload())
+                self.assertIn("no relevant passing test", str(raised.exception))
+
+    def test_a_receipt_in_another_encoding_is_refused_not_tracebacked(self) -> None:
+        """These receipts are written by Playwright and by a reviewer.
+
+        Their encoding is not this module's to assume, and UnicodeDecodeError
+        is a ValueError -- caught by neither ``OSError`` nor
+        ``json.JSONDecodeError`` -- so one saved as UTF-16 escaped as a
+        traceback instead of a named refusal.
+        """
+        self.browser.write_bytes(b"\xff\xfe\x00b\x00a\x00d")
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "cannot read"):
+            self.create(self.review_payload())
+
     def test_declared_viewport_must_match_png_dimensions(self) -> None:
         payload = self.review_payload()
         payload["viewports"][0]["width"] = 390

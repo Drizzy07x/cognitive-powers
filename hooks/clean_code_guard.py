@@ -53,9 +53,13 @@ def is_ignored(path: Path, patterns: tuple[str, ...]) -> bool:
 
 
 def read_source(path: Path) -> str | None:
+    # ValueError as well as OSError: a path carrying an embedded NUL raises
+    # ValueError from open() before any syscall, and that traceback reached the
+    # user as a failed PostToolUse rather than as the silence an advisory hook
+    # owes an input it cannot read.
     try:
         return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except (OSError, ValueError):
         return None
 
 
@@ -106,10 +110,15 @@ def emit_hook_result(report: str) -> int:
 
 
 def read_event() -> dict:
+    # ``null``, ``[]`` and ``42`` are valid JSON that json.load returns without
+    # raising, so decoding alone did not make the result a mapping and every
+    # caller's .get() raised AttributeError. The other two stdin-reading hooks
+    # already narrow to dict here; this one did not.
     try:
-        return json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
+        payload = json.load(sys.stdin)
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def candidate_paths(event: dict) -> list[str]:

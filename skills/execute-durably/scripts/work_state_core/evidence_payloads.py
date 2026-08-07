@@ -14,11 +14,36 @@ def _read_payload(path: Path, kind: str) -> dict[str, Any]:
         raise WorkStateError(f"{kind} receipt must be a non-empty regular file: {path}")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # UnicodeDecodeError is a ValueError, so neither guard here caught it. Every
+    # file this reads was written by something outside the plugin -- Playwright,
+    # QCU, Skyvern, a design reviewer -- so its encoding is not ours to assume,
+    # and a receipt saved as UTF-16 escaped all four record-* subcommands as a
+    # raw traceback instead of the named refusal this module exists to give.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(f"{kind} receipt is not valid JSON: {path}") from error
     if not isinstance(payload, dict):
         raise WorkStateError(f"{kind} receipt must be a JSON object")
     return payload
+
+
+def _count(container: dict[str, Any], field: str) -> int:
+    """Read a counter a provider stated, or -1 when it stated no usable one.
+
+    These gates are the only place a provider's own numbers are believed, and
+    every other field here is checked with ``is True`` or ``==``. ``int()`` was
+    the exception: it accepted the string "1", truncated 1.9 to 1, and raised
+    ValueError on "many" and TypeError on null -- escaping as a traceback
+    instead of the named refusal every other malformed shape in this file gets.
+
+    -1 fails both the ``>= 1`` and the ``== 0`` comparisons below, so anything
+    that is not a plain integer can only ever refuse. A missing counter refuses
+    for the same reason: an absent failure count is not a demonstrated zero,
+    which is how the desktop gate below already read its own two counters.
+    """
+    value = container.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return -1
+    return value
 
 
 def _artifact_root(payload: dict[str, Any], root: Path, kind: str) -> Path:
@@ -109,8 +134,8 @@ def _load_browser_evidence(
         and payload.get("passed") is True
         and payload.get("exitCode") == 0
         and isinstance(stats, dict)
-        and int(stats.get("expected", 0)) >= 1
-        and int(stats.get("unexpected", 0)) == 0
+        and _count(stats, "expected") >= 1
+        and _count(stats, "unexpected") == 0
     ):
         raise WorkStateError(
             "browser receipt does not demonstrate a passing Playwright run"
@@ -138,9 +163,9 @@ def _load_desktop_evidence(
         and payload.get("finished") is True
         and payload.get("finishReason") == "objective_verified"
         and isinstance(summary, dict)
-        and int(summary.get("actionCount", 0)) >= 1
-        and int(summary.get("staleFrameCount", -1)) == 0
-        and int(summary.get("busyNoQueueCount", -1)) == 0
+        and _count(summary, "actionCount") >= 1
+        and _count(summary, "staleFrameCount") == 0
+        and _count(summary, "busyNoQueueCount") == 0
     ):
         raise WorkStateError(
             "desktop receipt does not demonstrate verified QCU completion"

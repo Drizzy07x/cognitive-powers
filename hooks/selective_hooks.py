@@ -799,8 +799,15 @@ def _stop_verdict(plugin_root: Path, data_root: Path, session_id: str) -> _StopV
     # An unreadable ledger warns on its own: no trustworthy latest event exists.
     if error is not None:
         return True, error
+    # Not "nothing happened". _ledger_state already answered None for a ledger
+    # that does not exist, and only an edit-tool event ever creates the file --
+    # a read-only session never reaches the write path at all. So a ledger that
+    # exists and parses to no events is one whose content was lost: a torn
+    # write, a truncation, or an erasure. Returning False here made that
+    # indistinguishable from a session that changed nothing, which is the exact
+    # silence this gate exists to refuse.
     if not events:
-        return False, None
+        return True, "ledger exists but records no events"
     covered = _receipt_is_current(
         _receipt_path(data_root, session_id),
         session_id,

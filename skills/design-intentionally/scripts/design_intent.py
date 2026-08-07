@@ -64,7 +64,12 @@ def load_object(path: str | Path) -> tuple[Path, dict[str, Any]]:
     source = Path(path).expanduser().resolve()
     try:
         value = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # UnicodeDecodeError is a ValueError, not an OSError and not a
+    # JSONDecodeError, so a brief saved as UTF-16 or cp1252 escaped as a
+    # traceback instead of the error object this CLI documents. skyvern_evidence
+    # already carries this guard; design_evidence and communication_contract did
+    # not either.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise IntentError(f"cannot read JSON object: {source}") from error
     if not isinstance(value, dict):
         raise IntentError("design brief must be a JSON object")

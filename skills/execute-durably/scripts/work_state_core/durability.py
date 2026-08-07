@@ -107,6 +107,21 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+# Windows resolves these base names to devices rather than to paths, whatever
+# extension follows and whatever directory they sit in. A session named "NUL"
+# therefore passed every identifier rule, appeared to create its directory, and
+# then failed inside the lock with a bare FileNotFoundError from os.open --
+# the traceback this module exists to replace with a named refusal. Rejected on
+# every platform rather than under os.name == "nt": a store written on Linux is
+# copied to Windows, and a session that only becomes unreadable after the copy
+# is worse than one that was never created.
+_RESERVED_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{digit}" for digit in "0123456789"}
+    | {f"LPT{digit}" for digit in "0123456789"}
+)
+
+
 def sanitize_identifier(value: str, label: str) -> str:
     """Reduce an actor or session name to one stable identity.
 
@@ -128,10 +143,8 @@ def sanitize_identifier(value: str, label: str) -> str:
         raise WorkStateError(
             f"{label} must contain letters, digits, dots, underscores, or hyphens"
         )
-    if set(sanitized) <= {"."}:
-        # The character class admits dots, so "." and ".." survive unchanged
-        # and would make a session path resolve above its own directory.
-        raise WorkStateError(f"{label} must not consist only of dots")
+    if sanitized.partition(".")[0].upper() in _RESERVED_DEVICE_NAMES:
+        raise WorkStateError(f"{label} must not name a reserved device: {sanitized}")
     return sanitized
 
 

@@ -131,6 +131,52 @@ class SemanticContextTests(unittest.TestCase):
         self.assertIn("pending source changes", result["fallback_reason"])
         self.assertEqual(len(runner.calls), 1)
 
+    def test_a_counter_it_cannot_read_makes_the_index_unusable(self) -> None:
+        """Freshness is the one thing this probe exists to decide.
+
+        Counters were summed only when they were already ``int``, so a status
+        saying ``{"modified": "2"}`` -- two files changed -- filtered itself out
+        of the total and the index was reported clean and usable. Every shape
+        the reader did not recognize resolved the same way, which trusts a
+        provider exactly when it can no longer be understood.
+        """
+        unreadable = (
+            fresh_status(pendingChanges={"added": 0, "modified": "2", "removed": 0}),
+            fresh_status(pendingChanges={"added": 0, "modified": 2.0, "removed": 0}),
+            fresh_status(pendingChanges=[{"modified": 2}]),
+            fresh_status(pendingChanges=7),
+            fresh_status(index={"state": "complete", "pendingRefs": "9"}),
+            fresh_status(index=[{"state": "broken"}]),
+        )
+        for status in unreadable:
+            with self.subTest(status=status):
+                runner = FakeRunner([(0, json.dumps(status), "")])
+
+                probe = semantic_context.probe_codegraph(
+                    self.root, executable=sys.executable, runner=runner
+                )
+
+                self.assertFalse(probe["usable"], probe["reason"])
+                self.assertTrue(probe["warnings"])
+
+    def test_a_status_that_omits_a_counter_is_not_accused(self) -> None:
+        """An older CLI that never emits the field is silent, not suspect."""
+        for status in (
+            {"initialized": True, "index": {"state": "complete", "pendingRefs": 0}},
+            {
+                "initialized": True,
+                "pendingChanges": {"added": 0, "modified": 0, "removed": 0},
+            },
+        ):
+            with self.subTest(status=status):
+                runner = FakeRunner([(0, json.dumps(status), "")])
+
+                probe = semantic_context.probe_codegraph(
+                    self.root, executable=sys.executable, runner=runner
+                )
+
+                self.assertTrue(probe["usable"], probe["reason"])
+
     def test_impact_normalizes_graph_result(self) -> None:
         raw = {
             "symbol": "should_retry",

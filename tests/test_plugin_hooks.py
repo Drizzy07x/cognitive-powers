@@ -316,6 +316,24 @@ class PluginHookTests(unittest.TestCase):
             "a read-only session must not leave an orphan lock behind",
         )
 
+    def test_stop_warns_when_the_ledger_it_wrote_lost_its_events(self) -> None:
+        """An emptied ledger is a lost record, not an idle session.
+
+        Only an edit-tool event ever creates the file, so one that exists and
+        parses to nothing had its content truncated, torn, or erased. The gate
+        used to answer that with the same silence it owes a session that really
+        changed nothing -- the one confusion it exists to refuse.
+        """
+        self.run_hook("post-tool-use", self.payload("Write"))
+        ledger = self.ledger()
+        self.assertTrue(ledger.is_file())
+        ledger.write_text("", encoding="utf-8")
+
+        stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+
+        self.assertEqual(stop.returncode, 0, stop.stderr)
+        self.assertIn("records no events", json.loads(stop.stdout)["systemMessage"])
+
     def test_a_session_inside_the_evidence_store_records_nothing(self) -> None:
         inside = self.data / "projects" / "session"
         inside.mkdir(parents=True)
