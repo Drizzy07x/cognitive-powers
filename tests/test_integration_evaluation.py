@@ -667,6 +667,44 @@ class IntegrationEvaluationTests(unittest.TestCase):
             [5.0, 5.0],
         )
 
+    def test_one_fixture_yields_no_interval_rather_than_a_zero_width_one(self) -> None:
+        """A single observation cannot exclude zero, however often it repeats.
+
+        Returning ``[v, v]`` reported a width of zero, and the verdict reads
+        exactly ``ci[0] > 0``: twelve pairs of one fixture satisfied
+        ``minimum_live_pairs``, which counts pairs rather than fixtures, and
+        then cleared the confidence gate at a delta of 0.0001 as readily as at
+        0.5. The test above pins the two-stratum case, where the stratified
+        resample genuinely has no spread to find; this pins the case where
+        there is nothing to resample at all.
+        """
+        pairs = [
+            {
+                "fixture_id": "fixture-a",
+                "category": "bug-fix",
+                "expected_mode": "solo",
+                "quality_delta": delta,
+            }
+            for delta in (0.5, 0.5, 0.0001)
+        ]
+
+        for repeated in (pairs[:1], pairs[:2], pairs):
+            with self.subTest(count=len(repeated)):
+                self.assertIsNone(
+                    evaluation._stratified_fixture_interval(
+                        repeated,
+                        "quality_delta",
+                        median=False,
+                        seed="controller-ab-bootstrap-v1",
+                        samples=100,
+                    )
+                )
+        self.assertIsNone(
+            evaluation._bootstrap_interval(
+                [0.5], median=False, seed="controller-ab-bootstrap-v1", samples=100
+            )
+        )
+
     def test_artifact_bundle_is_hash_bound_and_independently_verified(self) -> None:
         protocol = evaluation.load_controller_protocol(
             PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
