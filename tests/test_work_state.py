@@ -2534,6 +2534,98 @@ class ActorIdentityTests(unittest.TestCase):
             work_state.sanitize_identifier(decomposed, "verifier"),
         )
 
+    def test_a_provider_receipt_in_another_encoding_is_refused(self) -> None:
+        """Every file this gate reads was written by something outside the plugin.
+
+        Playwright, QCU, Skyvern and a design reviewer each write one, so the
+        encoding is not ours to assume. UnicodeDecodeError is a ValueError,
+        caught by neither ``OSError`` nor ``json.JSONDecodeError``, so a receipt
+        saved as UTF-16 escaped all four record-* subcommands as a raw
+        traceback instead of the named refusal.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt = Path(temporary) / "receipt.json"
+            receipt.write_bytes(b"\xff\xfe" + '{"a": 1}'.encode("utf-16-le"))
+
+            loaders = (
+                work_state._load_browser_evidence,
+                work_state._load_desktop_evidence,
+                work_state._load_navigation_evidence,
+                work_state._load_design_evidence,
+            )
+            for load in loaders:
+                with self.subTest(loader=load.__name__):
+                    with self.assertRaises(work_state.WorkStateError) as raised:
+                        load(receipt, Path(temporary))
+                    self.assertIn("not valid JSON", str(raised.exception))
+
+    def test_provider_counters_refuse_instead_of_coercing_or_tracebacking(self) -> None:
+        """The only numbers these gates believe come from an untrusted file.
+
+        Every other field is checked with ``is True`` or ``==``; the counters
+        went through ``int()``, which accepted the string "1", truncated 1.9,
+        and raised ValueError on "many" and TypeError on null -- a traceback
+        rather than the refusal every other malformed shape here produces. A
+        missing failure count is not a demonstrated zero either.
+        """
+        browser = {
+            "schema_version": 1,
+            "type": "playwright_evidence",
+            "provider": "playwright",
+            "commandStarted": True,
+            "passed": True,
+            "exitCode": 0,
+            "stats": {"expected": 1, "unexpected": 0},
+        }
+        stats_variants = (
+            {"expected": "1", "unexpected": 0},
+            {"expected": "many", "unexpected": 0},
+            {"expected": 1.9, "unexpected": 0},
+            {"expected": [1], "unexpected": 0},
+            {"expected": True, "unexpected": 0},
+            {"expected": 1, "unexpected": None},
+            {"expected": 1},
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt = Path(temporary) / "receipt.json"
+            for stats in stats_variants:
+                with self.subTest(stats=stats):
+                    receipt.write_text(
+                        json.dumps({**browser, "stats": stats}), encoding="utf-8"
+                    )
+                    with self.assertRaises(work_state.WorkStateError) as raised:
+                        work_state._load_browser_evidence(receipt, Path(temporary))
+                    self.assertIn("does not demonstrate", str(raised.exception))
+
+    def test_reserved_device_names_are_refused_rather_than_tracebacked(self) -> None:
+        """A name Windows resolves to a device is not a directory.
+
+        "NUL" satisfied every identifier rule and its session directory
+        appeared to be created, so the failure surfaced as a bare
+        FileNotFoundError from os.open inside the lock -- several frames below
+        the name that caused it.
+        """
+        for name in ("NUL", "nul", "con.txt", "COM1", "lpt9.log"):
+            with self.subTest(name=name):
+                with self.assertRaises(work_state.WorkStateError) as raised:
+                    work_state.sanitize_identifier(name, "session")
+                self.assertIn("reserved device", str(raised.exception))
+
+    def test_reserved_device_session_fails_closed_through_the_cli(self) -> None:
+        result = self.cli(
+            "init",
+            "--session",
+            "NUL",
+            "--objective",
+            "prove the refusal reaches the caller",
+            "--criterion",
+            "c1 holds",
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+        self.assertIn("reserved device", result.stdout + result.stderr)
+
     def test_an_actor_cannot_verify_itself_through_another_form(self) -> None:
         import unicodedata
 

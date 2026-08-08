@@ -143,6 +143,27 @@ class CleanCodeHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
+    def test_stays_silent_on_well_formed_json_that_is_not_an_object(self) -> None:
+        """Decoding is not enough: ``null`` parses and has no ``.get``.
+
+        The malformed-stdin case above only proves the decode guard. Each of
+        these decodes successfully, so each reached ``event.get`` and exited 1
+        with an AttributeError traceback.
+        """
+        for payload in ("null", "[]", "42", '"a string"'):
+            with self.subTest(payload=payload):
+                result = self.run_guard(payload)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "")
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_stays_silent_on_a_path_open_refuses_to_take(self) -> None:
+        """An embedded NUL raises ValueError from open(), never OSError."""
+        result = self.run_guard(self.event("a\u0000b.py"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_stays_silent_for_an_unsupported_extension(self) -> None:
         readme = self.base / "notes.md"
         readme.write_text("# nothing to analyse here\n", encoding="utf-8")

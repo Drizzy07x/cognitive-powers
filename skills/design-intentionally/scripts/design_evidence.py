@@ -49,11 +49,32 @@ def load_object(path: str | Path, label: str) -> tuple[Path, dict[str, Any]]:
     source = Path(path).expanduser().resolve()
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # UnicodeDecodeError is a ValueError, not an OSError and not a
+    # JSONDecodeError. The receipts read here are written by Playwright and by
+    # a reviewer, so their encoding is not this module's to assume, and one
+    # saved as UTF-16 escaped as a traceback instead of a named refusal.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise EvidenceError(f"cannot read {label}: {source}") from error
     if not isinstance(payload, dict):
         raise EvidenceError(f"{label} must be a JSON object")
     return source, payload
+
+
+def _count(container: dict[str, Any], field: str) -> int:
+    """Read a counter a provider stated, or -1 when it stated no usable one.
+
+    ``int()`` accepted the string "1", truncated 1.9, read True as 1, and raised
+    ValueError on "many" and TypeError on null -- a traceback instead of the
+    named refusal every other check here produces. -1 fails both comparisons
+    below, so a value that is not a plain integer can only refuse, and an absent
+    failure count is not a demonstrated zero. The same helper guards the
+    counters in work_state_core/evidence_payloads.py, which reads a receipt of
+    this shape for the durable store.
+    """
+    value = container.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return -1
+    return value
 
 
 def is_within(path: Path, root: Path) -> bool:
@@ -136,8 +157,8 @@ def create_evidence(
     stats = browser.get("stats")
     if (
         not isinstance(stats, dict)
-        or int(stats.get("expected", 0)) < 1
-        or int(stats.get("unexpected", 0)) != 0
+        or _count(stats, "expected") < 1
+        or _count(stats, "unexpected") != 0
     ):
         raise EvidenceError("browser receipt has no relevant passing test")
     browser_root_value = browser.get("artifactRoot")

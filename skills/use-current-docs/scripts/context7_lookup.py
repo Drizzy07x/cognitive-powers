@@ -57,6 +57,38 @@ class Context7LookupError(RuntimeError):
     """
 
 
+def _ranking_number(candidate: dict[str, Any], *fields: str) -> float:
+    """Read the first ranking score a candidate states, or 0.0 when it states none.
+
+    These come from an external index and ``float()`` took them at their word:
+    "high", a list, or a mapping raised ValueError or TypeError out of the
+    scoring loop and straight past ``main()``'s except tuple -- the traceback
+    the class docstring above already warns this module is prone to.
+
+    A score that cannot be read is not a reason to abandon the lookup. It is a
+    candidate with nothing to contribute, so it contributes nothing and the
+    others still rank. Falsy values fall through to the next field exactly as
+    the ``or`` chain this replaced did, and a non-finite number is refused
+    because it would poison the comparison rather than lose one candidate.
+    """
+    for field in fields:
+        value = candidate.get(field)
+        if not value or isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            number = float(value)
+        elif isinstance(value, str):
+            try:
+                number = float(value)
+            except ValueError:
+                continue
+        else:
+            continue
+        if number == number and number not in (float("inf"), float("-inf")):
+            return number
+    return 0.0
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -308,12 +340,8 @@ def select_library_candidate(
             or candidate.get("reputation")
             or "unknown"
         ).casefold()
-        benchmark = float(
-            candidate.get("benchmarkScore") or candidate.get("score") or 0
-        )
-        coverage = float(
-            candidate.get("totalSnippets") or candidate.get("codeSnippets") or 0
-        )
+        benchmark = _ranking_number(candidate, "benchmarkScore", "score")
+        coverage = _ranking_number(candidate, "totalSnippets", "codeSnippets")
         matched_option: str | None = None
         if target_version:
             for option in _version_options(candidate):

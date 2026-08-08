@@ -1480,8 +1480,9 @@ def _bootstrap_interval(
         return None
     statistic = statistics.median if median else statistics.fmean
     if len(values) == 1:
-        value = float(values[0])
-        return [value, value]
+        # A single observation has no interval; its uncertainty is unbounded,
+        # not zero. See the same guard in _stratified_fixture_interval below.
+        return None
     generator = random.Random(seed)
     estimates = sorted(
         float(statistic(generator.choices(values, k=len(values))))
@@ -1538,7 +1539,14 @@ def _stratified_fixture_interval(
         return None
     all_values = [value for values in strata.values() for value in values]
     if len(all_values) == 1:
-        return [all_values[0], all_values[0]]
+        # One fixture has no interval. Returning [v, v] reported a width of
+        # zero, and the caller reads exactly `ci[0] > 0`, so a single fixture
+        # repeated to satisfy minimum_live_pairs cleared the confidence gate --
+        # at a delta of 0.0001 as readily as at 0.5. None is what this function
+        # already returns for "nothing to bound", the caller already handles it,
+        # and `proven` then falls to its own stated reason instead of resting on
+        # a certainty nobody measured.
+        return None
     generator = random.Random(seed)
     estimates: list[float] = []
     for _ in range(samples):

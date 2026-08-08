@@ -425,6 +425,43 @@ class DurableConsumerAgreementTests(unittest.TestCase):
         derived = self.work_state._expected_communication_usage({"nonsense": 1})
         self.assertEqual(set(derived.values()), {None})
 
+    def test_a_record_in_another_encoding_is_refused_not_tracebacked(self) -> None:
+        """Provider usage records reach this reader from whatever wrote them.
+
+        UnicodeDecodeError is a ValueError, caught by neither ``OSError`` nor
+        ``json.JSONDecodeError``, so a transcript exported as UTF-16 escaped as
+        a traceback rather than the error object the CLI documents.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            record = Path(temporary) / "usage.json"
+            record.write_bytes(b"\xff\xfe\x00b\x00a\x00d")
+
+            with self.assertRaisesRegex(contract.ContractError, "cannot read"):
+                contract.load_object(record)
+
+    def test_a_quality_score_is_read_the_way_work_state_validates_it(self) -> None:
+        """Both ends read one field; only one end used to read it strictly.
+
+        ``work_state.py`` refuses a receipt whose ``qualityScore`` is not a real
+        number in 0..100, bool excluded. The comparison here used ``float()``,
+        so "high" and null raised out of the eligibility expression and True was
+        read as a score of 1.0.
+        """
+        for value, expected in (
+            (80, 80.0),
+            (80.5, 80.5),
+            ("high", None),
+            (None, None),
+            (True, None),
+            (101, None),
+            (-1, None),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    expected, contract._quality_score({"qualityScore": value})
+                )
+        self.assertIsNone(contract._quality_score({}))
+
 
 if __name__ == "__main__":
     unittest.main()

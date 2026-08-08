@@ -67,6 +67,51 @@ class YamliteTests(TempTreeTestCase):
         self.assertEqual(document["a"], "why: because #7")
         self.assertEqual(document["b"], "it's fine")
 
+    def test_a_sequence_may_sit_at_its_own_key_indent(self) -> None:
+        """The commonest way anyone writes a list, and the one shape that failed.
+
+        The guard treated a same-indent dash line as "this key has no value",
+        so the dash lines then fell out of the mapping loop and the document
+        died with "unexpected indentation" -- pointing at the list rather than
+        at the rule that refused it. The parser's own comment claimed to
+        support this shape.
+        """
+        self.assertEqual(
+            {"skills": ["alpha", "beta"], "mode": "fast"},
+            yamlite.loads("skills:\n- alpha\n- beta\nmode: fast\n"),
+        )
+        self.assertEqual(
+            {"cases": [{"id": "a", "prompt": "p"}, {"id": "b", "prompt": "q"}]},
+            yamlite.loads("cases:\n- id: a\n  prompt: p\n- id: b\n  prompt: q\n"),
+        )
+
+    def test_backslash_escapes_are_read_once_left_to_right(self) -> None:
+        r"""Chained replaces re-read a character an earlier pass had written.
+
+        ``"a\\nb"`` is a literal backslash followed by ``n``. The first pass
+        rewrote that ``\n`` into a newline before the pass meant to collapse
+        ``\\`` could see it, so the value came back one character short and
+        carrying a line break the author never wrote.
+        """
+        backslash = chr(92)
+        for inner, expected in (
+            (backslash * 2 + "n", backslash + "n"),
+            (backslash + "n", "\n"),
+            (backslash + '"', '"'),
+            (backslash + "t", "\t"),
+            (backslash + "q", backslash + "q"),
+        ):
+            with self.subTest(inner=inner):
+                document = yamlite.loads('p: "a' + inner + 'b"\n')
+                self.assertEqual("a" + expected + "b", document["p"])
+
+    def test_an_escaped_quote_does_not_end_the_scalar_before_a_comment(self) -> None:
+        """A prompt containing a quotation mark used to fail to load at all."""
+        backslash = chr(92)
+        document = yamlite.loads(f'p: "say {backslash}" now"  # trailing\n')
+
+        self.assertEqual('say " now', document["p"])
+
     def test_non_ascii_survives(self) -> None:
         document = yamlite.loads("prompt: por que no funciona la sesion\n")
         self.assertEqual(document["prompt"], "por que no funciona la sesion")

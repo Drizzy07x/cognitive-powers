@@ -1524,5 +1524,77 @@ class HostileInputTests(unittest.TestCase):
         self.assertEqual(plan["mode"], "solo")
 
 
+class OwnedPathAgreementTests(unittest.TestCase):
+    """Three modules decide path ownership, so all three must decide alike.
+
+    ``orchestration_policy`` plans the packets, ``plan_compiler`` compiles the
+    Markdown that declares them, and ``work_state`` installs them. Each carries
+    its own ``_normalize_owned_path``, and they have already drifted once on
+    NFC composition. A spelling one accepts and another refuses is a plan that
+    validates and will not install, or worse, installs two owners on one file.
+    """
+
+    @staticmethod
+    def normalizers():
+        """One callable and one refusal type per module. The bases differ.
+
+        ``OrchestrationError`` and ``PlanCompilerError`` derive from
+        ``ValueError`` while ``WorkStateError`` derives from ``RuntimeError``,
+        so a caller cannot catch all three with one except clause either.
+        """
+        # The canonical module, not the skills-tree wrapper load_policy returns:
+        # that wrapper re-exports the public surface by hand and a private
+        # helper is deliberately not on the list.
+        policy = _load(PLUGIN_ROOT / "scripts" / "orchestration_policy.py")
+        durably = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts"
+        compiler = _load(durably / "plan_compiler.py")
+        state = _load(durably / "work_state.py")
+        return {
+            "orchestration_policy": (
+                lambda value: policy._normalize_owned_path(value, "owned"),
+                policy.OrchestrationError,
+            ),
+            "plan_compiler": (
+                lambda value: compiler._normalize_owned_path(value, "p1"),
+                compiler.PlanCompilerError,
+            ),
+            "work_state": (
+                state._normalize_owned_path,
+                state.WorkStateError,
+            ),
+        }
+
+    def test_windows_reachable_aliases_are_refused_by_every_owner(self) -> None:
+        """Spellings Windows resolves onto a path another packet already owns.
+
+        A component's trailing spaces and dots are dropped, and everything
+        after a colon names an alternate data stream. All four of these reach
+        "src/a.py" while comparing unequal part-for-part, which is exactly how
+        two owners used to get one file past the overlap check.
+        """
+        aliases = ("src /a.py", "src./a.py", "src/a.py.", "src/a.py:stream")
+        for name, (normalize, refusal) in self.normalizers().items():
+            for value in aliases:
+                with self.subTest(value=value, module=name):
+                    self.assertRaises(refusal, normalize, value)
+
+    def test_ordinary_paths_stay_accepted_by_every_owner(self) -> None:
+        ordinary = ("source.py", "src/module.py", ".config/policy.json", "a..b/c.py")
+        for name, (normalize, _refusal) in self.normalizers().items():
+            for value in ordinary:
+                with self.subTest(value=value, module=name):
+                    self.assertEqual(value, normalize(value))
+
+
+def _load(path: Path):
+    spec = importlib.util.spec_from_file_location(f"owned_path_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 if __name__ == "__main__":
     unittest.main()

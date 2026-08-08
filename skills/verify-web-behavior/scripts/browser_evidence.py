@@ -341,7 +341,11 @@ def run_tests(
                 raw = candidate
             else:
                 report_error = "Playwright JSON report is not an object"
-        except (OSError, json.JSONDecodeError) as error:
+        # UnicodeDecodeError is a ValueError, caught by neither guard. Playwright
+        # writes this report, so its encoding is not this adapter's to assume,
+        # and one written as UTF-16 escaped as a traceback rather than becoming
+        # the report_error the caller already knows how to carry.
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             report_error = f"Playwright JSON report is unreadable: {error}"
     else:
         report_error = "Playwright JSON report was not created"

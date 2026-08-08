@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -143,13 +144,44 @@ class TextFile:
     text: str
 
 
+def _stopwords() -> frozenset[str]:
+    """The routing module's judgement about which words carry no evidence.
+
+    Only the list is shared, not the tokenizer: this scorer searches paths and
+    raw source, where "work_state.py" is one useful term and a stem like
+    "verifi" would not be. What it has no business deciding for itself is which
+    words mean nothing, and deciding that separately cost what a split costs.
+    Measured on this repository, "how does the durable ledger verify a receipt"
+    returned exactly one file -- CHANGELOG.md -- which matched all eight terms
+    including "how", "does", "the" and "a", took the full-coverage bonus for
+    them, and buried every file that implements the thing asked about.
+    """
+    global _STOPWORDS
+    if _STOPWORDS is None:
+        script = Path(__file__).resolve().parents[3] / "scripts" / "skill_routing.py"
+        if not script.is_file():
+            raise RuntimeError(f"cannot load {script}")
+        spec = importlib.util.spec_from_file_location("cl_skill_routing", script)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load {script}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _STOPWORDS = module.STOPWORDS
+    return _STOPWORDS
+
+
+_STOPWORDS: frozenset[str] | None = None
+
+
 def normalize_terms(query: str) -> list[str]:
     """Return stable, de-duplicated search terms."""
+    stopwords = _stopwords()
     terms: list[str] = []
     seen: set[str] = set()
     for match in WORD_RE.findall(query.lower()):
         term = match.strip("._-+")
-        if term and term not in seen:
+        if term and term not in seen and term not in stopwords:
             terms.append(term)
             seen.add(term)
     if not terms:
@@ -336,7 +368,13 @@ def select_context(
         selected.append(chosen)
         payload_chars += path_cost + excerpt_chars
 
-    reduction = 0.0 if corpus_chars == 0 else max(0.0, 1 - payload_chars / corpus_chars)
+    # Signed, not floored at zero. A payload larger than the text it was
+    # selected from is what happens on a tree smaller than max_chars -- the
+    # excerpt markers cost more than they save -- and that is exactly the case
+    # someone runs when deciding whether the lens is worth using. Clamping it
+    # reported "0.0%" for a payload that had grown by a third, which is the one
+    # direction a self-measurement must never round in.
+    reduction = 0.0 if corpus_chars == 0 else 1 - payload_chars / corpus_chars
     return {
         "schema_version": 1,
         "query": query,

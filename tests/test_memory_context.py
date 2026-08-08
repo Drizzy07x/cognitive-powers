@@ -62,6 +62,92 @@ class MemoryTests(unittest.TestCase):
             mod.undo_native(store, second)
         self.assertTrue(first["after_sha256"])
 
+    def test_function_words_do_not_make_every_memory_a_match(self):
+        """Retrieval decides what the model is shown, so noise costs directly.
+
+        Scoring counted raw words, so every record holding "the" matched every
+        query holding "the". Measured on this store: all five matched, three of
+        them shared nothing else with the query, and the two real matches were
+        scored ten points higher for the same worthless word.
+        """
+        store = self.root / "m.json"
+        for index, content in enumerate(
+            (
+                "the durable ledger verifies each receipt against the hmac chain",
+                "receipt verification walks the ledger from its checkpoint",
+                "the build runs on the ci matrix",
+                "we use the same lockfile for the node toolchain",
+                "the deploy is done by hand for the moment",
+            )
+        ):
+            mod.write_native(
+                store, {**self.rec(f"r{index}"), "content": content}, project_scope="p"
+            )
+
+        got = mod.retrieve(
+            store,
+            "how does the durable ledger verify a receipt",
+            project_scope="p",
+            demand=True,
+        )
+
+        self.assertEqual(["r0", "r1"], sorted(item["id"] for item in got["results"]))
+
+    def test_a_spanish_query_reaches_english_memories(self):
+        store = self.root / "m.json"
+        mod.write_native(
+            store,
+            {
+                **self.rec("ledger"),
+                "content": "the durable ledger verifies each receipt",
+            },
+            project_scope="p",
+        )
+
+        # Nothing in the record is spelled the way this query is: reaching it
+        # at all requires the lexicon that maps "recibo" onto "receipt".
+        got = mod.retrieve(store, "verifica el recibo", project_scope="p", demand=True)
+
+        self.assertEqual(["ledger"], [item["id"] for item in got["results"]])
+
+    def test_a_query_of_only_function_words_is_refused(self):
+        store = self.root / "m.json"
+        mod.write_native(store, self.rec(), project_scope="p")
+
+        with self.assertRaisesRegex(mod.MemoryContextError, "searchable term"):
+            mod.retrieve(store, "how does the", project_scope="p", demand=True)
+
+    def test_a_snapshot_that_stopped_matching_its_receipt_cannot_be_restored(self):
+        """Undo must put back exactly what was there, or refuse outright.
+
+        The receipt already recorded ``before_sha256`` and nothing compared the
+        snapshot against it, so a snapshot corrupted or replaced on disk was
+        copied over the live store and reported as a successful undo. These
+        files sit under .memory-context-snapshots, which nothing prunes.
+        """
+        store = self.root / "m.json"
+        mod.write_native(store, self.rec(), project_scope="p")
+        receipt = mod.write_native(store, self.rec("two"), project_scope="p")
+        intact = store.read_bytes()
+
+        Path(receipt["snapshot"]).write_text(
+            json.dumps({"schema_version": 1, "records": [{"id": "injected"}]}),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(mod.MemoryContextError, "does not match"):
+            mod.undo_native(store, receipt)
+        self.assertEqual(intact, store.read_bytes())
+
+    def test_a_missing_snapshot_is_refused_rather_than_tracebacked(self):
+        store = self.root / "m.json"
+        mod.write_native(store, self.rec(), project_scope="p")
+        receipt = mod.write_native(store, self.rec("two"), project_scope="p")
+        Path(receipt["snapshot"]).unlink()
+
+        with self.assertRaisesRegex(mod.MemoryContextError, "does not match"):
+            mod.undo_native(store, receipt)
+
     def test_tilde_spelled_store_can_be_undone(self):
         # write_native expands the tilde and records the expanded spelling in
         # the receipt; undo_native resolved without expanding, so a store

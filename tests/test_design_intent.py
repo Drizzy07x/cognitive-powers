@@ -104,6 +104,19 @@ class DesignIntentTests(unittest.TestCase):
                 }
             )
 
+    def test_a_brief_in_another_encoding_is_refused_not_tracebacked(self) -> None:
+        """UnicodeDecodeError is a ValueError, so neither guard here caught it.
+
+        ``except (OSError, json.JSONDecodeError)`` misses a brief saved as
+        UTF-16 or cp1252, and it escaped as a traceback rather than the error
+        object this CLI documents. ``skyvern_evidence`` already carries this
+        guard with the same reasoning written above it.
+        """
+        self.brief_path.write_bytes(b"\xff\xfe\x00b\x00a\x00d")
+
+        with self.assertRaisesRegex(intent_module.IntentError, "cannot read"):
+            intent_module.load_object(self.brief_path)
+
     def test_workspace_output_requires_explicit_override(self) -> None:
         output = self.workspace / "design-intent.json"
         with self.assertRaises(intent_module.IntentError):

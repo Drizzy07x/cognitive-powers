@@ -4,15 +4,14 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
-import re
+import sys
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
-
-
-WORD_PATTERN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/-]*")
 
 
 def _composed(value: str) -> str:
@@ -282,9 +281,40 @@ class NormalizeWhitespaceProcessor:
         return normalized
 
 
+# scripts/skill_routing.py holds the tree's one tokenizer. Ranking against a
+# second, unfiltered one and counting substrings made length the ranking: str
+# .count spends a hit on every "a" and every "the" inside the text, so a 2,480
+# character README that shares no content word with the query scored 281 while
+# the one item naming ledger, verify and receipt scored 6. The README then took
+# the whole character budget and the relevant item was excluded outright --
+# from the component that decides what the model gets to read.
+_ROUTING_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "skill_routing.py"
+_ROUTING: Any = None
+
+
+def _routing():
+    global _ROUTING
+    if _ROUTING is None:
+        if not _ROUTING_SCRIPT.is_file():
+            raise RuntimeError(f"cannot load {_ROUTING_SCRIPT}")
+        spec = importlib.util.spec_from_file_location(
+            "cp_pipeline_skill_routing", _ROUTING_SCRIPT
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load {_ROUTING_SCRIPT}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _ROUTING = module
+    return _ROUTING
+
+
 def _query_score(item: ContextItem, query_terms: set[str]) -> tuple[int, int]:
-    haystack = f"{item.source} {item.content}".lower()
-    matches = sum(haystack.count(term) for term in query_terms)
+    # Whole tokens, but still counted rather than merely seen: how often an
+    # item names what was asked about is real signal, and it is the substring
+    # scan that was not.
+    tokens = _routing().tokenize(f"{item.source} {item.content}")
+    matches = sum(1 for token in tokens if token in query_terms)
     priority = item.metadata.get("priority", 0)
     if not isinstance(priority, int):
         priority = 0
@@ -300,15 +330,16 @@ class RankedBudgetSelector:
         query: str,
         budget: ContextBudget,
     ) -> ContextSelection:
-        query_terms = {token.lower() for token in WORD_PATTERN.findall(query)}
-        indexed = list(enumerate(items))
-        indexed.sort(
-            key=lambda pair: (
-                -_query_score(pair[1], query_terms)[0],
-                -_query_score(pair[1], query_terms)[1],
-                pair[0],
-            )
-        )
+        query_terms = set(_routing().tokenize(query))
+        # Scored once per item, not twice per comparison: the key used to call
+        # _query_score again for the priority half, so every item was tokenized
+        # 2·O(n log n) times to answer a question already on the stack.
+        scored = [
+            (index, item, _query_score(item, query_terms))
+            for index, item in enumerate(items)
+        ]
+        scored.sort(key=lambda entry: (-entry[2][0], -entry[2][1], entry[0]))
+        indexed = [(index, item) for index, item, _score in scored]
         remaining_chars = budget.max_chars
         selected: list[ContextItem] = []
         decisions_by_id: dict[str, ContextDecision] = {}

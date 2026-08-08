@@ -57,7 +57,19 @@ class _Line:
 def _strip_comment(raw: str) -> str:
     """Drop a trailing comment that is not inside a quoted scalar."""
     quote: str | None = None
+    escaped = False
     for index, char in enumerate(raw):
+        if escaped:
+            escaped = False
+            continue
+        # A backslash escape only exists inside a double-quoted scalar; the
+        # single-quoted form doubles the quote instead. Without this, the
+        # escaped quote in a prompt like "say \" now" closed the scalar early,
+        # a later '#' truncated the line, and the case failed to load at all --
+        # for a prompt whose only sin was containing a quotation mark.
+        if quote == '"' and char == "\\":
+            escaped = True
+            continue
         if quote is not None:
             if char == quote:
                 quote = None
@@ -93,6 +105,30 @@ def _tokenize(text: str) -> list[_Line]:
     return lines
 
 
+# Three chained str.replace calls read the escapes in the wrong order: the
+# first pass rewrote the "\n" that the second pass was still meant to see as
+# half of an escaped backslash, so the literal "a\\nb" came back as "a\" plus a
+# newline instead of "a\nb". One left-to-right scan cannot double-read a
+# character it has already consumed. An escape this parser does not know is
+# left as written rather than guessed at.
+_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/"}
+
+
+def _unescape(inner: str) -> str:
+    out: list[str] = []
+    index = 0
+    while index < len(inner):
+        char = inner[index]
+        if char != "\\" or index + 1 >= len(inner):
+            out.append(char)
+            index += 1
+            continue
+        following = inner[index + 1]
+        out.append(_ESCAPES.get(following, "\\" + following))
+        index += 2
+    return "".join(out)
+
+
 def _scalar(raw: str, number: int) -> Any:
     text = raw.strip()
     if not text:
@@ -102,7 +138,7 @@ def _scalar(raw: str, number: int) -> Any:
             raise YamlError(f"line {number}: unterminated quoted scalar")
         inner = text[1:-1]
         if text[0] == '"':
-            return inner.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+            return _unescape(inner)
         return inner.replace("''", "'")
     # The empty flow forms are the one exception. "forbid: []" is how an author
     # writes "nothing here", and rejecting it would push every empty list onto
@@ -191,16 +227,22 @@ def _parse_mapping(lines: list[_Line], start: int, indent: int) -> tuple[Any, in
         if rest:
             mapping[key] = _scalar(rest, line.number)
             continue
-        if index >= len(lines) or lines[index].indent <= indent:
+        # A sequence may sit at its own key's indent -- the most common way
+        # anyone writes one. The guard below used to reject that before this
+        # test could see it: the value became None and the dash lines then fell
+        # out of the mapping loop as "unexpected indentation", so the shape the
+        # comment here claimed to support was the one shape that could not
+        # parse. The dead re-assignment that followed is gone with it.
+        child = lines[index] if index < len(lines) else None
+        own_indent_sequence = (
+            child is not None
+            and child.indent == indent
+            and (child.text == "-" or child.text.startswith("- "))
+        )
+        if child is None or (child.indent <= indent and not own_indent_sequence):
             mapping[key] = None
             continue
-        # A nested sequence may sit at the parent's indent, which is legal YAML
-        # and the shape every hand-written corpus file uses.
-        child = lines[index]
-        child_indent = child.indent
-        if child.text.startswith("- ") and child_indent == indent:
-            child_indent = indent
-        mapping[key], index = _parse_block(lines, index, child_indent)
+        mapping[key], index = _parse_block(lines, index, child.indent)
     return mapping, index
 
 

@@ -401,12 +401,28 @@ def _packet(state: dict[str, Any], packet_id: str) -> dict[str, Any]:
     raise WorkStateError(f"unknown work packet: {packet_id}")
 
 
+# Windows drops a component's trailing spaces and dots and reads everything
+# after a colon as an alternate data stream, so "src /a.py" and "src/a.py:x"
+# reach files "src/a.py" already names while comparing unequal part-for-part --
+# past the overlap check that is the whole ownership guarantee. Kept identical
+# to orchestration_policy.py and plan_compiler.py, which decide the same thing.
+_UNSAFE_IN_COMPONENT = re.compile(r"[:\x00-\x1f]")
+
+
+def _unsafe_component(part: str) -> bool:
+    return part != part.rstrip(" .") or bool(_UNSAFE_IN_COMPONENT.search(part))
+
+
 def _normalize_owned_path(value: str) -> str:
     raw = value.strip().replace("\\", "/")
     if not raw or raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
         raise WorkStateError(f"owned path must be workspace-relative: {value!r}")
     path = PurePosixPath(raw)
-    if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+    if (
+        not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(_unsafe_component(part) for part in path.parts)
+    ):
         raise WorkStateError(f"owned path must not traverse the workspace: {value!r}")
     return path.as_posix()
 

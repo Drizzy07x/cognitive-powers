@@ -115,6 +115,53 @@ class Context7LookupTests(unittest.TestCase):
         self.assertEqual(selected["id"], "/facebook/react/v19.1.2")
         self.assertTrue(selected["version_matched"])
 
+    def test_an_unreadable_ranking_score_costs_one_candidate_not_the_lookup(
+        self,
+    ) -> None:
+        """These numbers come from an external index, and float() believed them.
+
+        "high", a list, or a mapping raised ValueError or TypeError out of the
+        scoring loop and past main()'s except tuple -- the traceback this
+        module's own error class docstring warns it is prone to. A score that
+        cannot be read is a candidate with nothing to contribute, not a reason
+        to abandon the lookup.
+        """
+        for unreadable in ("high", [90], {"value": 90}, float("nan"), float("inf")):
+            with self.subTest(unreadable=unreadable):
+                selected = context7.select_library_candidate(
+                    [
+                        {
+                            "id": "/org/broken",
+                            "title": "lib",
+                            "sourceReputation": "High",
+                            "benchmarkScore": unreadable,
+                        },
+                        {
+                            "id": "/org/sound",
+                            "title": "lib",
+                            "sourceReputation": "High",
+                            "benchmarkScore": 95,
+                        },
+                    ],
+                    "lib",
+                    None,
+                )
+
+                self.assertEqual("/org/sound", selected["id"])
+
+    def test_a_numeric_string_score_still_ranks(self) -> None:
+        """The chain this replaced accepted "90"; refusing it would lose ranking."""
+        selected = context7.select_library_candidate(
+            [
+                {"id": "/org/weak", "title": "lib", "benchmarkScore": 10},
+                {"id": "/org/strong", "title": "lib", "score": "90"},
+            ],
+            "lib",
+            None,
+        )
+
+        self.assertEqual("/org/strong", selected["id"])
+
     def test_lookup_bounds_payload_and_reuses_external_cache(self) -> None:
         (self.root / "package-lock.json").write_text(
             json.dumps({"dependencies": {"react": {"version": "19.1.2"}}}),

@@ -28,7 +28,11 @@ def load_object(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     try:
         value = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    # UnicodeDecodeError is a ValueError, not an OSError and not a
+    # JSONDecodeError. Provider usage records reach this reader from whatever
+    # wrote them, so a transcript exported as UTF-16 escaped as a traceback
+    # rather than the error object the CLI documents.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ContractError(f"cannot read JSON object: {source}") from error
     if not isinstance(value, dict):
         raise ContractError("JSON input must be an object")
@@ -327,6 +331,23 @@ def usage_from_transcript(
     }
 
 
+def _quality_score(receipt: dict[str, Any]) -> float | None:
+    """Read a receipt's stated score, or None when it stated no usable one.
+
+    ``work_state.py`` already refuses a receipt whose ``qualityScore`` is not a
+    real number in 0..100, bool excluded. This side read the same field with
+    ``float()`` and the two disagreed: "high" and null raised ValueError and
+    TypeError out of a comparison, and True was silently read as a score of 1.0.
+    The sentinel defaults it replaced (-1 for the candidate, 101 for the
+    baseline) said "missing means not eligible" by arithmetic; None says it
+    outright.
+    """
+    value = receipt.get("qualityScore")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if 0 <= value <= 100 else None
+
+
 def compare_receipts(
     baseline: dict[str, Any], candidate: dict[str, Any]
 ) -> dict[str, Any]:
@@ -355,13 +376,16 @@ def compare_receipts(
             "receipts come from different provider usage schemas and count a "
             f"cached prompt differently: {sorted(schemas)}"
         )
+    candidate_quality = _quality_score(candidate)
+    baseline_quality = _quality_score(baseline)
     eligible = (
         baseline.get("success") is True
         and candidate.get("success") is True
         and baseline.get("criticalFailure") is False
         and candidate.get("criticalFailure") is False
-        and float(candidate.get("qualityScore", -1))
-        >= float(baseline.get("qualityScore", 101))
+        and candidate_quality is not None
+        and baseline_quality is not None
+        and candidate_quality >= baseline_quality
     )
     metrics: dict[str, Any] = {}
     for key in ("inputTokens", "freshInputTokens", "outputTokens", "totalTokens"):

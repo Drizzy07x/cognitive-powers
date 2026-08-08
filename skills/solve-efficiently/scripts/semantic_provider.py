@@ -19,8 +19,12 @@ class SemanticProviderError(RuntimeError):
     pass
 
 
-def _load(name: str):
-    path = Path(__file__).with_name(name)
+def _load(name: str, directory: Path | None = None):
+    path = directory / name if directory is not None else Path(__file__).with_name(name)
+    # An absent module used to escape as FileNotFoundError from exec_module,
+    # which no caller of this fail-closed surface guards for.
+    if not path.is_file():
+        raise SemanticProviderError(f"cannot load {path}")
     spec = importlib.util.spec_from_file_location("cp_" + path.stem, path)
     if not spec or not spec.loader:
         raise SemanticProviderError(f"cannot load {path}")
@@ -28,6 +32,23 @@ def _load(name: str):
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+# scripts/skill_routing.py holds the tree's one tokenizer -- folding, English
+# and Spanish stopwords, and stemming to a fixpoint -- tuned against a measured
+# routing corpus. Matching graph nodes with a second, naive implementation is
+# the split CLAUDE.md warns about, and it cost exactly what a split costs: the
+# unfiltered "the" and "is" matched by substring inside "displayName" and every
+# other identifier containing them, so one prompt selected 3537 of 3801 nodes.
+_PLUGIN_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
+_ROUTING: Any = None
+
+
+def _routing():
+    global _ROUTING
+    if _ROUTING is None:
+        _ROUTING = _load("skill_routing.py", _PLUGIN_SCRIPTS)
+    return _ROUTING
 
 
 def _root(value: str | Path) -> Path:
@@ -90,15 +111,36 @@ def _graph_health(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _detector_paths(value: Any) -> set[str]:
+def _detector_paths(value: Any) -> tuple[set[str], int]:
+    """Return the paths the detector named, and how many it named unreadably.
+
+    The second number is not diagnostics. Silently dropping an entry this
+    reader does not recognize removes it from ``pending`` and ``deleted``, and
+    that is the direction which reports a stale index as fresh: a changed file
+    spelled as an object rather than a string left the pending set and the
+    probe answered "complete", with the corpus count quietly one lower. Every
+    unrecognized shape resolved that way, so a graphify whose detector schema
+    drifted was trusted exactly when it had stopped being legible.
+    """
     values: list[Any] = []
+    unreadable = 0
     if isinstance(value, dict):
         for group in value.values():
             if isinstance(group, list):
                 values.extend(group)
+            elif group is not None:
+                unreadable += 1
     elif isinstance(value, list):
         values.extend(value)
-    return {str(item) for item in values if isinstance(item, (str, Path))}
+    elif value is not None:
+        unreadable += 1
+    paths: set[str] = set()
+    for item in values:
+        if isinstance(item, (str, Path)):
+            paths.add(str(item))
+        else:
+            unreadable += 1
+    return paths, unreadable
 
 
 def _within_index(root: Path, index: Path, value: str) -> bool:
@@ -287,27 +329,19 @@ def _graphify_completeness(
             },
             "graphify detector returned an unsupported schema",
         )
-    files = {
-        value
-        for value in _detector_paths(detected.get("files"))
-        if not _within_index(root, index, value)
-    }
-    unchanged = {
-        value
-        for value in _detector_paths(detected.get("unchanged_files"))
-        if not _within_index(root, index, value)
-    }
-    explicit_new = {
-        value
-        for value in _detector_paths(detected.get("new_files"))
-        if not _within_index(root, index, value)
-    }
+    unreadable = 0
+
+    def outside_index(field: str) -> set[str]:
+        nonlocal unreadable
+        named, unread = _detector_paths(detected.get(field))
+        unreadable += unread
+        return {value for value in named if not _within_index(root, index, value)}
+
+    files = outside_index("files")
+    unchanged = outside_index("unchanged_files")
+    explicit_new = outside_index("new_files")
     pending = (files - unchanged) | explicit_new
-    deleted = {
-        value
-        for value in _detector_paths(detected.get("deleted_files"))
-        if not _within_index(root, index, value)
-    }
+    deleted = outside_index("deleted_files")
     raw_walk_errors = detected.get("walk_errors", [])
     walk_errors = (
         raw_walk_errors if isinstance(raw_walk_errors, list) else [raw_walk_errors]
@@ -318,7 +352,7 @@ def _graphify_completeness(
             *(_display_path(root, value) for value in deleted),
         }
     )[:20]
-    complete = not pending and not deleted and not walk_errors
+    complete = not pending and not deleted and not walk_errors and not unreadable
     return (
         {
             "status": "complete" if complete else "incomplete",
@@ -327,9 +361,16 @@ def _graphify_completeness(
             "pending_file_count": len(pending),
             "deleted_file_count": len(deleted),
             "walk_error_count": len(walk_errors),
+            "unreadable_entry_count": unreadable,
             "warnings": warnings,
         },
-        None if complete else "graphify index is incomplete",
+        None
+        if complete
+        else (
+            f"graphify detector output is not fully readable ({unreadable} unrecognized)"
+            if unreadable
+            else "graphify index is incomplete"
+        ),
     )
 
 
@@ -394,7 +435,11 @@ def _inspect_graphify(
     try:
         records = json.loads(manifest.read_text(encoding="utf-8"))
         payload = json.loads(graph.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    # UnicodeDecodeError is a ValueError, caught by neither guard. graphify
+    # writes both of these files, so their encoding is not this adapter's to
+    # assume, and one written as UTF-16 escaped probe_graphify as a traceback
+    # instead of demoting the index to unusable with a stated reason.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         base["reason"] = f"invalid graphify index: {exc}"
         return base, None
     if not isinstance(records, dict) or not isinstance(payload, dict):
@@ -524,66 +569,103 @@ def _result(
     }
 
 
+# graphify labels a code identifier verbatim, so "displayName" is a single
+# word to any tokenizer and unreachable from a query that spells the two words
+# apart. Splitting on the boundary is what keeps that reachable now that terms
+# have to match whole tokens rather than substrings.
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+# The keys graphify and networkx exports use for the same two facts. Stated
+# once because three separate copies of these tuples had already drifted apart
+# in what they included.
+_NODE_PATH_KEYS = ("source_file", "sourceFile", "filePath", "path")
+_NODE_TEXT_KEYS = ("label", "name", *_NODE_PATH_KEYS)
+
+# Candidates are read by a model that then has to open them. Every node sharing
+# any term is not a candidate set, it is a second copy of the graph.
+_MAX_TERM_CANDIDATES = 40
+
+
+def _terms(text: str) -> set[str]:
+    tokenize = _routing().tokenize
+    tokens = set(tokenize(text))
+    split = _CAMEL_BOUNDARY.sub(" ", text)
+    if split != text:
+        tokens |= set(tokenize(split))
+    return tokens
+
+
+def _node_text(node: dict[str, Any], keys: Sequence[str]) -> str:
+    return " ".join(str(node.get(key, "")) for key in keys)
+
+
+def _ranked_by_terms(byid: dict[str, Any], query: str) -> dict[str, Any]:
+    """Return the nodes sharing the most query terms, best first.
+
+    Ranking and the cap are one decision: without them a caller reading the
+    top of the list gets whatever order the export happened to use.
+    """
+    terms = _terms(query)
+    if not terms:
+        return {}
+    scored = [
+        (overlap, identifier)
+        for identifier, node in byid.items()
+        if (overlap := len(terms & _terms(_node_text(node, _NODE_TEXT_KEYS))))
+    ]
+    scored.sort(key=lambda entry: (-entry[0], entry[1]))
+    return {
+        identifier: byid[identifier] for _, identifier in scored[:_MAX_TERM_CANDIDATES]
+    }
+
+
+def _neighbourhood(
+    byid: dict[str, Any], edges: Any, changed: Sequence[str]
+) -> dict[str, Any]:
+    """Nodes whose file is one of ``changed``, plus their direct neighbours."""
+    needles = {Path(x).as_posix().lower() for x in changed}
+    seeds = {
+        identifier
+        for identifier, node in byid.items()
+        if any(p in _node_text(node, _NODE_PATH_KEYS).lower() for p in needles)
+    }
+    selected = {identifier: byid[identifier] for identifier in seeds}
+    for edge in edges if isinstance(edges, list) else []:
+        if not isinstance(edge, dict):
+            continue
+        a, b = str(edge.get("source")), str(edge.get("target"))
+        if a in seeds and b in byid:
+            selected[b] = byid[b]
+        if b in seeds and a in byid:
+            selected[a] = byid[a]
+    return selected
+
+
+def _candidate(node: dict[str, Any]) -> dict[str, Any]:
+    raw = str(node.get("confidence", node.get("provenance", ""))).upper()
+    return {
+        "id": node.get("id"),
+        "label": node.get("label", node.get("name")),
+        "path": next((node.get(k) for k in _NODE_PATH_KEYS if node.get(k)), None),
+        "kind": node.get("kind", node.get("type")),
+        "confidence": CONFIDENCE.get(raw, "unknown"),
+        "raw_confidence": raw or None,
+    }
+
+
 def _graph_candidates(
     graph: dict[str, Any], query: str, changed: Sequence[str] | None = None
 ):
     nodes = graph.get("nodes", [])
-    edges = graph.get("edges", graph.get("links", []))
     byid = {str(n.get("id")): n for n in nodes if isinstance(n, dict)}
-    terms = set(re.findall(r"[\w.-]+", query.lower()))
-    selected = {}
-    for n in byid.values():
-        hay = " ".join(
-            str(n.get(k, ""))
-            for k in ("label", "name", "source_file", "sourceFile", "filePath", "path")
-        ).lower()
-        if terms and any(t in hay for t in terms):
-            selected[str(n.get("id"))] = n
+    selected = _ranked_by_terms(byid, query)
     if changed:
-        needles = {Path(x).as_posix().lower() for x in changed}
-        seeds = {
-            i
-            for i, n in byid.items()
-            if any(
-                p
-                in " ".join(
-                    str(n.get(k, ""))
-                    for k in ("source_file", "sourceFile", "filePath", "path")
-                ).lower()
-                for p in needles
-            )
-        }
-        selected.update({i: byid[i] for i in seeds})
-        for e in edges if isinstance(edges, list) else []:
-            if not isinstance(e, dict):
-                continue
-            a, b = str(e.get("source")), str(e.get("target"))
-            if a in seeds and b in byid:
-                selected[b] = byid[b]
-            if b in seeds and a in byid:
-                selected[a] = byid[a]
-    result = []
-    for n in selected.values():
-        raw = str(n.get("confidence", n.get("provenance", ""))).upper()
-        path = next(
-            (
-                n.get(k)
-                for k in ("source_file", "sourceFile", "filePath", "path")
-                if n.get(k)
-            ),
-            None,
-        )
-        result.append(
-            {
-                "id": n.get("id"),
-                "label": n.get("label", n.get("name")),
-                "path": path,
-                "kind": n.get("kind", n.get("type")),
-                "confidence": CONFIDENCE.get(raw, "unknown"),
-                "raw_confidence": raw or None,
-            }
-        )
-    return result
+        # Appended rather than ranked: a seed's file was named by the caller,
+        # so it is evidence of a different kind than a term overlap and must
+        # not be dropped by the cap above.
+        edges = graph.get("edges", graph.get("links", []))
+        selected.update(_neighbourhood(byid, edges, changed))
+    return [_candidate(node) for node in selected.values()]
 
 
 def search(
@@ -727,13 +809,22 @@ def main(argv=None):
         "codegraph_executable": ns.codegraph,
         "graphify_dir": ns.graphify_out,
     }
-    result = (
-        probe(ns.root, **kw)
-        if ns.cmd == "probe"
-        else search(ns.root, ns.query, **kw)
-        if ns.cmd == "search"
-        else affected(ns.root, ns.file, **kw)
-    )
+    # Every refusal this module raises is a domain error it chose to state, and
+    # each one reached the caller as a traceback instead: an unreadable root, an
+    # empty query, a manifest path escaping the project. semantic_context.py
+    # beside it already answers with the error and exit 2, which is what a
+    # caller reading this surface's JSON can act on.
+    try:
+        result = (
+            probe(ns.root, **kw)
+            if ns.cmd == "probe"
+            else search(ns.root, ns.query, **kw)
+            if ns.cmd == "search"
+            else affected(ns.root, ns.file, **kw)
+        )
+    except SemanticProviderError as error:
+        print(json.dumps({"error": str(error)}, ensure_ascii=False))
+        return 2
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

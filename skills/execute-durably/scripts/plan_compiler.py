@@ -65,6 +65,18 @@ def _stable_identifier(value: str, label: str) -> str:
     return candidate
 
 
+# Windows drops a component's trailing spaces and dots and reads everything
+# after a colon as an alternate data stream, so "src /a.py" and "src/a.py:x"
+# reach files "src/a.py" already names while comparing unequal part-for-part --
+# past the overlap check that is the whole ownership guarantee. Kept identical
+# to orchestration_policy.py and work_state.py, which validate the same plan.
+_UNSAFE_IN_COMPONENT = re.compile(r"[:\x00-\x1f]")
+
+
+def _unsafe_component(part: str) -> bool:
+    return part != part.rstrip(" .") or bool(_UNSAFE_IN_COMPONENT.search(part))
+
+
 def _normalize_owned_path(value: str, packet_id: str) -> str:
     raw = value.strip().replace("\\", "/")
     if not raw or raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
@@ -72,7 +84,9 @@ def _normalize_owned_path(value: str, packet_id: str) -> str:
             f"packet {packet_id} owned path must be workspace-relative: {value!r}"
         )
     path = PurePosixPath(raw)
-    if any(part in {"", ".", ".."} for part in path.parts):
+    if any(part in {"", ".", ".."} for part in path.parts) or any(
+        _unsafe_component(part) for part in path.parts
+    ):
         raise PlanCompilerError(
             f"packet {packet_id} owned path must not traverse the workspace: {value!r}"
         )

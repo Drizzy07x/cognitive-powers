@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -157,6 +159,165 @@ class SemanticProviderTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(result["candidates"]), 2)
         self.assertTrue(result["requires_behavioral_verification"])
+
+    def test_function_words_and_substrings_do_not_select_the_whole_graph(self):
+        """A candidate set the size of the graph names nothing.
+
+        The first matcher kept every query term and tested it with ``in``, so
+        "is" matched inside "displayName" and "the" inside every path holding
+        it. Measured on this repository: one eight-word prompt selected 3537 of
+        3801 nodes, and roughly half of them only through a function word.
+        """
+        graph = {
+            "nodes": [
+                {"id": "1", "label": "displayName", "source_file": "manifest.py"},
+                {"id": "2", "label": "alpha", "source_file": "other.py"},
+            ],
+            "edges": [],
+        }
+
+        candidates = mod._graph_candidates(graph, "what is the alpha here")
+
+        self.assertEqual(["alpha"], [x["label"] for x in candidates])
+
+    def test_camel_case_labels_are_reachable_from_separated_words(self):
+        """Whole-token matching must not cost what substring matching gave.
+
+        graphify labels an identifier verbatim, so "displayName" is one token;
+        without the boundary split, requiring whole tokens would make every
+        camel-cased symbol unreachable from the words a person types.
+        """
+        graph = {"nodes": [{"id": "1", "label": "displayName"}], "edges": []}
+
+        candidates = mod._graph_candidates(graph, "display name")
+
+        self.assertEqual(["displayName"], [x["label"] for x in candidates])
+
+    def test_term_matches_are_ranked_and_capped_without_dropping_seeds(self):
+        """Order carries the ranking, and a seed survives the cap.
+
+        ``affected`` passes the changed paths as both query and seeds; a seed
+        was named by the caller rather than inferred, so the cap on inferred
+        matches must not reach it.
+        """
+        nodes = [
+            {"id": str(i), "label": "ledger", "source_file": f"m{i}.py"}
+            for i in range(mod._MAX_TERM_CANDIDATES + 5)
+        ]
+        nodes.append({"id": "best", "label": "ledger receipt", "source_file": "b.py"})
+        nodes.append({"id": "seed", "label": "unrelated", "source_file": "changed.py"})
+        graph = {"nodes": nodes, "edges": []}
+
+        candidates = mod._graph_candidates(graph, "ledger receipt", ["changed.py"])
+
+        identifiers = [x["id"] for x in candidates]
+        self.assertEqual("best", identifiers[0])
+        self.assertEqual(mod._MAX_TERM_CANDIDATES + 1, len(identifiers))
+        self.assertIn("seed", identifiers)
+
+    def test_cli_answers_a_domain_refusal_instead_of_tracebacking(self):
+        """The refusals this module states are the ones its CLI must report.
+
+        ``semantic_context.py`` beside it already exits 2 with the message; this
+        entrypoint let every SemanticProviderError escape as a traceback, so a
+        caller reading its JSON got a stack trace on stderr and nothing else.
+        """
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+
+        for argv, expected in (
+            (["--root", str(root / "missing"), "probe"], "not a directory"),
+            (["--root", str(root), "search", "--query", "  "], "must not be empty"),
+        ):
+            with self.subTest(argv=argv):
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    code = mod.main(argv)
+                self.assertEqual(2, code)
+                self.assertIn(expected, json.loads(stdout.getvalue())["error"])
+
+    def test_a_detector_entry_it_cannot_read_leaves_the_index_incomplete(self):
+        """Freshness is decided by what the detector says changed.
+
+        Entries the reader did not recognize were dropped rather than counted,
+        which removes them from ``pending`` and ``deleted`` -- the direction
+        that reports a stale index as fresh. A changed file spelled as an
+        object instead of a string left the pending set entirely and the probe
+        answered "complete" with the corpus count quietly one lower.
+        """
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        source = str(root / "src.py")
+        changed = root / "pending_change.py"
+        changed.write_text("x = 1\n", encoding="utf-8")
+
+        def detector_for(payload):
+            def run(argv, **kwargs):
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=json.dumps(payload), stderr=""
+                )
+
+            return run
+
+        for label, payload in (
+            (
+                "changed file as an object",
+                {"files": {"code": [source, {"path": str(changed)}]}},
+            ),
+            ("changed file as a number", {"files": {"code": [source, 42]}}),
+            (
+                "deleted file as an object",
+                {
+                    "files": {"code": [source]},
+                    "deleted_files": [{"path": str(changed)}],
+                },
+            ),
+            ("group is a string", {"files": {"code": str(changed)}}),
+        ):
+            with self.subTest(label=label):
+                probe = mod.probe_graphify(root, runner=detector_for(payload))
+
+                self.assertFalse(probe["usable"], probe["reason"])
+                self.assertEqual(1, probe["completeness"]["unreadable_entry_count"])
+                self.assertIn("not fully readable", probe["reason"])
+
+    def test_a_graphify_index_in_another_encoding_demotes_instead_of_crashing(self):
+        """graphify writes both files, so their encoding is not ours to assume.
+
+        UnicodeDecodeError is a ValueError, caught by neither ``OSError`` nor
+        ``json.JSONDecodeError``, so a manifest written as UTF-16 escaped
+        ``probe_graphify`` as a traceback instead of demoting the index with a
+        stated reason.
+        """
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        manifest = root / "graphify-out" / "manifest.json"
+        manifest.write_bytes(b"\xff\xfe" + '{"a": 1}'.encode("utf-16-le"))
+
+        probe = mod.probe_graphify(root)
+
+        self.assertFalse(probe["usable"])
+        self.assertIn("invalid graphify index", probe["reason"])
+
+    def test_a_detector_that_omits_a_field_is_not_accused(self):
+        """An older detector that never emits deleted_files stays usable."""
+        td, root = self.fixture()
+        self.addCleanup(td.cleanup)
+        source = str(root / "src.py")
+
+        def run(argv, **kwargs):
+            payload = {
+                "files": {"code": [source]},
+                "unchanged_files": {"code": [source]},
+            }
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=json.dumps(payload), stderr=""
+            )
+
+        probe = mod.probe_graphify(root, runner=run)
+
+        self.assertTrue(probe["usable"], probe["reason"])
+        self.assertEqual(0, probe["completeness"]["unreadable_entry_count"])
 
     def test_public_probe_is_bounded_and_supports_networkx_links(self):
         td, root = self.fixture(links=True)

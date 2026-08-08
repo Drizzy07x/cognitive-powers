@@ -286,6 +286,20 @@ def _content_id(prefix: str, value: object) -> str:
     return f"{prefix}-{hashlib.sha256(encoded).hexdigest()}"
 
 
+# Windows drops a component's trailing spaces and dots, and reads everything
+# after a colon as an alternate data stream. So "src /a.py", "src./a.py",
+# "src/a.py." and "src/a.py:x" all reach files that "src/a.py" already names,
+# while comparing unequal part-for-part. Two packets owning one file is the
+# single thing the overlap check exists to refuse, and those spellings walked
+# straight past it. plan_compiler.py and work_state.py carry their own copies
+# of this decision and need the same guard.
+_UNSAFE_IN_COMPONENT = re.compile(r"[:\x00-\x1f]")
+
+
+def _unsafe_component(part: str) -> bool:
+    return part != part.rstrip(" .") or bool(_UNSAFE_IN_COMPONENT.search(part))
+
+
 def _normalize_owned_path(value: str, field: str) -> str:
     # Compose combining marks first. macOS and Windows resolve the composed and
     # decomposed spellings of a name to one file, so two owners could otherwise
@@ -300,6 +314,7 @@ def _normalize_owned_path(value: str, field: str) -> str:
         or path.is_absolute()
         or any(part in {".", ".."} for part in path.parts)
         or normalized in {".", "/"}
+        or any(_unsafe_component(part) for part in path.parts)
     ):
         raise OrchestrationError(f"{field} contains an unsafe path")
     return str(path)

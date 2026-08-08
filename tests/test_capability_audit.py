@@ -150,6 +150,41 @@ class CapabilityAuditTests(unittest.TestCase):
         self.assertEqual(result["action"], "review-overlap")
         self.assertEqual(result["likely_overlap"]["name"], "verify-delivery")
 
+    def test_overlap_is_reachable_against_the_real_shipped_listings(self) -> None:
+        """The synthetic skill above is one sentence; the shipped ones are not.
+
+        Scored listings hold 33 to 81 terms against a candidate summary's six to
+        ten, so dividing the shared terms by the union capped a perfect subset
+        at roughly 6/53 -- under the 0.24 the caller compares against. Every
+        pair of real shipped skills topped out at 0.1143, which means
+        `review-overlap` could not fire for anything but a near-verbatim copy,
+        and the only test covering it used a fixture where the two sizes
+        happened to match. This one asks the tree that actually ships.
+        """
+        restatement = pattern(
+            candidate_name="release-delivery-verifier",
+            summary="Verify release delivery evidence and claims",
+            repository_paths=["scripts/validate_all.py"],
+        )
+        unrelated = pattern(
+            id="translations",
+            candidate_name="package-translations",
+            summary="Package translation catalogs for offline distribution",
+            repository_paths=["scripts/validate_all.py"],
+        )
+
+        report = auditor.assess(
+            PLUGIN_ROOT,
+            {"schema_version": 1, "patterns": [restatement, unrelated]},
+            as_of=date(2026, 7, 20),
+        )
+        by_id = {item["id"]: item for item in report["recommendations"]}
+
+        self.assertEqual(
+            "verify-delivery", by_id["release-check"]["likely_overlap"]["name"]
+        )
+        self.assertIsNone(by_id["translations"]["likely_overlap"])
+
     def test_future_evidence_is_invalid(self) -> None:
         candidate = pattern(
             occurrences=[
