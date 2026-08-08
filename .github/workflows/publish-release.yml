@@ -127,13 +127,30 @@ jobs:
           python scripts/release_identity.py
           --output "${{ runner.temp }}/release-notes.md"
       - name: Create immutable GitHub Release
+        # A prerelease tag is published as one. GitHub reads "latest" off the
+        # newest non-prerelease, and every install path that resolves latest --
+        # the README badge, `gh release view` with no tag in verify-release --
+        # would otherwise start handing a release candidate to strangers who
+        # asked for the release. The flag is derived from the tag rather than
+        # taken as an input, because the two are the same fact and an input
+        # can disagree with the ref being built.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${{ inputs.tag }}" "${{ runner.temp }}/release-assets"/*
-          --verify-tag
-          --title "Cognitive Powers ${{ inputs.tag }}"
-          --notes-file "${{ runner.temp }}/release-notes.md"
+          TAG: ${{ inputs.tag }}
+          ASSETS: ${{ runner.temp }}/release-assets
+          NOTES: ${{ runner.temp }}/release-notes.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" "$ASSETS"/* \
+            --verify-tag \
+            --title "Cognitive Powers $TAG" \
+            --notes-file "$NOTES" \
+            "${prerelease[@]}"
       - name: Verify the release that was just published
         # A release created with GITHUB_TOKEN does not raise a `release`
         # event, so verify-release cannot observe its own publisher and its

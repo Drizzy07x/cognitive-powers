@@ -37,7 +37,10 @@ REMOTE_TIMEOUT_SECONDS = 60
 CLONE_PATTERN = re.compile(
     r"git clone\s+--branch\s+(?P<ref>\S+)\s+--depth\s+\d+\s+(?P<url>https://\S+)"
 )
-TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
+# The prerelease part matches bump_version.VERSION_PATTERN. A README pinned to
+# a release candidate documents a tag that exists like any other, and refusing
+# the spelling here would report a malformed ref for a command that works.
+TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$")
 
 
 class ReleaseRefError(RuntimeError):

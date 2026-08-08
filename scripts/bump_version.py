@@ -22,14 +22,40 @@ import re
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+# One spelling of a version, used by every pattern below. The prerelease part
+# is a closed set rather than the whole of semver: semver orders prerelease
+# identifiers by rules nothing in this repository implements, and a format the
+# ordering below cannot rank is one that picks the wrong rollback target in
+# silence. Three labels that rank alpha < beta < rc is what the release
+# checklist actually uses.
+_CORE = r"\d+\.\d+\.\d+"
+_PRERELEASE = r"(?:-(?:alpha|beta|rc)\.\d+)?"
+_VERSION = _CORE + _PRERELEASE
+PRERELEASE_RANK = {"alpha": 0, "beta": 1, "rc": 2}
+VERSION_PATTERN = re.compile(rf"^{_VERSION}$")
 HEADING_PATTERN = re.compile(
-    r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE
+    rf"^## ({_VERSION}) - (\d{{4}}-\d{{2}}-\d{{2}})\s*$", re.MULTILINE
 )
 # The lookbehind keeps scenario identifiers such as "upgrade-v1.5.2" out of
 # reach: they name an origin release on purpose, exactly as the release
 # binding tests treat them.
-TAG_PATTERN = re.compile(r"(?<![A-Za-z0-9-])v\d+\.\d+\.\d+")
+TAG_PATTERN = re.compile(rf"(?<![A-Za-z0-9-])v{_VERSION}")
+
+
+def version_order(version: str) -> tuple[int, int, int, int, int]:
+    """Rank one version against another, prereleases below their own release.
+
+    A prerelease is not a release of its line; 1.10.0-rc.1 precedes 1.10.0 and
+    follows every 1.9.x. Comparing the dotted parts as integers is what the
+    rollback target used to do, and `int("0-rc")` raises rather than ranking,
+    so a prerelease would have failed the bump instead of being placed.
+    """
+    core, _, prerelease = version.partition("-")
+    major, minor, patch = (int(part) for part in core.split("."))
+    if not prerelease:
+        return (major, minor, patch, len(PRERELEASE_RANK), 0)
+    label, _, number = prerelease.partition(".")
+    return (major, minor, patch, PRERELEASE_RANK[label], int(number))
 
 
 class BumpError(ValueError):
@@ -74,10 +100,9 @@ def published_releases(root: Path) -> list[str]:
 
 
 def rollback_target(root: Path, version: str) -> str:
-    new = tuple(int(part) for part in version.split("."))
+    new = version_order(version)
     for tag in published_releases(root):
-        parts = tuple(int(part) for part in tag[1:].split("."))
-        if parts < new:
+        if version_order(tag[1:]) < new:
             return tag
     raise BumpError(f"no published release below {version} to roll back to")
 
@@ -85,7 +110,7 @@ def rollback_target(root: Path, version: str) -> str:
 def _replace_json_version(root: Path, relative: str, version: str) -> bool:
     text = _read(root, relative)
     updated, count = re.subn(
-        r'("version"\s*:\s*")\d+\.\d+\.\d+(")',
+        rf'("version"\s*:\s*"){_VERSION}(")',
         rf"\g<1>{version}\g<2>",
         text,
         count=1,
@@ -112,7 +137,7 @@ def _apply(root: Path, version: str) -> list[str]:
 
     installer = _read(root, "install.ps1")
     updated, count = re.subn(
-        r'(\[string\]\$ReleaseRef = ")v\d+\.\d+\.\d+(")',
+        rf'(\[string\]\$ReleaseRef = ")v{_VERSION}(")',
         rf"\g<1>v{version}\g<2>",
         installer,
         count=1,
@@ -129,7 +154,7 @@ def _apply(root: Path, version: str) -> list[str]:
     # would be invisible on the platform most contributors bump from.
     posix_installer = _read(root, "install.sh")
     updated, count = re.subn(
-        r'(^release_ref=")v\d+\.\d+\.\d+(")',
+        rf'(^release_ref=")v{_VERSION}(")',
         rf"\g<1>v{version}\g<2>",
         posix_installer,
         count=1,
@@ -154,7 +179,7 @@ def _apply(root: Path, version: str) -> list[str]:
     # the release being declared, like every other tag in that file.
     sentinel = "\0cp-rollback-target\0"
     readme = _read(root, "README.md")
-    updated = re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", sentinel, readme)
+    updated = re.sub(rf"-ReleaseRef v{_VERSION}", sentinel, readme)
     updated = TAG_PATTERN.sub(f"v{version}", updated)
     updated = updated.replace(sentinel, f"-ReleaseRef {rollback}")
     if updated != readme:
@@ -208,7 +233,7 @@ def check(root: Path) -> dict[str, object]:
         {
             tag
             for tag in TAG_PATTERN.findall(
-                re.sub(r"-ReleaseRef v\d+\.\d+\.\d+", "", readme)
+                re.sub(rf"-ReleaseRef v{_VERSION}", "", readme)
             )
             if tag != f"v{version}"
         }

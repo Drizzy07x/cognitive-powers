@@ -81,8 +81,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [[ ! "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf "install.sh: release ref '%s' is not of the form vX.Y.Z.\\n" "$release_ref" >&2
+if [[ ! "$release_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+    printf "install.sh: release ref '%s' is not of the form vX.Y.Z or vX.Y.Z-rc.N.\\n" "$release_ref" >&2
     exit 1
 fi
 expected_version="${release_ref#v}"
@@ -372,7 +372,7 @@ mkdir -p "$recovery_parent"
 
 if [ "$configured_count" -eq 1 ]; then
     configured_source_is_pinned_repository=0
-    if [[ "$configured_source" =~ ^${repository}@(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40})$ ]]; then
+    if [[ "$configured_source" =~ ^${repository}@(v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?|[0-9a-f]{40})$ ]]; then
         configured_source_is_pinned_repository=1
     fi
 
@@ -469,7 +469,7 @@ previous_release_commit=""
 if [ "$configured_count" -eq 1 ]; then
     if [[ "$configured_source" =~ ^${repository}@([0-9a-f]{40})$ ]]; then
         previous_release_commit="${BASH_REMATCH[1]}"
-    elif [[ "$configured_source" =~ ^${repository}@(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    elif [[ "$configured_source" =~ ^${repository}@(v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?)$ ]]; then
         previous_ref="${BASH_REMATCH[1]}"
         previous_commit_raw=""
         if ! previous_commit_raw="$(gh api "repos/$repository/commits/$previous_ref")"; then

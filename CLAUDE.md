@@ -258,7 +258,12 @@ stays true, because a provider named in a catalog is not a provider present on t
 - **Version carriers move only through `scripts/bump_version.py`.** Write the `CHANGELOG.md`
   section first — the bump refuses to run without it, and the publisher derives release notes from
   it. Tags are immutable: every correction is a new version, because the plugin cache on both hosts
-  is keyed by version and a same-version cache is never refreshed in place.
+  is keyed by version and a same-version cache is never refreshed in place. A prerelease is a
+  version like any other and every carrier holds the suffix, because the publisher binds the tag to
+  the version the tagged manifest declares; `alpha`, `beta` and `rc` are the accepted labels and
+  `version_order` ranks them below the release they precede. `docs/releases.json` is the exception
+  and stays release-only — it is read for exactly one thing, the rollback target, and a candidate is
+  not a recovery.
 - **`source.sha256` identifies a commit, not a checkout.** Text is folded to LF and filenames
   composed to NFC before hashing (`sha256-text-normalized-v3`), so platforms agree. Digests from
   different schemes are not comparable and are rejected rather than reported as a content change.

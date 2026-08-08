@@ -360,6 +360,22 @@ running a pre-fix tree that reported the fixed version.
    which is now written by the job that proved the release real rather than by
    whoever remembered.
 
+A release candidate takes the same four steps with `X.Y.Z-rc.N` as the version.
+It is a version and not an annotation on one: the changelog heading, both
+manifests, the marketplace entry, both installer defaults and the README clone
+command all carry the suffix, because the publisher binds the tag to the
+version the tagged manifest declares and those two literals have to agree. The
+accepted labels are `alpha`, `beta` and `rc`, ranked in that order below the
+release they precede; anything else is refused rather than ranked by rules
+nothing here implements. Two things deliberately do not move. The documented
+rollback target stays the newest published *release* -- a reader escaping a bad
+build is not recovered by being sent to a candidate -- and
+`record-published-release` skips a prerelease tag entirely, so `docs/releases.json`
+keeps listing only the releases a rollback may name. The publisher passes
+`--prerelease`, derived from the tag rather than from an input that could
+disagree with it, so GitHub keeps resolving "latest" to the newest real
+release.
+
 Local installations are the one thing still worth doing by hand, and only when
 an update is intended: a same-version cache is never refreshed in place.
 

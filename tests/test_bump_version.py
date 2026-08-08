@@ -120,6 +120,48 @@ class BumpVersionTests(unittest.TestCase):
             )
             self.assertEqual(bump.main(["--check", "--root", str(root)]), 0)
 
+    def test_a_prerelease_moves_the_same_carriers_and_rolls_back_to_a_release(
+        self,
+    ) -> None:
+        """A release candidate is a version, not an annotation on one.
+
+        Every carrier reads the changelog heading, so the alternative was a
+        tag whose spelling no carrier could hold: the manifests would declare
+        1.10.0 while the tag said v1.10.0-rc.1, and the publisher's own binding
+        step compares those two literals. What does not move is the rollback
+        target, which stays the newest published release: a reader escaping a
+        bad build is not recovered by being sent to a candidate.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build_tree(root, old="1.7.1", new="1.8.0-rc.1")
+            self.assertEqual(bump.main(["1.8.0-rc.1", "--root", str(root)]), 0)
+            declared = json.loads(
+                (root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(declared["version"], "1.8.0-rc.1")
+            readme = (root / "README.md").read_text(encoding="utf-8")
+            self.assertIn("?ref=v1.8.0-rc.1", readme)
+            self.assertIn("-ReleaseRef v1.7.1", readme)
+            self.assertEqual(bump.main(["--check", "--root", str(root)]), 0)
+
+    def test_a_prerelease_ranks_below_its_own_release_and_above_the_last_one(
+        self,
+    ) -> None:
+        """The ordering the rollback target is chosen with.
+
+        Ranking dotted integers raised on the suffix rather than misplacing
+        it, so this is the property that had no implementation at all.
+        """
+        order = bump.version_order
+        self.assertLess(order("1.10.0-rc.1"), order("1.10.0"))
+        self.assertLess(order("1.9.1"), order("1.10.0-rc.1"))
+        self.assertLess(order("1.10.0-alpha.2"), order("1.10.0-beta.1"))
+        self.assertLess(order("1.10.0-rc.1"), order("1.10.0-rc.2"))
+        for malformed in ("1.10", "1.10.0-rc", "1.10.0-dev.1", "1.10.0rc1"):
+            with self.subTest(version=malformed):
+                self.assertIsNone(bump.VERSION_PATTERN.fullmatch(malformed))
+
     def test_bump_refuses_to_run_ahead_of_the_changelog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -612,7 +612,9 @@ class PluginContractTests(unittest.TestCase):
         # dispatches the publisher, which re-verifies every claim itself.
         self.assertIn("vars.AUTO_PUBLISH == 'true'", automation)
         self.assertIn("workflow_run", automation)
-        self.assertIn("^v[0-9]+\\.[0-9]+\\.[0-9]+$", automation)
+        self.assertIn(
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc)\\.[0-9]+)?$", automation
+        )
         self.assertIn("already exists; nothing to publish", automation)
         self.assertIn("gh workflow run publish-release.yml", automation)
         self.assertNotRegex(automation, r"actions/[a-z-]+@v[0-9]+")
@@ -631,6 +633,21 @@ class PluginContractTests(unittest.TestCase):
         self.assertIn("head_sha", publication)
         self.assertIn("gh attestation verify", publication)
         self.assertNotRegex(publication, r"actions/[a-z-]+@v[0-9]+")
+
+        # A prerelease tag must be published as one, and derived from the tag
+        # rather than taken as an input that can disagree with the ref being
+        # built. GitHub reads "latest" off the newest non-prerelease, so a
+        # candidate published without the flag becomes what the README badge
+        # and every `gh release view` with no tag resolve to.
+        self.assertIn("--prerelease", publication)
+        self.assertIn('if [[ "$TAG" == *-* ]]', publication)
+        # docs/releases.json is the documented rollback target and nothing
+        # else. A reader escaping a bad release is not recovered by being sent
+        # to a candidate, and the ordering there ranks dotted integers.
+        verification = (
+            PLUGIN_ROOT / ".github" / "workflows" / "verify-release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('if "-" in tag:', verification)
 
         # ./assets is part of the checkout and carries the plugin's icons and
         # logos, so downloading the evidence into it mixed eighteen tracked

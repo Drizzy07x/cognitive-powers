@@ -179,6 +179,14 @@ jobs:
           import json, pathlib, sys
 
           tag = sys.argv[1]
+          # A prerelease is verified like any other tag and recorded like none
+          # of them. This file is read for one thing -- the rollback target a
+          # reader escaping a bad release is sent to -- and sending them to a
+          # release candidate is not a recovery. It also has no place in the
+          # ordering below, which ranks dotted integers and would raise on the
+          # suffix rather than misplace it.
+          if "-" in tag:
+              raise SystemExit(0)
           path = pathlib.Path("docs/releases.json")
           payload = json.loads(path.read_text(encoding="utf-8"))
           published = payload["published"]

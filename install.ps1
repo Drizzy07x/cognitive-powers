@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidatePattern('^v\d+\.\d+\.\d+$')]
+    [ValidatePattern('^v\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$')]
     [string]$ReleaseRef = "v1.10.0",
     [switch]$Help
 )
@@ -221,7 +221,7 @@ if ($configured.Count -eq 1) {
     $configuredSource = $configured[0].marketplaceSource.source
     $configuredSourceIsPinnedRepository = (
         -not [string]::IsNullOrWhiteSpace($configuredSource) -and
-        $configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+|[0-9a-f]{40})$"
+        $configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?|[0-9a-f]{40})$"
     )
     # A failed transaction restores the previous installation from a recovery
     # marketplace under the data home and preserves it. That state is this
@@ -276,7 +276,7 @@ if ($configured.Count -eq 1) {
     if ($configuredSource -match "^$([regex]::Escape($repository))@([0-9a-f]{40})$") {
         $previousReleaseCommit = $Matches[1]
     }
-    elseif ($configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+)$") {
+    elseif ($configuredSource -match "^$([regex]::Escape($repository))@(v\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?)$") {
         $previousRef = $Matches[1]
         $previousCommitRaw = & gh api "repos/$repository/commits/$previousRef"
         if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the previous immutable release '$previousRef'." }
