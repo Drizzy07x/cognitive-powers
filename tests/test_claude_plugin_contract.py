@@ -283,13 +283,21 @@ class ClaudeHookTests(unittest.TestCase):
         self.assertEqual(
             scripts,
             {
-                "clean_code_guard.py",
                 "selective_hooks.py",
                 "semantic_index.py",
                 "skill_activation.py",
                 "skill_router.py",
             },
         )
+        # clean_code_guard.py is no longer registered; it is called by
+        # selective_hooks after the ledger event, so this asserts it is still
+        # reached. A dropped registration and a dropped call look identical
+        # from the manifest alone.
+        recorder = (PLUGIN_ROOT / "hooks" / "selective_hooks.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("import clean_code_guard", recorder)
+        self.assertIn("clean_code_guard.run_hook", recorder)
 
     def test_post_tool_use_matches_claude_file_tools(self) -> None:
         # MultiEdit is absent from current hosts but present in the versions the
@@ -301,17 +309,20 @@ class ClaudeHookTests(unittest.TestCase):
             set(matcher.split("|")), {"Edit", "Write", "MultiEdit", "NotebookEdit"}
         )
 
-    def test_both_manifests_agree_on_which_tools_are_writes(self) -> None:
-        """One tool set per host, and every PostToolUse entry sees all of it.
+    def test_one_post_tool_use_registration_per_host(self) -> None:
+        """One entry per manifest, and both name the same writes.
 
-        The test above pins one entry of one manifest, so the drift it names --
-        a tool one hook treats as a write while its neighbour ignores it -- was
-        only refused for that entry. It had already happened twice: the guard
-        entry beside it missed NotebookEdit, and the Codex manifest missed both
-        it and MultiEdit. Nothing could see either, because a matcher that
-        names too few tools produces no error, only an event that is never
-        recorded. What differs between hosts is the tool vocabulary, so that is
-        the only difference this asserts.
+        The manifests had carried three different matcher sets between them:
+        the guard entry omitted NotebookEdit while the ledger entry beside it
+        matched it, and the Codex manifest omitted both it and MultiEdit. A
+        matcher naming too few tools raises nothing and logs nothing -- it
+        produces an event that is simply never recorded -- so the only symptom
+        available was a completion gate quiet about an edit it never saw. Two
+        entries on one matcher is what made that drift possible and what made
+        the host start two interpreters per edit to read the same stdin twice;
+        selective_hooks.py calls the guard itself now. What still differs
+        between hosts is the tool vocabulary, so that is the only difference
+        asserted here.
         """
         codex = json.loads(
             (PLUGIN_ROOT / "hooks" / "hooks.codex.json").read_text(encoding="utf-8")
@@ -322,9 +333,9 @@ class ClaudeHookTests(unittest.TestCase):
             (codex, shared | {"apply_patch"}),
         ):
             entries = manifest["PostToolUse"]
-            self.assertEqual(len(entries), 2)
-            for entry in entries:
-                self.assertEqual(set(entry["matcher"].split("|")), expected)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(set(entries[0]["matcher"].split("|")), expected)
+            self.assertEqual(len(entries[0]["hooks"]), 1)
 
     def test_every_hook_uses_exec_form_against_the_bundled_script(self) -> None:
         entries = [
@@ -333,7 +344,7 @@ class ClaudeHookTests(unittest.TestCase):
             for entry in group
             for hook in entry["hooks"]
         ]
-        self.assertEqual(len(entries), 6)
+        self.assertEqual(len(entries), 5)
         for hook in entries:
             self.assertEqual(hook["type"], "command")
             # Shell-form commands reject ${user_config.*}; exec form is required.
@@ -360,7 +371,6 @@ class ClaudeHookTests(unittest.TestCase):
         self.assertEqual(
             declared,
             {
-                "clean_code_guard.py": {"post-tool-use"},
                 "selective_hooks.py": {"post-tool-use", "stop"},
                 "semantic_index.py": {"session-start"},
                 "skill_activation.py": {"session-start"},

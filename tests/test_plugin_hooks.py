@@ -330,6 +330,33 @@ class PluginHookTests(unittest.TestCase):
             hashlib.sha256(notebook.read_bytes()).hexdigest(),
         )
 
+    def test_one_edit_records_the_ledger_and_reports_readability_once(self) -> None:
+        """The single PostToolUse registration owes both answers.
+
+        Two entries on one matcher started two interpreters per edit to parse
+        the same stdin twice; the guard is a call at the end of this path now.
+        A test that only checked the ledger would pass with the guard silently
+        never reached, which is exactly what a dropped call looks like -- so
+        this asserts the recording that must not fail and the advisory report
+        that must still arrive, from one process and one payload.
+        """
+        source = self.repo / "long.py"
+        body = "\n".join(f"    value_{index} = {index}" for index in range(40))
+        source.write_text(f"def wide():\n{body}\n", encoding="utf-8")
+        payload = self.payload("Write")
+        payload["tool_name"] = "Write"
+        payload["tool_input"] = {"file_path": str(source)}
+        payload["toolInput"] = {"file_path": str(source)}
+
+        result = self.run_hook("post-tool-use", payload)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(self.ledger().read_text(encoding="utf-8"))
+        self.assertEqual([item["path"] for item in event["files"]], ["long.py"])
+        report = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(report["hookEventName"], "PostToolUse")
+        self.assertIn("function-length", report["additionalContext"])
+
     def test_stop_leaves_no_lock_behind_for_a_session_that_edited_nothing(self) -> None:
         result = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
         self.assertEqual(result.returncode, 0, result.stderr)

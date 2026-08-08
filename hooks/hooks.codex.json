@@ -45,17 +45,6 @@
             "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\selective_hooks.py\" post-tool-use"
           }
         ]
-      },
-      {
-        "matcher": "apply_patch|Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/hooks/clean_code_guard.py\" post-tool-use",
-            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\clean_code_guard.py\" post-tool-use",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "Stop": [

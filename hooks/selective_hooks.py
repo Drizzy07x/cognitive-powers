@@ -1019,7 +1019,31 @@ def _run_record_validation(args: argparse.Namespace) -> int:
         return 2
 
 
-def _run_event(command: str) -> None:
+def _run_clean_code_guard(payload: dict[str, Any]) -> int:
+    """Run the readability guard on the payload this process already read.
+
+    Both hooks were registered on the same PostToolUse matcher, so every edit
+    started two interpreters to parse the same stdin twice. One registration
+    reads it once. What kept the two separable was never the process boundary
+    but the order: the ledger event is appended before the guard is imported,
+    so a fault in the analyser cannot reach the record the ``Stop`` gate reads.
+    That is why this is a call at the end of the edit path and not a merge of
+    the two scripts -- the guard stays advisory, its own module, and its own
+    standalone entry point for ``--scan``.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import clean_code_guard
+
+        return clean_code_guard.run_hook(payload)
+    except Exception:
+        # Advisory by contract. A missing sibling, an unreadable limits file or
+        # a parse fault in the analyser must not fail the tool call that the
+        # ledger has already recorded.
+        return 0
+
+
+def _run_event(command: str) -> int:
     """Record one observability event from the payload on stdin."""
     payload = _read_payload()
     if isinstance(payload, OversizedPayload):
@@ -1027,8 +1051,14 @@ def _run_event(command: str) -> None:
         # payload is small, so an oversized one is not a real case.
         if command == "post-tool-use":
             record_oversized_payload(payload.prefix)
-    elif payload is not None:
-        post_tool_use(payload) if command == "post-tool-use" else stop(payload)
+        return 0
+    if payload is None:
+        return 0
+    if command != "post-tool-use":
+        stop(payload)
+        return 0
+    post_tool_use(payload)
+    return _run_clean_code_guard(payload)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1041,11 +1071,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "record-validation":
         return _run_record_validation(args)
     try:
-        _run_event(args.command)
+        return _run_event(args.command)
     except Exception:
         # Observability must never turn an incomplete payload or I/O race into a tool block.
         return 0
-    return 0
 
 
 if __name__ == "__main__":

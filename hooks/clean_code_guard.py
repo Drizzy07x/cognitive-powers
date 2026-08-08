@@ -144,13 +144,16 @@ def target_paths(event: dict) -> list[Path]:
     ]
 
 
-def run_hook() -> int:
+def run_hook(event: dict) -> int:
+    # The event is passed in rather than read here: selective_hooks.py owns the
+    # single PostToolUse registration and has already consumed stdin by the
+    # time it calls this. read_event() stays for the standalone invocation.
     # One patch can name several files; a deleted target has no source to read
     # and file_findings returns nothing for it, which is the right silence.
     limits = rules.load_limits()
     reports = [
         render_report(path, findings)
-        for path in target_paths(read_event())
+        for path in target_paths(event)
         if (findings := file_findings(path, limits))
     ]
     if not reports:
@@ -204,7 +207,7 @@ def main() -> int:
         # manifest error, but this hook is advisory: refusing loudly would turn
         # a typo in packaging into a failed tool call for the user.
         return 0
-    return run_hook()
+    return run_hook(read_event())
 
 
 if __name__ == "__main__":

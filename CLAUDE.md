@@ -123,16 +123,25 @@ including one delivered twice, is recorded as *incomplete* rather than scored: t
 silently by contract, so an arm that never took effect otherwise reads as an arm that changed
 nothing.
 
-**Five hooks, three shapes.** `hooks/semantic_index.py` and `hooks/skill_activation.py`
-(both SessionStart) and `hooks/skill_router.py`
+**Five scripts, four registrations, three shapes.** `hooks/semantic_index.py` and
+`hooks/skill_activation.py` (both SessionStart) and `hooks/skill_router.py`
 (UserPromptSubmit) are advisory in full and stay silent on every error. `hooks/selective_hooks.py`
 is not: it records the edit ledger that the `Stop` completion gate reads, so a dropped event is
 indistinguishable from a session that changed nothing. When editing it, ask what an early return
-makes invisible. `hooks/clean_code_guard.py` (PostToolUse on writes) is the third shape: advisory
+makes invisible. `hooks/clean_code_guard.py` is the third shape: advisory
 by default, exit 2 under `CLEAN_CODE_GUARD_STRICT`, with the measurable rules isolated in
 `hooks/clean_code_rules.py` — pure analysis, no I/O, no process control. Waivers in
 `cleancode-accepted.txt` are per `path:line:rule`, never per file, and hook mode ignores them: the
 file being edited right now is the one where a stale waiver would hide the next defect.
+
+The guard is **not registered**. Both manifests carried it and `selective_hooks.py` on the same
+PostToolUse matcher, so every edit started two interpreters to parse the same stdin twice — and
+the two matchers drifted three ways before anything checked them, which a matcher cannot report
+because naming too few tools produces an event that is simply never recorded. `selective_hooks.py`
+calls `clean_code_guard.run_hook(payload)` at the end of its edit path instead. The order is the
+contract: the ledger event is appended before the guard is imported, so a fault in the analyser
+cannot reach the record the `Stop` gate depends on. Keep the guard's own module boundary and its
+`--scan` entry point — merging the two scripts is what that order exists to avoid.
 
 **Durable state lives outside the repository**, at `~/.codex/cognitive-powers` on both hosts
 (historical name, deliberately shared so one machine keeps one store), overridable with
@@ -224,7 +233,9 @@ stays true, because a provider named in a catalog is not a provider present on t
 - **Adding a hook moves three assertions in `tests/test_claude_plugin_contract.py`**: the number of
   hook entries, the set of script names, and the subcommand table. Every hook takes its event as
   `args[1]`, and the table reads that index directly, so a hook registered without one raises
-  `IndexError` instead of reporting a missing subcommand.
+  `IndexError` instead of reporting a missing subcommand. A script that ships without a
+  registration — `clean_code_guard.py` is the one — moves the same three, plus the assertion that
+  the caller still reaches it: a dropped registration and a dropped call are the same manifest.
 - **This file is gated like the code.** `tests/test_documentation.py` resolves every
   repository-relative path and markdown link in the six `ROOT_DOCUMENTS` (`README.md`, `CLAUDE.md`,
   `THIRD_PARTY_NOTICES.md`, and the three community documents) plus `docs/*.md`, and fails when a
