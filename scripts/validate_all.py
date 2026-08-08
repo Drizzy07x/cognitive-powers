@@ -13,26 +13,21 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 try:
     from scripts.storage_policy import (
-        EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
-        iter_tree_files,
         source_identity as shared_source_identity,
     )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from storage_policy import (
-        EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
-        iter_tree_files,
         source_identity as shared_source_identity,
     )
 
-IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 TAIL_LIMIT = 4000
 
 
@@ -142,10 +137,6 @@ class ValidationError(ValueError):
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
-
-
-def iter_source_files(root: Path) -> Iterable[Path]:
-    yield from iter_tree_files(root)
 
 
 def source_identity(root: Path) -> dict[str, Any]:

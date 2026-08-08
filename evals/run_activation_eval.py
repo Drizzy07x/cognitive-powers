@@ -173,6 +173,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     skills = args.skills.split(",") if args.skills else None
+    if skills:
+        # Checked against the tree before anything is spawned. A typo here was
+        # not an error: select() keeps the negative pool unconditionally, so a
+        # misspelled name quietly ran only the should-not-fire cases and spent
+        # every paid invocation measuring nothing.
+        unknown = sorted({name.strip() for name in skills if name.strip()} - installed)
+        if unknown:
+            print(
+                f"unknown workflows in --skills: {', '.join(unknown)}",
+                file=sys.stderr,
+            )
+            return 2
     chosen = select(cases, skills=skills, quick=args.quick and not args.full)
     if not chosen:
         print("selection matched no cases", file=sys.stderr)

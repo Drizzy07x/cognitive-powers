@@ -336,13 +336,21 @@ def _recorded_path(cwd: Path, candidate: str, data_root: Path) -> Path | None:
 
 def _file_record(resolved: Path, cwd: Path) -> dict[str, Any]:
     record: dict[str, Any] = {"path": resolved.relative_to(cwd).as_posix()}
-    if resolved.is_file() and not resolved.is_symlink():
-        size = resolved.stat().st_size
-        record["size"] = size
-        if size <= MAX_HASH_BYTES:
-            record["sha256"] = _sha256_file(resolved)
-    else:
-        record["exists"] = False
+    # OSError can land mid-record: Windows denies open() on a file another
+    # process holds exclusively, and a delete can race is_file. Escaping here
+    # dropped the whole event through main's blanket handler, so the Stop gate
+    # read the session as unchanged. Same shape as an oversized payload: a
+    # degraded record that still appends.
+    try:
+        if resolved.is_file() and not resolved.is_symlink():
+            size = resolved.stat().st_size
+            record["size"] = size
+            if size <= MAX_HASH_BYTES:
+                record["sha256"] = _sha256_file(resolved)
+        else:
+            record["exists"] = False
+    except OSError:
+        record["hashFailed"] = True
     return record
 
 

@@ -22,7 +22,6 @@ try:
     from scripts.storage_policy import (
         DEFAULT_COPY_MAX_BYTES,
         DEFAULT_COPY_MAX_FILES,
-        EXCLUDED_DIRECTORY_NAMES,
         EXCLUDED_FILE_NAMES,
         StoragePolicyError,
         enforce_budget,
@@ -34,7 +33,6 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
     from storage_policy import (
         DEFAULT_COPY_MAX_BYTES,
         DEFAULT_COPY_MAX_FILES,
-        EXCLUDED_DIRECTORY_NAMES,
         EXCLUDED_FILE_NAMES,
         StoragePolicyError,
         enforce_budget,
@@ -50,8 +48,6 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
     import skill_frontmatter as _FRONTMATTER
 
 
-SOURCE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
-PACKAGE_IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 HOST_METADATA_FILES = set(EXCLUDED_FILE_NAMES)
 
 
@@ -294,7 +290,14 @@ def durable_state_inventory(data_root: Path) -> dict[str, Any]:
             if spec is not None and spec.loader is not None:
                 durable_module = importlib.util.module_from_spec(spec)
                 sys.modules[spec.name] = durable_module
-                spec.loader.exec_module(durable_module)
+                try:
+                    spec.loader.exec_module(durable_module)
+                except Exception:
+                    # A torn work_state.py made doctor traceback here instead
+                    # of reporting; with no validator every session below is
+                    # recorded as state-invalid or ledger-invalid, which is
+                    # what an undiagnosable store should read as.
+                    durable_module = None
         for session in sorted(root.glob("projects/*/sessions/*")):
             if not session.is_dir():
                 continue

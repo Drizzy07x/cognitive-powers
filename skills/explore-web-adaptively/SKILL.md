@@ -1,6 +1,6 @@
 ---
 name: explore-web-adaptively
-description: Discover unfamiliar or changing browser workflows through an already-installed Skyvern, writing normalized hashed artifacts that can seed a deterministic Playwright reproduction. Discovery only, never the final judge of browser behavior.
+description: Discover unfamiliar or changing browser workflows through an already-installed Skyvern, writing normalized hashed artifacts that can seed a deterministic Playwright reproduction.
 when_to_use: Use when the navigation path through a site or page is unknown, spans sites, or an external interface has drifted, and no stable reproduction exists yet. Requires Skyvern already installed and authorized.
 ---
 

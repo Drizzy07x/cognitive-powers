@@ -23,6 +23,19 @@ assert WITNESS_SPEC.loader is not None
 WITNESS_SPEC.loader.exec_module(release_witness)
 
 
+# Runners the offline gate deliberately does not execute. The first two fail
+# without their provider (Playwright, CodeGraph); the third is tag-only CI
+# plumbing. Frozen so a new runner in neither list is a red test, not a
+# silently ungated script.
+DELIBERATELY_UNGATED = frozenset(
+    {
+        "run_browser_benchmarks.py",
+        "run_semantic_benchmarks.py",
+        "run_compatibility_scenarios.py",
+    }
+)
+
+
 def command_result(command, category: str, *, passed: bool = True):
     return {
         "name": command.name,
@@ -334,6 +347,25 @@ class ValidateAllTests(unittest.TestCase):
         evidence = (PLUGIN_ROOT / "docs" / "evidence.md").read_text(encoding="utf-8")
         self.assertIn("receipt_uploaded=false", evidence)
         self.assertIn("does not mean release-ready", evidence)
+
+    def test_every_runner_is_gated_or_named_deliberately_ungated(self) -> None:
+        """OFFLINE_COMMANDS is a hand list, and a hand-listed gate has already
+        silently shrunk to half the shipped scripts once. Enumerating the real
+        runner surface makes a new scripts/run_*.py that nobody gated a red
+        test instead of a script the receipt quietly never ran.
+        """
+        runners = {path.name for path in (PLUGIN_ROOT / "scripts").glob("run_*.py")}
+        self.assertTrue(runners)
+        gated = {
+            Path(part).name
+            for command in validator.OFFLINE_COMMANDS
+            for part in command.argv
+        }
+        self.assertEqual(runners - gated - DELIBERATELY_UNGATED, set())
+        # The frozen set must stay honest too: a runner that is gated after
+        # all, or deleted, no longer belongs in it.
+        self.assertEqual(DELIBERATELY_UNGATED & gated, set())
+        self.assertEqual(DELIBERATELY_UNGATED - runners, set())
 
     def test_release_witness_uses_same_offline_command_contract(self) -> None:
         signature = [

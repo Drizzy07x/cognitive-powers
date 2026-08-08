@@ -423,8 +423,9 @@ def signature_findings(number: int, code: str, limits: dict[str, int]) -> list[F
 
 
 def strip_comment(text: str) -> str:
-    for token in ("//", "#"):
-        position = text.find(token)
-        if position != -1:
-            text = text[:position]
+    # "//" only: no BRACE_SUFFIXES language uses "#" comments, and a "#" in a
+    # JS string ("#333") cut the braces after it and drifted the scanner depth.
+    position = text.find("//")
+    if position != -1:
+        text = text[:position]
     return text

@@ -35,7 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import clean_code_rules as rules  # noqa: E402
 
-WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"})
+# Compared lowercased: the sole caller accepts either host's spelling, and an
+# exact-case test here exited clean for every event it forwarded.
+WRITE_TOOLS = frozenset({"write", "edit", "multiedit", "notebookedit", "apply_patch"})
 # apply_patch names its targets inside the patch body, not in tool_input, so a
 # hook reading only file_path exited clean for every event on the host where
 # apply_patch is the primary edit tool. Same format selective_hooks parses.
@@ -121,11 +123,30 @@ def read_event() -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _tool_name(event: dict) -> str:
+    # selective_hooks hands over the payload it accepted under any of these
+    # spellings; reading only snake_case here skipped the guard on every
+    # camelCase event the ledger had already recorded.
+    for key in ("toolName", "tool_name", "tool"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _tool_input(event: dict) -> dict:
+    for key in ("toolInput", "tool_input", "input"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
 def candidate_paths(event: dict) -> list[str]:
-    tool_input = event.get("tool_input") or {}
+    tool_input = _tool_input(event)
     raw_path = tool_input.get("file_path")
     candidates = [raw_path] if isinstance(raw_path, str) and raw_path else []
-    if event.get("tool_name") == "apply_patch":
+    if _tool_name(event).lower() == "apply_patch":
         for key in ("patch", "content", "input"):
             value = tool_input.get(key)
             if isinstance(value, str):
@@ -134,7 +155,7 @@ def candidate_paths(event: dict) -> list[str]:
 
 
 def target_paths(event: dict) -> list[Path]:
-    if event.get("tool_name") not in WRITE_TOOLS:
+    if _tool_name(event).lower() not in WRITE_TOOLS:
         return []
     patterns = rules.ignore_patterns()
     return [

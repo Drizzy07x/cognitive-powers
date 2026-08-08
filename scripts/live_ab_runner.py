@@ -56,16 +56,17 @@ INSTALLED_SURFACE_DIRECTORIES = (
 )
 INSTALLED_SURFACE_FILES = (
     "scripts/orchestration_policy.py",
+    # The session hooks import these two and degrade to silence when they are
+    # missing, so a home shipped without them looked healthy while skill
+    # routing never ran. The hook-execution test in
+    # test_prepare_controller_ab_homes.py runs every registered hook from a
+    # copy of this surface so the list can no longer validate only itself.
+    "scripts/skill_routing.py",
+    "scripts/plugin_host.py",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
 )
 CONTROLLER_MODES = {"forced-solo", "adaptive"}
-AGENT_PLAN_MODES = {
-    "solo",
-    "parallel-read-only",
-    "parallel-packets",
-    "staged-verify",
-}
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROLLER_PROTOCOL = PLUGIN_ROOT / "benchmarks" / "controller_ab_protocol.json"
 CONTROLLER_DIRECTIVE_VERSION = 6
@@ -74,16 +75,6 @@ This directive is the controller_mode treatment and the only intentional A/B dif
 {behavior}
 For every spawned assignment use task_name equal to the normalized planned unit id: lowercase, with non-alphanumeric runs replaced by underscores. Emit exactly one complete canonical v2 agent_plan per task, as returned by the orchestration runtime, in a standalone JSON agent_message before any spawn; do not summarize, rewrite, infer, reconstruct, or replace it. Execute its waves in order. Between waves, evaluate its stop conditions without emitting a new plan or changing assignment ids; if the plan becomes invalid, stop delegation and report degradation. Never claim an agent ran unless the native host tool ran and was joined.
 """
-SUPPORTED_EVENT_TYPES = {
-    "thread.started",
-    "turn.started",
-    "turn.completed",
-    "item.started",
-    "item.updated",
-    "item.completed",
-    "agent.lifecycle",
-    "error",
-}
 DEFAULT_WORK_MAX_FILES = DEFAULT_COPY_MAX_FILES * 10
 DEFAULT_WORK_MAX_BYTES = DEFAULT_COPY_MAX_BYTES * 10
 
@@ -110,6 +101,7 @@ def _load_live_runner_core():
 _CORE = _load_live_runner_core()
 shutil = _CORE.shutil
 LiveEvaluationError = _CORE.LiveEvaluationError
+AGENT_PLAN_MODES = _CORE.AGENT_PLAN_MODES
 resolve_codex_executable = _CORE.resolve_codex_executable
 rollout_snapshot = _CORE.rollout_snapshot
 _rollout_rows = _CORE._rollout_rows
@@ -594,6 +586,8 @@ def _run_one(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=hidden_fixture,
             timeout=session_timeout_seconds,
         )
@@ -625,6 +619,8 @@ def _run_one(
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=quality_fixture,
                 timeout=session_timeout_seconds,
             )

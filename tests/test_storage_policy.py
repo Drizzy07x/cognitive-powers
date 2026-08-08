@@ -246,6 +246,22 @@ class StoragePolicyTests(unittest.TestCase):
         self.assertFalse((destination / "GrApHiFy-OuT").exists())
         self.assertIn("graphify-out", storage_policy.EXCLUDED_DIRECTORY_NAMES)
 
+    def test_kept_eval_transcripts_never_change_source_identity(self) -> None:
+        # .gitignore keeps evals/artifacts/ and evals/results/ out of the
+        # git-dirty gate, so a digest that could see them identified a
+        # checkout rather than a commit.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "kept.py").write_text("kept\n", encoding="utf-8")
+            before = storage_policy.source_identity(root)
+            for name in ("artifacts", "results"):
+                tree = root / "evals" / name
+                tree.mkdir(parents=True)
+                (tree / "transcript.json").write_text("{}", encoding="utf-8")
+            after = storage_policy.source_identity(root)
+
+        self.assertEqual(before, after)
+
     def test_bounded_copy_stops_before_file_or_byte_budget_is_exceeded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

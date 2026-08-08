@@ -280,16 +280,22 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_core_router_targets_installed_internal_workflows(self) -> None:
-        targets: list[str] = []
-        pattern = r"`(\.\./\.\./skills/[^`]+/SKILL\.md)`"
+        catalog: set[str] = set()
+        pattern = r"`\.\./\.\./skills/([^`/]+)/SKILL\.md`"
         for skill_file in (PLUGIN_ROOT / "skills-core").glob("*/SKILL.md"):
-            text = skill_file.read_text(encoding="utf-8")
-            for target in re.findall(pattern, text):
-                targets.append(target)
+            for name in re.findall(pattern, skill_file.read_text(encoding="utf-8")):
                 self.assertTrue(
-                    (skill_file.parent / target).resolve().is_file(), target
+                    (PLUGIN_ROOT / "skills" / name / "SKILL.md").is_file(), name
                 )
-        self.assertGreaterEqual(len(set(targets)), 14)
+                if skill_file.parent.name == "execute-durably":
+                    catalog.add(name)
+        installed = {
+            path.name for path in (PLUGIN_ROOT / "skills").iterdir() if path.is_dir()
+        }
+        # A count floor let a workflow vanish from the catalog unnoticed; the
+        # catalog is Codex's only route to the specialized workflows, so it
+        # must name exactly what skills/ installs.
+        self.assertEqual(catalog, installed)
 
     def test_brand_assets_are_valid_transparent_pngs(self) -> None:
         expected_dimensions = {

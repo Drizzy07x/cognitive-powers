@@ -11,6 +11,48 @@ from pathlib import Path
 from tests.test_work_state import work_state
 
 
+def run_compaction_fault_injection(
+    session_dir: Path, output_root: Path
+) -> dict[str, object]:
+    """Exercise real bundle verification and atomic-ledger write boundaries.
+
+    Test-only fault injection: it shipped inside the production CLI although
+    no subcommand could reach it, so it lives beside its only caller now. It
+    still exercises only public work_state functions.
+    """
+    boundaries = []
+    for name in ("bundle-write", "bundle-verify", "ledger-replace"):
+        target = output_root / f"fault-{name}.zip"
+        if name == "bundle-write":
+            target.write_bytes(b"partial")
+            try:
+                work_state.verify_compaction_bundle(target, session_dir)
+            except work_state.WorkStateError:
+                boundaries.append({"name": name, "failedClosed": True})
+        elif name == "bundle-verify":
+            work_state.compact_session(session_dir, target, retain_events=1)
+            data = bytearray(target.read_bytes())
+            data[len(data) // 2] ^= 1
+            target.write_bytes(data)
+            try:
+                work_state.verify_compaction_bundle(target, session_dir)
+            except work_state.WorkStateError:
+                boundaries.append({"name": name, "failedClosed": True})
+        else:
+            before = work_state._read_ledger_events(session_dir)
+            interrupted = session_dir / ".ledger.jsonl.injected.tmp"
+            interrupted.write_text("partial", encoding="utf-8")
+            after = work_state._read_ledger_events(session_dir)
+            boundaries.append(
+                {"name": name, "failedClosed": before == after and interrupted.exists()}
+            )
+            interrupted.unlink()
+    return {
+        "passed": all(item["failedClosed"] for item in boundaries),
+        "boundaries": boundaries,
+    }
+
+
 class WorkStateAuthenticatedRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -68,7 +110,7 @@ class WorkStateAuthenticatedRecoveryTests(unittest.TestCase):
         work_state.compact_session(self.session, bundle, retain_events=1)
         report = work_state.verify_compaction_bundle(bundle, self.session)
         self.assertTrue(report["verified"])
-        faults = work_state.run_compaction_fault_injection(self.session, self.base)
+        faults = run_compaction_fault_injection(self.session, self.base)
         self.assertTrue(faults["passed"])
         self.assertGreaterEqual(len(faults["boundaries"]), 3)
 

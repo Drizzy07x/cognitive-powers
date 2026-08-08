@@ -276,6 +276,18 @@ class ControllerAbBatchTests(unittest.TestCase):
             {job["runner_seed"] for job in schedule["jobs"]},
             {contract["rounds"]["pilot"]["arm_order"]["seed"]},
         )
+        # The runner derives its executed order from the contract, not from
+        # this schedule; a frozen order derived any other way was cosmetic.
+        for job in schedule["jobs"]:
+            self.assertEqual(
+                job["arm_orders"],
+                [
+                    batch.arm_order(
+                        contract["rounds"]["pilot"]["repetitions_per_task"],
+                        f"{job['runner_seed']}\0{job['task_id']}",
+                    )[0]
+                ],
+            )
 
     def _contract(self) -> dict[str, object]:
         return {

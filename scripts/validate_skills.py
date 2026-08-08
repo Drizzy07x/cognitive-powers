@@ -120,7 +120,15 @@ def validate(plugin_root: Path) -> list[str]:
 
     for skill_file in skill_files:
         relative = skill_file.relative_to(root)
-        text = skill_file.read_text(encoding="utf-8")
+        # utf-8-sig, not utf-8: PowerShell 5.1 writes a BOM by default, and a
+        # BOM in front of the frontmatter defeats the \A--- anchor -- the same
+        # lesson skill_routing.py already carries. A file that is not UTF-8 at
+        # all is a broken skill to report, not a traceback.
+        try:
+            text = skill_file.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            errors.append(f"{relative.as_posix()}: not valid UTF-8")
+            continue
         metadata, metadata_errors = _frontmatter(text, relative)
         errors.extend(metadata_errors)
         folder_name = skill_file.parent.name
@@ -145,8 +153,12 @@ def validate(plugin_root: Path) -> list[str]:
         )
 
         for markdown in sorted(skill_file.parent.rglob("*.md")):
-            markdown_text = markdown.read_text(encoding="utf-8")
             markdown_relative = markdown.relative_to(root).as_posix()
+            try:
+                markdown_text = markdown.read_text(encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                errors.append(f"{markdown_relative}: not valid UTF-8")
+                continue
             if PLACEHOLDER_MARKER in markdown_text:
                 errors.append(f"{markdown_relative}: contains scaffold placeholder")
             for raw_target in LINK_PATTERN.findall(markdown_text):
@@ -160,7 +172,11 @@ def validate(plugin_root: Path) -> list[str]:
         if not agent_file.is_file():
             errors.append(f"{relative.as_posix()}: missing agents/openai.yaml")
             continue
-        agent_text = agent_file.read_text(encoding="utf-8")
+        try:
+            agent_text = agent_file.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            errors.append(f"{agent_file.relative_to(root).as_posix()}: not valid UTF-8")
+            continue
         short_match = re.search(
             r'^\s*short_description:\s*["\'](.*)["\']\s*$',
             agent_text,
@@ -193,7 +209,11 @@ def quality_warnings(plugin_root: Path) -> list[str]:
         for skill_file in skills_root.glob("*/SKILL.md")
     ):
         relative = skill_file.relative_to(root).as_posix()
-        text = skill_file.read_text(encoding="utf-8")
+        try:
+            text = skill_file.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            warnings.append(f"{relative}: not valid UTF-8")
+            continue
         metadata, _ = _frontmatter(text, skill_file.relative_to(root))
         # Hosts show description and when_to_use as one listing entry, so the
         # trigger is decidable wherever it appears across the pair.

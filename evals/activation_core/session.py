@@ -330,6 +330,23 @@ def _attempt(
         start_new_session=os.name != "nt",
     )
     assert process.stdout is not None
+    # Drained on its own thread from the start: read once in the teardown, a
+    # child that filled the stderr pipe blocked with stdout still open, and
+    # the run sat on the watchdog -- a healthy paid session marked incomplete.
+    stderr_chunks: list[str] = []
+
+    def _drain_stderr() -> None:
+        if process.stderr is None:
+            return
+        try:
+            stderr_chunks.append(process.stderr.read())
+        except (OSError, ValueError):
+            # The pipe can be torn down under the read during a kill; that
+            # loses the tail of stderr, never the run.
+            pass
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
     # The timeout has to come from outside the read loop. Checking the clock
     # after each line only bounds a run that is still producing lines, so a
     # session that stalls with its pipe open would block here forever and take
@@ -359,7 +376,7 @@ def _attempt(
         timed_out = expired.is_set()
         if stopped_early or timed_out:
             _terminate_tree(process)
-        stderr = process.stderr.read() if process.stderr is not None else ""
+        stderr_thread.join(timeout=15)
         process.stdout.close()
         if process.stderr is not None:
             process.stderr.close()
@@ -370,7 +387,7 @@ def _attempt(
         arm=arm.name,
         repetition=repetition,
         stream="\n".join(collected),
-        stderr=stderr,
+        stderr="".join(stderr_chunks),
         exit_code=exit_code,
         duration_seconds=round(time.monotonic() - started, 3),
         stopped_early=stopped_early,

@@ -625,8 +625,13 @@ def session_lock(session_dir: Path) -> Iterator[None]:
                         lock_path
                     )
                     age = max(0.0, time.time() - lock_path.stat().st_mtime)
-                except (FileNotFoundError, PermissionError):
+                except FileNotFoundError:
                     reclaimed = True
+                except PermissionError:
+                    # An unreadable lock is not a reclaimed one: reporting it
+                    # as reclaimed skipped the deadline check and the sleep
+                    # below, spinning at full speed with no timeout.
+                    pass
                 else:
                     owner_is_dead = (
                         owner_pid is not None

@@ -131,7 +131,7 @@ def inspect_storage(data_root: Path, *, largest: int = 10) -> dict[str, object]:
     physical_files: dict[tuple[object, ...], int] = {}
     file_count = 0
     logical_bytes = 0
-    for path in _iter_storage_files(data_root) or ():
+    for path in _iter_storage_files(data_root):
         try:
             stat = path.stat()
             relative = path.relative_to(data_root)
@@ -210,7 +210,9 @@ def _session_lock_status(session_dir: Path) -> str | None:
         identity = (
             payload.get("process_identity") if isinstance(payload, dict) else None
         )
-    except (OSError, json.JSONDecodeError):
+    # UnicodeDecodeError is a ValueError, not an OSError, so a torn lock write
+    # aborted the whole collection run instead of reporting this one lock.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return "unreadable-lock"
     if not isinstance(pid, int) or isinstance(pid, bool):
         return "unreadable-lock"
@@ -331,6 +333,17 @@ def _storage_session_directories(data_root: Path) -> list[tuple[Path, Path]]:
     return result
 
 
+def _has_session_state(session_dir: Path) -> bool:
+    """True when the directory holds anything durable state could recover."""
+    return (
+        any(
+            (session_dir / name).exists()
+            for name in ("state.json", "ledger.jsonl", "recovery.json")
+        )
+        or (session_dir / "evidence").is_dir()
+    )
+
+
 def garbage_collect_storage(
     data_root: Path,
     *,
@@ -353,11 +366,22 @@ def garbage_collect_storage(
             state = load_state(session_dir)
             status = state.get("status")
         except WorkStateError as error:
-            inspected[session_dir] = {
-                "decision": "protect",
-                "reason": "unreadable-state",
-                "detail": str(error),
-            }
+            # session_lock materializes a directory for any name a caller
+            # probes, so a typo'd session left an empty directory that this
+            # branch protected forever as unreadable state. A directory with
+            # nothing durable in it has no state to misread.
+            if lock_status is None and not _has_session_state(session_dir):
+                inspected[session_dir] = {
+                    "decision": "delete",
+                    "reason": "never-initialized",
+                    "detail": str(error),
+                }
+            else:
+                inspected[session_dir] = {
+                    "decision": "protect",
+                    "reason": "unreadable-state",
+                    "detail": str(error),
+                }
             continue
         if lock_status is not None:
             inspected[session_dir] = {
@@ -405,11 +429,20 @@ def garbage_collect_storage(
             )
             try:
                 with session_lock(session_dir):
-                    state = load_state(session_dir)
-                    if state.get("status") != "complete":
-                        raise WorkStateError(
-                            f"session became active during collection: {session_dir}"
-                        )
+                    # A never-initialized directory has no state to load; the
+                    # guard against a session becoming active mid-collection
+                    # is re-checking that it is still empty under the lock.
+                    if item["reason"] == "never-initialized":
+                        if _has_session_state(session_dir):
+                            raise WorkStateError(
+                                f"session became active during collection: {session_dir}"
+                            )
+                    else:
+                        state = load_state(session_dir)
+                        if state.get("status") != "complete":
+                            raise WorkStateError(
+                                f"session became active during collection: {session_dir}"
+                            )
                     os.replace(session_dir, tombstone)
                 shutil.rmtree(tombstone)
             except Exception as error:

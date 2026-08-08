@@ -756,6 +756,12 @@ def decide(query: str, descriptions: Mapping[str, str]) -> dict[str, object]:
             if PLUGIN_DEFAULT_SKILL not in descriptions:
                 return dict(blocked, reason="no default workflow installed")
             return dict(outcome, skill=PLUGIN_DEFAULT_SKILL, reason="named plugin")
+        if margin < MIN_MARGIN:
+            # Naming the plugin leaves the choice of workflow to the ranking,
+            # and a ranking that cannot separate two skills has made no choice
+            # to defer to -- yet this branch used to return whichever won by
+            # rounding, the coin-flip the tie gate exists to refuse.
+            return dict(blocked, reason="near tie")
         return dict(outcome, reason="named plugin")
     if shared < MIN_SHARED_TOKENS:
         return dict(blocked, reason="too few shared words")

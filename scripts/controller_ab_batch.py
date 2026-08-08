@@ -177,16 +177,16 @@ def build_preflight_schedule(contract: Mapping[str, Any]) -> dict[str, Any]:
         )
     seed = f"{contract['task_set_id']}-instrumental-preflight-v1"
     runner_seed = contract["rounds"]["pilot"]["arm_order"]["seed"]
+    declared_repetitions = contract["rounds"]["pilot"]["repetitions_per_task"]
     jobs: list[dict[str, Any]] = []
     sessions: list[dict[str, Any]] = []
     ordinal = 0
-    for mode_index, mode in enumerate(modes):
+    for mode in modes:
         task_id = selected[mode]
-        order = (
-            ["baseline", "candidate"]
-            if mode_index % 2 == 0
-            else ["candidate", "baseline"]
-        )
+        # The runner replays arm_order(declared, f"{seed}\0{task_id}") from the
+        # contract for --batch-repetition 1; the parity-based order frozen here
+        # before could disagree with what the sessions then executed.
+        order = arm_order(declared_repetitions, f"{runner_seed}\0{task_id}")[0]
         job_id = f"preflight-{mode}"
         jobs.append(
             {

@@ -15,7 +15,6 @@ from typing import Any, Iterable, Sequence
 
 try:
     from scripts.storage_policy import (
-        EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         identity_bytes,
@@ -24,7 +23,6 @@ try:
     )
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from storage_policy import (
-        EXCLUDED_DIRECTORY_NAMES,
         SOURCE_IDENTITY_ALGORITHM,
         StoragePolicyError,
         identity_bytes,
@@ -32,7 +30,6 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
         iter_tree_files,
     )
 
-IGNORED_PARTS = set(EXCLUDED_DIRECTORY_NAMES)
 EXPECTED_OFFLINE_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("skills", ("scripts/validate_skills.py",)),
     ("skills-strict", ("scripts/validate_skills.py", "--strict-quality")),

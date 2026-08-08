@@ -374,7 +374,13 @@ def format_report(report: Mapping[str, object]) -> str:
         # it does fail the suite, and printing it as a miss would understate
         # what it means.
         label = "MISS" if case["kind"] in {"spanish", "natural"} else "FAIL"
-        named = case.get("named") if case["kind"] != "quiet" else case.get("suggested")
+        # Both quiet corpora record what fired under "suggested"; matching
+        # only "quiet" printed a failing spanish_quiet row as "-> silent".
+        named = (
+            case.get("suggested")
+            if case["kind"] in {"quiet", "spanish_quiet"}
+            else case.get("named")
+        )
         if not case["passed"]:
             # Name what fired. A quiet failure printed a bare dash, which is
             # the one line an operator needs to be specific: this repo has a

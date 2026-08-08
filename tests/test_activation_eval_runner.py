@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import stat
@@ -298,6 +300,23 @@ class ArmVerificationTests(TempTreeTestCase):
         )
         self.assertIn(
             "injected 2 times",
+            transcript.arm_mismatch(doubled, arm.expects_index, arm.expects_instruction)
+            or "",
+        )
+
+    def test_a_doubled_prompt_instruction_is_not_the_arm_either(self) -> None:
+        # The prompt-side twin of the case above: a double-registered
+        # UserPromptSubmit delivers the standing instruction twice, and only
+        # the index and session renderings used to be checked, so this run
+        # was still scored as the arm.
+        arm = ARMS["full"]
+        doubled = self.read(
+            hook_response(INDEX_TEXT),
+            hook_response(STANDING_TEXT),
+            hook_response(STANDING_TEXT),
+        )
+        self.assertIn(
+            "prompt standing instruction was injected 2 times",
             transcript.arm_mismatch(doubled, arm.expects_index, arm.expects_instruction)
             or "",
         )
@@ -1281,6 +1300,36 @@ class OrchestrationTests(TempTreeTestCase):
                 timeout_seconds=10.0,
                 claude_executable="unused",
                 artifacts=None,
+            )
+
+
+class CommandLineTests(TempTreeTestCase):
+    def test_unknown_skills_are_rejected_before_anything_is_spawned(self) -> None:
+        # The skill filter keeps the negative pool unconditionally, so a typo
+        # in --skills used to run only the should-not-fire cases and spend
+        # every paid invocation measuring nothing. The names are checked
+        # against the installed tree instead, before a single host is spawned.
+        import run_activation_eval
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = run_activation_eval.main(
+                ["--skills", "diagnose-thoroughly,map-project", "--validate-only"]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn(
+            "unknown workflows in --skills: diagnose-thoroughly", stderr.getvalue()
+        )
+        # The installed sibling in the same flag is not what gets reported.
+        self.assertNotIn("map-project", stderr.getvalue())
+
+    def test_installed_skills_still_pass_the_name_check(self) -> None:
+        import run_activation_eval
+
+        known = sorted(run_activation_eval._installed_workflows())[0]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                run_activation_eval.main(["--skills", known, "--validate-only"]), 0
             )
 
 

@@ -1726,6 +1726,31 @@ assert loaded[0].WorkStateError.__name__ == 'WorkStateError'
         self.assertFalse(status_payload["criteria"][0]["stale"])
         self.assertFalse(status_payload["criteria"][0]["evidence_valid"])
 
+    def test_a_receipt_in_another_encoding_is_invalid_evidence_not_a_traceback(
+        self,
+    ) -> None:
+        """UnicodeDecodeError is a ValueError, not an OSError or JSONDecodeError.
+
+        The receipt readers guarded only those two, so one corrupt receipt made
+        status traceback instead of degrading to invalid evidence per criterion.
+        """
+        initialized = self.initialize()
+        claimed = self.claim_with_passing_command()
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        session_dir = Path(str(initialized["state"])).parent
+        state = json.loads((session_dir / "state.json").read_text(encoding="utf-8"))
+        receipt = session_dir / state["criteria"][0]["receipt"]
+        receipt.write_bytes('{"note": "caf\xe9"}\n'.encode("cp1252"))
+
+        status = self.cli("status", "--session", "demo", "--json")
+        self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        status_payload = json.loads(status.stdout)
+        self.assertEqual(status_payload["effective_status"], "invalid-evidence")
+        self.assertFalse(status_payload["criteria"][0]["evidence_valid"])
+        self.assertIn(
+            "unreadable", str(status_payload["criteria"][0]["evidence_error"])
+        )
+
     def test_evidence_changed_after_verification_blocks_completion(self) -> None:
         initialized = self.initialize()
         claimed = self.claim_with_passing_command()

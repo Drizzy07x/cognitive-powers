@@ -54,7 +54,7 @@ Do not treat repository paths, validation commands, or topic similarity as recur
 
 Return the existing skills inspected, accepted updates, accepted new skills, rejected or unresolved candidates, evidence event count, decisive current paths, and priority order. State missing or stale evidence explicitly.
 
-If the user authorizes implementation, invoke `skill-creator` for the selected skill and add behavior-specific validation rather than continuing the audit.
+If the user authorizes implementation, invoke a skill-creation skill if one is installed — otherwise draft the SKILL.md directly — and add behavior-specific validation rather than continuing the audit.
 
 ## 6. Promote capabilities through evidence
 

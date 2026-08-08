@@ -221,6 +221,21 @@ class SkillRouterHookTests(unittest.TestCase):
         self.assertEqual(outcome["status"], "below-threshold")
         self.assertEqual(outcome["reason"], "no default workflow installed")
 
+    def test_the_plugin_alias_does_not_pick_between_tied_skills(self) -> None:
+        """Naming the plugin defers the workflow choice to the ranking, and a
+        ranking that cannot separate two skills has made no choice to defer to
+        -- the alias branch used to return whichever won by rounding."""
+        outcome = core.decide(
+            "use cognitive powers to verify browser behavior",
+            {
+                "alpha-skill": "Verify browser behavior with evidence.",
+                "beta-skill": "Verify browser behavior with evidence.",
+            },
+        )
+
+        self.assertEqual(outcome["status"], "below-threshold")
+        self.assertEqual(outcome["reason"], "near tie")
+
     def test_the_plugin_name_still_picks_the_fitting_workflow(self) -> None:
         outcome = router.suggest(
             {"user_input": "use cognitive powers to audit whether this release is done"}

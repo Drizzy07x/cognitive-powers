@@ -258,8 +258,12 @@ def execute(
         #
         # Submitted in blocks rather than all at once so the run can stop once
         # the answer stops changing. The arms are interleaved, so a block holds
-        # whole trials and the comparison after it is over complete pairs.
-        block = max(workers, len(arms)) * BLOCK_TRIALS
+        # whole trials and the comparison after it is over complete pairs --
+        # rounded up, because a worker count that is not a multiple of the arm
+        # count would otherwise end a block mid-trial.
+        arms_per_trial = max(len(arms), 1)
+        width = max(workers, arms_per_trial) * BLOCK_TRIALS
+        block = -(-width // arms_per_trial) * arms_per_trial
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for start in range(0, len(fire_work), block):
                 list(pool.map(_one, fire_work[start : start + block]))
@@ -311,8 +315,13 @@ def execute(
     # A subtraction between two rates is not a finding. The paired comparison
     # is what lets the report say which arm won, or say the run did not decide,
     # instead of leaving a reader to eyeball a five-point gap.
+    #
+    # Should-fire only, like the early stop and the delta above. Run over the
+    # whole list, this folded the negative pool in, so the published verdict
+    # answered a different population than the one that stopped the run --
+    # three numbers presented as one answer over two cohorts.
     comparisons = compare_all(
-        observations,
+        [item for item in observations if item.polarity == "should-fire"],
         [arm.name for arm in arms],
         baseline=_baseline(arms),
         margin=equivalence_margin,

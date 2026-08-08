@@ -63,6 +63,23 @@ def _skill_directory(document: Path) -> Path:
     return directory
 
 
+def _live_plugin_root_references(text: str) -> list[str]:
+    """Placeholder references that name a real path, filter applied once.
+
+    The sentence stating the convention spells the placeholder itself
+    ("<plugin-root>/... is relative to"), and several commands take a literal
+    argument slot such as <repo-root>. A path that ends a sentence carries the
+    period into the capture; "<" cannot appear at all, the class excludes it,
+    so only the placeholder check is live.
+    """
+    references = []
+    for reference in PLUGIN_ROOT_PATH.findall(text):
+        reference = reference.rstrip(".,;:")
+        if reference and "..." not in reference:
+            references.append(reference)
+    return references
+
+
 class SkillPathReferenceTests(unittest.TestCase):
     """Every path a skill tells the agent to run has to resolve.
 
@@ -86,11 +103,15 @@ class SkillPathReferenceTests(unittest.TestCase):
         )
 
     def test_skill_relative_script_paths_exist_in_that_skill(self) -> None:
+        # Every assertion lives inside the match loop, so a regex regression
+        # that extracts nothing passes vacuously; the floor makes it red.
+        total = 0
         for document in self._documents():
             skill = _skill_directory(document)
             for reference in SKILL_RELATIVE_SCRIPT.findall(
                 document.read_text(encoding="utf-8")
             ):
+                total += 1
                 with self.subTest(document=document.name, reference=reference):
                     self.assertTrue(
                         (skill / reference).is_file(),
@@ -98,39 +119,37 @@ class SkillPathReferenceTests(unittest.TestCase):
                         f"{reference}, which is not in {skill.name}; if it lives "
                         "at the installed root, spell it <plugin-root>/",
                     )
+        self.assertGreater(total, 0, "the scanner extracted no script paths")
 
     def test_plugin_root_paths_exist_at_the_plugin_root(self) -> None:
+        total = 0
         for document in self._documents():
-            for reference in PLUGIN_ROOT_PATH.findall(
+            for reference in _live_plugin_root_references(
                 document.read_text(encoding="utf-8")
             ):
-                # The sentence stating the convention spells the placeholder
-                # itself ("<plugin-root>/... is relative to"), and several
-                # commands take a literal argument slot such as <repo-root>.
-                # A path that ends a sentence carries the period into the
-                # capture; "<" cannot appear at all, the class excludes it, so
-                # only the placeholder check is live.
-                reference = reference.rstrip(".,;:")
-                if not reference or "..." in reference:
-                    continue
+                total += 1
                 with self.subTest(document=document.name, reference=reference):
                     self.assertTrue(
                         (PLUGIN_ROOT / reference).exists(),
                         f"{document.relative_to(PLUGIN_ROOT)} points at "
                         f"<plugin-root>/{reference}, which does not exist",
                     )
+        self.assertGreater(total, 0, "the scanner extracted no plugin-root paths")
 
     def test_relative_markdown_links_resolve(self) -> None:
+        total = 0
         for document in self._documents():
             for target in MARKDOWN_LINK.findall(document.read_text(encoding="utf-8")):
                 target = target.split("#")[0].strip()
                 if not target or target.startswith(("http://", "https://", "mailto:")):
                     continue
+                total += 1
                 with self.subTest(document=document.name, target=target):
                     self.assertTrue(
                         (document.parent / target).exists(),
                         f"{document.relative_to(PLUGIN_ROOT)} links to {target}",
                     )
+        self.assertGreater(total, 0, "the scanner extracted no markdown links")
 
 
 class RootDocumentReferenceTests(unittest.TestCase):
@@ -172,25 +191,28 @@ class RootDocumentReferenceTests(unittest.TestCase):
         )
 
     def test_repository_relative_paths_exist(self) -> None:
+        # A regex regression that extracts nothing passes vacuously; the
+        # floor makes it red. No floor on the plugin-root scanner below: root
+        # documents carry no live placeholder today.
+        total = 0
         for document in self._documents():
             for reference in REPOSITORY_PATH.findall(
                 document.read_text(encoding="utf-8")
             ):
+                total += 1
                 with self.subTest(document=document.name, reference=reference):
                     self.assertTrue(
                         (PLUGIN_ROOT / reference).exists(),
                         f"{document.relative_to(PLUGIN_ROOT)} names {reference}, "
                         "which is not in this repository",
                     )
+        self.assertGreater(total, 0, "the scanner extracted no repository paths")
 
     def test_plugin_root_paths_exist(self) -> None:
         for document in self._documents():
-            for reference in PLUGIN_ROOT_PATH.findall(
+            for reference in _live_plugin_root_references(
                 document.read_text(encoding="utf-8")
             ):
-                reference = reference.rstrip(".,;:")
-                if not reference or "..." in reference:
-                    continue
                 with self.subTest(document=document.name, reference=reference):
                     self.assertTrue(
                         (PLUGIN_ROOT / reference).exists(),

@@ -454,7 +454,7 @@ class ClaudeSkillSurfaceTests(unittest.TestCase):
                 self.assertTrue(
                     fields.get("when_to_use"),
                     "an explicit trigger contract keeps the model from "
-                    "guessing which of 14 workflows applies",
+                    "guessing which of the installed workflows applies",
                 )
 
     def test_specialized_skills_remain_user_invocable(self) -> None:

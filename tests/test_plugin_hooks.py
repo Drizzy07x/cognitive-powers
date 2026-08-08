@@ -326,6 +326,55 @@ class PluginHookTests(unittest.TestCase):
         stop = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
         self.assertIn("no current", json.loads(stop.stdout)["systemMessage"])
 
+    def test_a_hash_refused_by_the_os_degrades_the_record_not_the_event(self) -> None:
+        """An OSError mid-hash must not cost the ledger the whole event.
+
+        Windows denies open() on a file another process holds exclusively, and
+        a delete can land between is_file and open. The error used to escape
+        _file_record before _append_event ran, main's blanket handler swallowed
+        it, and the stop gate read the session as one that changed nothing.
+        """
+        source = self.repo / "src" / "example.py"
+        source.parent.mkdir()
+        source.write_text("new\n", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(
+            "selective_hooks_hash_denied", SCRIPT
+        )
+        assert spec is not None and spec.loader is not None
+        hooks = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hooks)
+
+        def denied(_path: Path) -> str:
+            raise PermissionError("held exclusively by another process")
+
+        hooks._sha256_file = denied
+        payload = self.payload("Write")
+        payload["toolInput"] = {"file_path": "src/example.py"}
+        overrides = {
+            "PLUGIN_ROOT": str(PLUGIN_ROOT),
+            "COGNITIVE_POWERS_DATA": str(self.data),
+        }
+        saved = {name: os.environ.get(name) for name in overrides}
+        os.environ.update(overrides)
+        try:
+            hooks.post_tool_use(payload)
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        events = [
+            json.loads(line)
+            for line in self.ledger().read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), 1)
+        record = events[0]["files"][0]
+        self.assertEqual(record["path"], "src/example.py")
+        self.assertTrue(record["hashFailed"])
+        self.assertNotIn("sha256", record)
+
     def test_notebook_edits_record_the_notebook_they_changed(self) -> None:
         notebook = self.repo / "analysis.ipynb"
         notebook.write_text("{}\n", encoding="utf-8")
@@ -353,8 +402,6 @@ class PluginHookTests(unittest.TestCase):
         body = "\n".join(f"    value_{index} = {index}" for index in range(40))
         source.write_text(f"def wide():\n{body}\n", encoding="utf-8")
         payload = self.payload("Write")
-        payload["tool_name"] = "Write"
-        payload["tool_input"] = {"file_path": str(source)}
         payload["toolInput"] = {"file_path": str(source)}
 
         result = self.run_hook("post-tool-use", payload)

@@ -50,6 +50,11 @@ EXCLUDED_DIRECTORY_NAMES = frozenset(
         "playwright-report",
         "test-results",
         "graphify-out",
+        # Gitignored `claude plugin eval` output (evals/artifacts, evals/results):
+        # kept transcripts fed source.sha256 while invisible to the git-dirty
+        # gate, so the digest named a checkout rather than a commit.
+        "artifacts",
+        "results",
         "homes",
         "runs",
         "storage",

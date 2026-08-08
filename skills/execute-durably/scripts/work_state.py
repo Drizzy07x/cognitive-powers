@@ -182,10 +182,19 @@ def resume_summary(session_dir: Path) -> dict[str, Any]:
         str(packet["id"])
         for packet in packets
         if isinstance(packet, dict)
-        and packet.get("status") in {"planned", "failed"}
+        and packet.get("status") == "planned"
         and all(
             dependency in completed_set for dependency in packet.get("dependencies", [])
         )
+    )
+    # Packet statuses are planned/active/completed, so "failed" here was dead
+    # vocabulary -- and the packet being worked when the session died stayed
+    # "active", appearing in neither list. start-packet refuses non-planned
+    # packets, so an interrupted packet is reported on its own, not as runnable.
+    in_flight = sorted(
+        str(packet["id"])
+        for packet in packets
+        if isinstance(packet, dict) and packet.get("status") == "active"
     )
     criteria = {
         str(item.get("id")): str(item.get("status"))
@@ -200,8 +209,8 @@ def resume_summary(session_dir: Path) -> dict[str, Any]:
         "last_seq": snapshot.get("last_seq"),
         "completed_packet_ids": completed,
         "runnable_packet_ids": runnable,
+        "in_flight_packet_ids": in_flight,
         "criterion_statuses": dict(sorted(criteria.items())),
-        "evidence_fabricated": False,
     }
 
 
@@ -343,43 +352,6 @@ def verify_compaction_bundle(bundle_path: Path, session_dir: Path) -> dict[str, 
     }
 
 
-def run_compaction_fault_injection(
-    session_dir: Path, output_root: Path
-) -> dict[str, Any]:
-    """Exercise real bundle verification and atomic-ledger write boundaries."""
-    boundaries = []
-    for name in ("bundle-write", "bundle-verify", "ledger-replace"):
-        target = output_root / f"fault-{name}.zip"
-        if name == "bundle-write":
-            target.write_bytes(b"partial")
-            try:
-                verify_compaction_bundle(target, session_dir)
-            except WorkStateError:
-                boundaries.append({"name": name, "failedClosed": True})
-        elif name == "bundle-verify":
-            compact_session(session_dir, target, retain_events=1)
-            data = bytearray(target.read_bytes())
-            data[len(data) // 2] ^= 1
-            target.write_bytes(data)
-            try:
-                verify_compaction_bundle(target, session_dir)
-            except WorkStateError:
-                boundaries.append({"name": name, "failedClosed": True})
-        else:
-            before = _read_ledger_events(session_dir)
-            interrupted = session_dir / ".ledger.jsonl.injected.tmp"
-            interrupted.write_text("partial", encoding="utf-8")
-            after = _read_ledger_events(session_dir)
-            boundaries.append(
-                {"name": name, "failedClosed": before == after and interrupted.exists()}
-            )
-            interrupted.unlink()
-    return {
-        "passed": all(item["failedClosed"] for item in boundaries),
-        "boundaries": boundaries,
-    }
-
-
 def _criterion(state: dict[str, Any], criterion_id: str) -> dict[str, Any]:
     for criterion in state["criteria"]:
         if isinstance(criterion, dict) and criterion.get("id") == criterion_id:
@@ -508,7 +480,7 @@ def _validate_packet_check(
     try:
         raw = path.read_text(encoding="utf-8")
         receipt = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(
             f"packet check receipt is unreadable: {path}: {error}"
         ) from error
@@ -558,7 +530,7 @@ def _read_receipt(session_dir: Path, criterion: dict[str, Any]) -> dict[str, Any
     try:
         raw = path.read_text(encoding="utf-8")
         receipt = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(
             f"evidence receipt is unreadable: {path}: {error}"
         ) from error
@@ -599,7 +571,7 @@ def _read_red_receipt(
         raise WorkStateError("red receipt no longer matches durable state")
     try:
         receipt = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(f"red receipt is unreadable: {path}: {error}") from error
     required = {
         "schema_version",
@@ -663,7 +635,7 @@ def validate_receipt(
             raise WorkStateError("red receipt no longer matches the test cycle")
         try:
             red_receipt = json.loads(red_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise WorkStateError(
                 f"red receipt is unreadable: {red_path}: {error}"
             ) from error
@@ -990,7 +962,11 @@ def initialize(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     # was stored, not against the folded identifier.
     session_dir = session_directory(root, data_root, args.session)
     with session_lock(session_dir):
-        if _state_path(session_dir).exists() or (session_dir / "brief.md").exists():
+        # brief.md is written before the first durable state write, so a crash
+        # between the two left a session that could neither resume nor retry.
+        # Only state.json and ledger.jsonl mark a ledger-recoverable session;
+        # an orphaned brief.md alone is overwritten by the retry below.
+        if _state_path(session_dir).exists() or (session_dir / "ledger.jsonl").exists():
             raise WorkStateError(
                 f"session already exists and will not be overwritten: {session_dir}"
             )
@@ -2543,7 +2519,7 @@ def record_external_context(args: argparse.Namespace) -> tuple[dict[str, object]
         raise WorkStateError(f"external context must be a non-empty file: {artifact}")
     try:
         context = json.loads(artifact.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(
             f"external context is not valid JSON: {artifact}"
         ) from error
@@ -2703,7 +2679,7 @@ def record_communication_evidence(
         )
     try:
         communication = json.loads(receipt_source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError(
             f"communication receipt is not valid JSON: {receipt_source}"
         ) from error
@@ -2746,7 +2722,7 @@ def record_communication_evidence(
         )
     try:
         provider_payload = json.loads(provider_record.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise WorkStateError("provider usage record is not valid JSON") from error
     provider_usage = (
         provider_payload.get("usage") if isinstance(provider_payload, dict) else None

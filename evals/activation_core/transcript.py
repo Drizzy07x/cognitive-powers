@@ -258,4 +258,12 @@ def arm_mismatch(
             "session standing instruction was injected "
             f"{injections.session_instruction} times"
         )
+    # The prompt-side twin of the branch above: a double-registered
+    # UserPromptSubmit hook delivers the standing instruction twice, and only
+    # the session renderings were checked, so that run was scored as the arm.
+    if injections.prompt_instruction > 1:
+        return (
+            "prompt standing instruction was injected "
+            f"{injections.prompt_instruction} times"
+        )
     return None

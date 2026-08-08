@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -316,6 +319,135 @@ class PrepareControllerAbHomesTests(unittest.TestCase):
                     reasoning_effort="medium",
                     codex="codex",
                 )
+
+
+class InstalledSurfaceHookExecutionTests(unittest.TestCase):
+    """Run every registered hook from a real copy of the installed surface.
+
+    The surface constants used to be validated only against themselves: the
+    list was frozen before the hooks that import ``scripts/skill_routing.py``
+    and ``scripts/plugin_host.py`` landed, and those hooks degrade to silence
+    on ImportError, so prepared homes shipped with skill routing disabled and
+    every packaging check stayed green. Executing the registered hooks from a
+    surface copy is what makes a missing hook dependency a red test.
+    """
+
+    @staticmethod
+    def _registered_codex_hooks(copy: Path) -> list[tuple[str, str, list[str]]]:
+        """Read the registrations the prepared homes actually run."""
+        registrations = json.loads(
+            (copy / "hooks" / "hooks.codex.json").read_text(encoding="utf-8")
+        )
+        hooks: list[tuple[str, str, list[str]]] = []
+        for groups in registrations["hooks"].values():
+            for group in groups:
+                for hook in group["hooks"]:
+                    argv = shlex.split(hook["command"])
+                    script = argv[1].replace("$PLUGIN_ROOT", str(copy))
+                    hooks.append(
+                        (
+                            Path(script).name,
+                            argv[2],
+                            [sys.executable, script, *argv[2:]],
+                        )
+                    )
+        return hooks
+
+    @staticmethod
+    def _minimal_payloads(
+        workspace: Path, edited: Path
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        return {
+            ("semantic_index.py", "session-start"): {
+                "source": "startup",
+                "cwd": str(workspace),
+            },
+            ("skill_activation.py", "session-start"): {"source": "startup"},
+            ("skill_router.py", "user-prompt-submit"): {
+                "user_input": "help me refactor this module cleanly"
+            },
+            ("selective_hooks.py", "post-tool-use"): {
+                "sessionId": "cp-surface-probe",
+                "tool_name": "Write",
+                "tool_input": {"file_path": str(edited)},
+                "cwd": str(workspace),
+            },
+            ("selective_hooks.py", "stop"): {
+                "sessionId": "cp-surface-probe-untouched",
+                "cwd": str(workspace),
+            },
+        }
+
+    @staticmethod
+    def _hook_environment(copy: Path, store: Path) -> dict[str, str]:
+        environment = dict(os.environ)
+        environment["PLUGIN_ROOT"] = str(copy)
+        environment["COGNITIVE_POWERS_DATA"] = str(store)
+        for variable in (
+            "CLAUDE_PLUGIN_ROOT",
+            "COGNITIVE_POWERS_DISABLE_ACTIVATION",
+            "COGNITIVE_POWERS_DISABLE_ROUTER",
+            "COGNITIVE_POWERS_DISABLE_INDEX",
+            "COGNITIVE_POWERS_ENABLE_ACTIVATION_INDEX",
+        ):
+            environment.pop(variable, None)
+        return environment
+
+    def test_registered_hooks_do_not_degrade_on_the_copied_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            copy = root / "installed"
+            workspace = root / "workspace"
+            store = root / "store"
+            workspace.mkdir()
+            edited = workspace / "edited.py"
+            edited.write_text("VALUE = 1\n", encoding="utf-8")
+            homes._copy_plugin(ROOT, copy)
+            payloads = self._minimal_payloads(workspace, edited)
+            environment = self._hook_environment(copy, store)
+            outputs: dict[tuple[str, str], str] = {}
+            for name, event, command in self._registered_codex_hooks(copy):
+                completed = subprocess.run(
+                    command,
+                    input=json.dumps(payloads[(name, event)]),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    cwd=str(workspace),
+                    env=environment,
+                    timeout=120,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                outputs[(name, event)] = completed.stdout
+            # Both directions: every registration is judged, and a registration
+            # this test expected cannot silently disappear.
+            self.assertEqual(set(outputs), set(payloads))
+            # The routing hooks degrade to silence, so their healthy injected
+            # context is the only observable proof the copied surface carries
+            # the scripts they import.
+            for key in (
+                ("skill_activation.py", "session-start"),
+                ("skill_router.py", "user-prompt-submit"),
+            ):
+                injected = json.loads(outputs[key])
+                self.assertTrue(
+                    injected["hookSpecificOutput"]["additionalContext"].strip(), key
+                )
+            # A partially parsable catalogue warns through systemMessage; the
+            # real surface must not.
+            self.assertNotIn(
+                "systemMessage",
+                json.loads(outputs[("skill_router.py", "user-prompt-submit")]),
+            )
+            # These two report degradation as output: a startup failure line,
+            # and a Stop warning for an untouched session's ledger.
+            self.assertEqual(outputs[("semantic_index.py", "session-start")], "")
+            self.assertEqual(outputs[("selective_hooks.py", "stop")], "")
+            # The edit event must land in the ledger the Stop gate reads; a
+            # dropped event is that hook's silent degradation.
+            self.assertTrue(list((store / "hooks" / "events").glob("*.jsonl")))
 
 
 if __name__ == "__main__":
