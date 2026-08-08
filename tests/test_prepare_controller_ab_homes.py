@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -393,6 +394,21 @@ class InstalledSurfaceHookExecutionTests(unittest.TestCase):
             environment.pop(variable, None)
         return environment
 
+    @staticmethod
+    def _stage_real_surface(staged: Path) -> None:
+        """Stage the real surface files in a tree that is only the surface.
+
+        _copy_plugin's large-tree guard scans its whole source, and the CI
+        checkout carries ci/*/node_modules that the workflow itself installs
+        — this test's subject is the shipped surface, not the checkout.
+        """
+        for relative in homes.INSTALLED_SURFACE_DIRECTORIES:
+            shutil.copytree(ROOT / relative, staged / relative)
+        for relative in homes.INSTALLED_SURFACE_FILES:
+            target = staged / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+
     def test_registered_hooks_do_not_degrade_on_the_copied_surface(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -402,7 +418,9 @@ class InstalledSurfaceHookExecutionTests(unittest.TestCase):
             workspace.mkdir()
             edited = workspace / "edited.py"
             edited.write_text("VALUE = 1\n", encoding="utf-8")
-            homes._copy_plugin(ROOT, copy)
+            staged = root / "source"
+            self._stage_real_surface(staged)
+            homes._copy_plugin(staged, copy)
             payloads = self._minimal_payloads(workspace, edited)
             environment = self._hook_environment(copy, store)
             outputs: dict[tuple[str, str], str] = {}
