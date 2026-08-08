@@ -17,21 +17,35 @@ contract declares, and they change only when that contract does.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-# One spelling of a version, used by every pattern below. The prerelease part
-# is a closed set rather than the whole of semver: semver orders prerelease
-# identifiers by rules nothing in this repository implements, and a format the
-# ordering below cannot rank is one that picks the wrong rollback target in
-# silence. Three labels that rank alpha < beta < rc is what the release
-# checklist actually uses.
-_CORE = r"\d+\.\d+\.\d+"
-_PRERELEASE = r"(?:-(?:alpha|beta|rc)\.\d+)?"
-_VERSION = _CORE + _PRERELEASE
-PRERELEASE_RANK = {"alpha": 0, "beta": 1, "rc": 2}
+
+
+def _load_release_identity():
+    """Load the module that owns the release-version spelling.
+
+    Every release-facing script already loads this file by path so it keeps
+    working from a staged package. Spelling the version format here as well is
+    how the bump came to accept a prerelease and write it into every carrier
+    while release_identity called the manifest it had just written malformed.
+    """
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
+_VERSION = _RELEASE.VERSION_SPELLING
+PRERELEASE_RANK = _RELEASE.PRERELEASE_RANK
+version_order = _RELEASE.version_order
 VERSION_PATTERN = re.compile(rf"^{_VERSION}$")
 HEADING_PATTERN = re.compile(
     rf"^## ({_VERSION}) - (\d{{4}}-\d{{2}}-\d{{2}})\s*$", re.MULTILINE
@@ -40,22 +54,6 @@ HEADING_PATTERN = re.compile(
 # reach: they name an origin release on purpose, exactly as the release
 # binding tests treat them.
 TAG_PATTERN = re.compile(rf"(?<![A-Za-z0-9-])v{_VERSION}")
-
-
-def version_order(version: str) -> tuple[int, int, int, int, int]:
-    """Rank one version against another, prereleases below their own release.
-
-    A prerelease is not a release of its line; 1.10.0-rc.1 precedes 1.10.0 and
-    follows every 1.9.x. Comparing the dotted parts as integers is what the
-    rollback target used to do, and `int("0-rc")` raises rather than ranking,
-    so a prerelease would have failed the bump instead of being placed.
-    """
-    core, _, prerelease = version.partition("-")
-    major, minor, patch = (int(part) for part in core.split("."))
-    if not prerelease:
-        return (major, minor, patch, len(PRERELEASE_RANK), 0)
-    label, _, number = prerelease.partition(".")
-    return (major, minor, patch, PRERELEASE_RANK[label], int(number))
 
 
 class BumpError(ValueError):

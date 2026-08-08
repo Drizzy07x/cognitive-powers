@@ -79,7 +79,10 @@ every Codex hook silently never fires. `doctor.py --validate-installation`
 executes that exact spelling as the `codex-hook-interpreter` check and names
 the Microsoft Store stub explicitly when it is the culprit. Both hosts now
 register the same four events (`SessionStart`, `UserPromptSubmit`,
-`PostToolUse`, `Stop`); shell-driven edits (`sed -i`, heredocs) are
+`PostToolUse`, `Stop`), each exactly once: `clean_code_guard.py` ships but is
+not registered, because two entries on one `PostToolUse` matcher started two
+interpreters per edit to parse the same stdin twice, and `selective_hooks.py`
+calls the guard itself after the ledger event is appended. Shell-driven edits (`sed -i`, heredocs) are
 deliberately not matched by the edit-provenance hook on either host, so an
 edit made that way carries no provenance record.
 
@@ -106,8 +109,9 @@ none.
 **Shell tools do not arm it on either host.** `SUPPORTED_TOOLS` in
 `hooks/selective_hooks.py` lists `bash` and the Codex shell spellings so the hook
 still behaves on a host that ignores matchers, but no shipped manifest routes a
-shell call to it: `hooks/hooks.codex.json` matches `apply_patch|Edit|Write` and
-`hooks/hooks.claude.json` matches `Edit|Write|MultiEdit|NotebookEdit`.
+shell call to it: `hooks/hooks.codex.json` matches
+`apply_patch|Edit|Write|MultiEdit|NotebookEdit` and `hooks/hooks.claude.json`
+matches the same set without `apply_patch`.
 `scripts/run_extension_benchmarks.py` asserts `Bash` stays out of that matcher.
 Invoking `post_tool_use` directly with a shell tool name does append an event and
 arm the gate, but that path measures the function rather than the product.
@@ -242,11 +246,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.10.0
+& ./install.ps1 -ReleaseRef v1.10.0-rc.1
 ```
 
 ```bash
-./install.sh --release-ref v1.10.0
+./install.sh --release-ref v1.10.0-rc.1
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -290,7 +294,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.10.0
+  --installed-root <installed-root> --tag v1.10.0-rc.1
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
@@ -354,7 +358,7 @@ running a pre-fix tree that reported the fixed version.
    That entry used to be a manual post-publication step, and it was the only
    step no gate could watch: it ran after every gate had finished, on a release
    that was already out. It failed the way that shape of step always eventually
-   fails -- v1.10.0 shipped and was never recorded, so the documented rollback
+   fails -- v1.10.0-rc.1 shipped and was never recorded, so the documented rollback
    target would have skipped past it. There is no longer a `DRY_RUN_RELEASE_REF`
    variable either; the nightly dry run reads the newest entry of the same file,
    which is now written by the job that proved the release real rather than by

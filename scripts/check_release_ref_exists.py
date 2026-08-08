@@ -24,6 +24,7 @@ could not look is the same defect one storey up.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
@@ -32,15 +33,30 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 REMOTE_TIMEOUT_SECONDS = 60
 
+
+def _load_release_identity():
+    path = Path(__file__).resolve().with_name("release_identity.py")
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _load_release_identity()
+
 # Captured from the documented command rather than from a version constant,
 # because the claim under test is that this exact command still works.
 CLONE_PATTERN = re.compile(
     r"git clone\s+--branch\s+(?P<ref>\S+)\s+--depth\s+\d+\s+(?P<url>https://\S+)"
 )
-# The prerelease part matches bump_version.VERSION_PATTERN. A README pinned to
-# a release candidate documents a tag that exists like any other, and refusing
-# the spelling here would report a malformed ref for a command that works.
-TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$")
+# The spelling comes from release_identity.py, which owns it. A README pinned
+# to a release candidate documents a tag that exists like any other, and a
+# private copy of the format here would report a malformed ref for a command
+# that works -- which is the failure this whole check exists to prevent, only
+# pointed at itself.
+TAG_PATTERN = re.compile(rf"^v{_RELEASE.VERSION_SPELLING}$")
 
 
 class ReleaseRefError(RuntimeError):

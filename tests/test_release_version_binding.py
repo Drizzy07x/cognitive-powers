@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.test_plugin_contract import VERSION_SPELLING
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # Gates whose subject is the release under test. Their identity must be derived.
@@ -35,8 +37,8 @@ GUARDED = (
 
 # A product tag, but not the "-v" inside a scenario identifier like
 # "upgrade-v1.5.2", which names an origin release on purpose.
-PRODUCT_TAG = re.compile(r"(?<![A-Za-z0-9-])v\d+\.\d+\.\d+")
-ARCHIVE_LITERAL = re.compile(r"cognitive-powers-\d+\.\d+\.\d+")
+PRODUCT_TAG = re.compile(rf"(?<![A-Za-z0-9-])v{VERSION_SPELLING}")
+ARCHIVE_LITERAL = re.compile(rf"cognitive-powers-{VERSION_SPELLING}")
 
 
 def load(relative: str, name: str):
@@ -50,7 +52,7 @@ def load(relative: str, name: str):
 def changelog_version() -> str:
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     match = re.search(
-        r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}\s*$", text, re.MULTILINE
+        rf"^## ({VERSION_SPELLING}) - \d{{4}}-\d{{2}}-\d{{2}}\s*$", text, re.MULTILINE
     )
     assert match is not None, "CHANGELOG.md has no dated release heading"
     return match.group(1)

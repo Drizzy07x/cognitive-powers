@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$')]
-    [string]$ReleaseRef = "v1.10.0",
+    [string]$ReleaseRef = "v1.10.0-rc.1",
     [switch]$Help
 )
 

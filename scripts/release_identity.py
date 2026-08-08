@@ -23,11 +23,42 @@ from typing import Sequence
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_RELATIVE = Path(".codex-plugin") / "plugin.json"
 CHANGELOG_RELATIVE = Path("CHANGELOG.md")
-VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
+# The one spelling of a release version, which bump_version.py loads from here
+# rather than repeating. The two had drifted the moment a prerelease existed:
+# the bump accepted 1.10.0-rc.1, wrote it into every carrier, and this module
+# then called the manifest it had just written malformed. A format is a
+# decision, and this file already exists to hold release identity decisions
+# once.
+#
+# The prerelease part is a closed set. Semver orders prerelease identifiers by
+# rules nothing here implements, and a format the rollback ordering cannot rank
+# is one that picks the wrong rollback target in silence.
+VERSION_CORE = r"\d+\.\d+\.\d+"
+VERSION_PRERELEASE = r"(?:-(?:alpha|beta|rc)\.\d+)?"
+VERSION_SPELLING = VERSION_CORE + VERSION_PRERELEASE
+VERSION_PATTERN = re.compile(VERSION_SPELLING)
 HEADING_PATTERN = re.compile(
-    r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}\s*$", re.MULTILINE
+    rf"^## ({VERSION_SPELLING}) - \d{{4}}-\d{{2}}-\d{{2}}\s*$", re.MULTILINE
 )
 ARCHIVE_PREFIX = "cognitive-powers-"
+PRERELEASE_RANK = {"alpha": 0, "beta": 1, "rc": 2}
+
+
+def version_order(version: str) -> tuple[int, int, int, int, int]:
+    """Rank one version against another, prereleases below their own release.
+
+    A prerelease is not a release of its line: 1.10.0-rc.1 precedes 1.10.0 and
+    follows every 1.9.x. Every caller that needed to order versions did it by
+    splitting on "." and calling int on the parts, which does not misplace a
+    prerelease -- it raises on one, because "0-rc" is not a number. That is the
+    same decision made in several places, so it is made here.
+    """
+    core, _, prerelease = version.partition("-")
+    major, minor, patch = (int(part) for part in core.split("."))
+    if not prerelease:
+        return (major, minor, patch, len(PRERELEASE_RANK), 0)
+    label, _, number = prerelease.partition(".")
+    return (major, minor, patch, PRERELEASE_RANK[label], int(number))
 
 
 class ReleaseIdentityError(ValueError):

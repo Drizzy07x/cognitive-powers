@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import struct
@@ -11,11 +12,32 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _release_identity():
+    """The release-version spelling and ordering, read from the module that owns them.
+
+    A test carrying its own copy of the format is a test that can disagree with
+    the release path about what a version is. Every one of them did, the moment
+    a prerelease existed: their patterns matched the `v1.10.0` prefix of
+    `v1.10.0-rc.1` and then reported the tail as a stale tag.
+    """
+    path = PLUGIN_ROOT / "scripts" / "release_identity.py"
+    spec = importlib.util.spec_from_file_location("cp_release_identity", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_RELEASE = _release_identity()
+VERSION_SPELLING = _RELEASE.VERSION_SPELLING
+VERSION_ORDER = _RELEASE.version_order
+
+
 def declared_version() -> str:
     """Return the newest dated changelog release, the single version source."""
     text = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     match = re.search(
-        r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}\s*$", text, re.MULTILINE
+        rf"^## ({VERSION_SPELLING}) - \d{{4}}-\d{{2}}-\d{{2}}\s*$", text, re.MULTILINE
     )
     if match is None:
         raise AssertionError("CHANGELOG.md has no dated release heading")
@@ -52,11 +74,11 @@ class PluginContractTests(unittest.TestCase):
 
     def test_documented_tags_match_the_declared_version(self) -> None:
         expected = f"v{declared_version()}"
-        pattern = re.compile(r"v\d+\.\d+\.\d+")
+        pattern = re.compile(rf"v{VERSION_SPELLING}")
         previous = {
             f"v{version}"
             for version in re.findall(
-                r"^## (\d+\.\d+\.\d+) - ",
+                rf"^## ({VERSION_SPELLING}) - ",
                 (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
                 re.MULTILINE,
             )
@@ -79,6 +101,33 @@ class PluginContractTests(unittest.TestCase):
                         f"{relative} documents {found} but the declared release "
                         f"is {expected}",
                     )
+
+    def test_the_hosts_that_cannot_import_the_spelling_still_carry_it(self) -> None:
+        """Three files spell the version format themselves and cannot not.
+
+        `install.ps1`, `install.sh` and `auto-publish.yml` validate a release
+        ref before any Python runs, so they cannot load the module that owns
+        the format -- which leaves them free to accept a label the release path
+        rejects, or reject one it accepts, with nothing to notice either. The
+        labels are the whole of what can drift here: the dotted core has been
+        the same since the first release, and the prerelease set is what just
+        changed. Derived from `PRERELEASE_RANK` rather than restated, so adding
+        a fourth label fails here instead of shipping a tag two of the three
+        would refuse.
+        """
+        expected = set(_RELEASE.PRERELEASE_RANK)
+        alternation = re.compile(r"\(-\(([a-z|]+)\)\\?\.")
+        for relative in (
+            "install.ps1",
+            "install.sh",
+            ".github/workflows/auto-publish.yml",
+        ):
+            text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+            found = alternation.findall(text)
+            with self.subTest(document=relative):
+                self.assertTrue(found, "no prerelease alternation in this file")
+                for group in found:
+                    self.assertEqual(set(group.split("|")), expected)
 
     def test_private_marketplace_points_to_plugin_root(self) -> None:
         marketplace_path = PLUGIN_ROOT / ".agents" / "plugins" / "marketplace.json"
@@ -392,9 +441,11 @@ class PluginContractTests(unittest.TestCase):
             sorted(parsed, reverse=True),
             "docs/releases.json must list tags newest first",
         )
-        declared = tuple(int(part) for part in declared_version().split("."))
+        # Ordered through the module that owns the ordering: splitting on "."
+        # and calling int does not misplace a prerelease, it raises on one.
+        declared = VERSION_ORDER(declared_version())
         rollback_targets = [
-            tag for tag, version in zip(published, parsed) if version < declared
+            tag for tag in published if VERSION_ORDER(tag[1:]) < declared
         ]
         self.assertTrue(
             rollback_targets,

@@ -915,8 +915,8 @@ class InstallShTransactionTests(InstallTransactionScenarios, unittest.TestCase):
         """
         powershell = INSTALLER.read_text(encoding="utf-8")
         posix = INSTALLER_SH.read_text(encoding="utf-8")
-        declared = re.search(r'\[string\]\$ReleaseRef = "(v[\d.]+)"', powershell)
-        ported = re.search(r'^release_ref="(v[\d.]+)"$', posix, re.MULTILINE)
+        declared = re.search(r'\[string\]\$ReleaseRef = "(v[\w.-]+)"', powershell)
+        ported = re.search(r'^release_ref="(v[\w.-]+)"$', posix, re.MULTILINE)
         self.assertIsNotNone(declared)
         self.assertIsNotNone(ported)
         self.assertEqual(declared.group(1), ported.group(1))
