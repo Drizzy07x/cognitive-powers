@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "cognitive-powers",
   "displayName": "Cognitive Powers",
-  "version": "1.10.0-rc.2",
+  "version": "1.10.0-rc.3",
   "description": "Focused execution with durable evidence and independent verification.",
   "author": {
     "name": "DrizzyPC"

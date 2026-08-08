@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0-rc.3 - 2026-08-08
+
+- Let the lifecycle harness accept the candidate it exists to exercise. `run_real_upgrade_rollback.ps1` validated `-ReleaseRef` against the release-only `^v\d+\.\d+\.\d+$`, so a prerelease tag cleared bump, publish, both installers and the ref check — the five spellings 1.10.0-rc.1 widened — and then died at parameter binding on all twelve matrix cells of its own tag run, before the harness ran anything. It was the sixth spelling of the version grammar, and the record was one spelling short exactly the way the format section of 1.10.0-rc.1 predicted: a grammar spelled in N places is wrong in the place nobody counted. The pattern now matches `install.ps1`'s, and `test_every_candidate_ref_gate_accepts_a_prerelease` extracts the candidate-ref pattern from every shell spelling — both PowerShell `ValidatePattern`s, `install.sh`, `auto-publish.yml` — and holds each to the grammar's behavior (accepts a release and an `rc`, refuses an unrankable label), because the shells cannot import `release_identity` and a literal nobody rechecks is how this returned once already. The `v1.10.0-rc.2` tag was cut before this fix and fails the same way; it publishes nothing and names no release.
+
 ## 1.10.0-rc.2 - 2026-08-08
 
 - Closed thirty defects found by auditing the whole tree with independent finders and keeping only what an adversarial verifier could reproduce — the same review that proposed deleting the A/B harness wholesale was refuted by its own protocol history, which is worth recording: the audit's rejections are as load-bearing as its findings. What survived falls into the classes below, and most of them are instances of rules this repository had already written down and enforced somewhere else.

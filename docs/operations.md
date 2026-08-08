@@ -246,11 +246,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.10.0-rc.2
+& ./install.ps1 -ReleaseRef v1.10.0-rc.3
 ```
 
 ```bash
-./install.sh --release-ref v1.10.0-rc.2
+./install.sh --release-ref v1.10.0-rc.3
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -294,7 +294,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.10.0-rc.2
+  --installed-root <installed-root> --tag v1.10.0-rc.3
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
@@ -358,7 +358,7 @@ running a pre-fix tree that reported the fixed version.
    That entry used to be a manual post-publication step, and it was the only
    step no gate could watch: it ran after every gate had finished, on a release
    that was already out. It failed the way that shape of step always eventually
-   fails -- v1.10.0-rc.2 shipped and was never recorded, so the documented rollback
+   fails -- v1.10.0-rc.3 shipped and was never recorded, so the documented rollback
    target would have skipped past it. There is no longer a `DRY_RUN_RELEASE_REF`
    variable either; the nightly dry run reads the newest entry of the same file,
    which is now written by the job that proved the release real rather than by
