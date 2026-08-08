@@ -58,7 +58,7 @@
     }
   ],
   "hook_contract": {
-    "expected_post_tool_matcher": "apply_patch|Edit|Write",
+    "expected_post_tool_matcher": "apply_patch|Edit|Write|MultiEdit|NotebookEdit",
     "expected_windows_prefix": "py -3"
   }
 }
