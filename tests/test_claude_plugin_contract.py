@@ -301,6 +301,31 @@ class ClaudeHookTests(unittest.TestCase):
             set(matcher.split("|")), {"Edit", "Write", "MultiEdit", "NotebookEdit"}
         )
 
+    def test_both_manifests_agree_on_which_tools_are_writes(self) -> None:
+        """One tool set per host, and every PostToolUse entry sees all of it.
+
+        The test above pins one entry of one manifest, so the drift it names --
+        a tool one hook treats as a write while its neighbour ignores it -- was
+        only refused for that entry. It had already happened twice: the guard
+        entry beside it missed NotebookEdit, and the Codex manifest missed both
+        it and MultiEdit. Nothing could see either, because a matcher that
+        names too few tools produces no error, only an event that is never
+        recorded. What differs between hosts is the tool vocabulary, so that is
+        the only difference this asserts.
+        """
+        codex = json.loads(
+            (PLUGIN_ROOT / "hooks" / "hooks.codex.json").read_text(encoding="utf-8")
+        )["hooks"]
+        shared = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+        for manifest, expected in (
+            (self.hooks, shared),
+            (codex, shared | {"apply_patch"}),
+        ):
+            entries = manifest["PostToolUse"]
+            self.assertEqual(len(entries), 2)
+            for entry in entries:
+                self.assertEqual(set(entry["matcher"].split("|")), expected)
+
     def test_every_hook_uses_exec_form_against_the_bundled_script(self) -> None:
         entries = [
             hook
