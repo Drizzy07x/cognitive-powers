@@ -221,7 +221,13 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("release_dry_run:", workflow)
         self.assertIn("schedule:", workflow)
         self.assertIn('git tag -f "$tag"', workflow)
-        self.assertIn("vars.DRY_RUN_RELEASE_REF", workflow)
+        # The standing tag is read from docs/releases.json, which the publisher
+        # writes, rather than from a repository variable a checklist had to
+        # advance by hand. That variable drifted the only way it could: it
+        # still named v1.9.0 after v1.9.1 shipped, so the dry run kept
+        # exercising a superseded release and stayed green about it.
+        self.assertIn("steps.published.outputs.ref", workflow)
+        self.assertNotIn("vars.DRY_RUN_RELEASE_REF", workflow)
         self.assertIn("-ExpectedCommit $expected", workflow)
         self.assertIn("Require the exact publishable asset shape", workflow)
         # The manifest reproducibility steps carry no tag gate any more.

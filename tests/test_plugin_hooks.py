@@ -93,14 +93,17 @@ class PluginHookTests(unittest.TestCase):
         self,
         executor: str = "executor-1",
         verifier: str = "independent-reviewer",
+        root: Path | None = None,
     ) -> Path:
+        workspace = self.repo if root is None else root
+
         def run_state(*arguments: str) -> subprocess.CompletedProcess[str]:
             completed = subprocess.run(
                 [
                     sys.executable,
                     str(WORK_STATE),
                     "--root",
-                    str(self.repo),
+                    str(workspace),
                     "--data-root",
                     str(self.data),
                     *arguments,
@@ -153,6 +156,27 @@ class PluginHookTests(unittest.TestCase):
             "--json",
         )
         return Path(json.loads(claimed.stdout)["receipt"])
+
+    def record_validation(
+        self, evidence: Path, validator: str = "independent-reviewer"
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "record-validation",
+                "--session-id",
+                "session/with unsafe characters",
+                "--evidence",
+                str(evidence),
+                "--validator",
+                validator,
+            ],
+            text=True,
+            capture_output=True,
+            env=self.env,
+            check=False,
+        )
 
     def test_post_tool_use_reads_stdin_appends_and_hashes_changed_file(self) -> None:
         source = self.repo / "src" / "example.py"
@@ -427,6 +451,94 @@ class PluginHookTests(unittest.TestCase):
             json.loads(rearmed.stdout)["systemMessage"],
             "a tool naming no path re-arms the gate, so silencing the write buys nothing",
         )
+
+    def test_a_session_above_the_data_root_clears_its_gate_from_a_subdirectory(
+        self,
+    ) -> None:
+        """The printed remediation has to be followable where cwd holds the store.
+
+        `_event_cwd` deliberately keeps recording provenance for a session
+        opened at an ancestor of the data root -- a drive root, the home
+        directory -- so the gate arms there by design. Nothing could then clear
+        it. Every workspace containing that cwd also contains the evidence
+        store, which `work_state.py init` refuses to root a session at, and
+        every workspace that avoids the store failed the receipt check as "a
+        different workspace". The gate was not strict on those hosts, it was
+        unsatisfiable, and it printed three steps as though it were not.
+        """
+        work = self.base / "work.txt"
+        work.write_text("edited\n", encoding="utf-8")
+        payload = self.payload("Write")
+        payload["cwd"] = str(self.base)
+        payload["toolInput"] = {"file_path": str(work)}
+        self.run_hook("post-tool-use", payload)
+
+        armed = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertIn("no current", json.loads(armed.stdout)["systemMessage"])
+
+        recorded = self.record_validation(self.create_verified_evidence())
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        cleared = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertEqual(cleared.stdout, "", "the printed remediation can be honoured")
+
+    def test_the_warning_names_the_data_root_its_own_remediation_cannot_use(
+        self,
+    ) -> None:
+        """A gate whose steps have a precondition has to state the precondition.
+
+        The refusal an operator reaches by following the steps literally --
+        `durable data root must be outside the workspace` from `init`, or
+        `evidence belongs to a different workspace` from `record-validation` --
+        reads as a wrong argument rather than as a constraint on where the
+        session may be rooted at all, so the warning names it up front.
+        """
+        work = self.base / "work.txt"
+        work.write_text("edited\n", encoding="utf-8")
+        payload = self.payload("Write")
+        payload["cwd"] = str(self.base)
+        payload["toolInput"] = {"file_path": str(work)}
+        self.run_hook("post-tool-use", payload)
+
+        armed = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        warning = json.loads(armed.stdout)["systemMessage"]
+        # The warning quotes paths with !r, which doubles every Windows
+        # separator; comparing against the bare path passes on POSIX only.
+        self.assertIn(repr(str(self.data)), warning)
+        self.assertIn(repr(str(self.base)), warning)
+        self.assertIn("COGNITIVE_POWERS_DATA", warning)
+
+        inside = self.repo / "note.txt"
+        inside.write_text("edited\n", encoding="utf-8")
+        self.run_hook("post-tool-use", self.payload("Write"))
+        contained = self.run_hook(
+            "stop", {"sessionId": "session/with unsafe characters"}
+        )
+        self.assertNotIn(
+            "COGNITIVE_POWERS_DATA",
+            json.loads(contained.stdout)["systemMessage"],
+            "a session that does not enclose the store gets no such note",
+        )
+
+    def test_evidence_from_an_unrelated_tree_is_still_refused(self) -> None:
+        """Relaxing the direction of the check is not dropping the relationship.
+
+        Accepting a workspace inside `cwd` as well as one containing it keeps
+        what the check actually proved: a receipt from a durable session about
+        some other tree cannot clear this session's gate. The refusal names both
+        directories, because the bare message read as a mistyped `--session-id`.
+        """
+        unrelated = self.base / "unrelated"
+        unrelated.mkdir()
+        self.run_hook("post-tool-use", self.payload("Write"))
+
+        refused = self.record_validation(self.create_verified_evidence(root=unrelated))
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("different workspace", refused.stderr)
+        self.assertIn(str(unrelated.resolve()), refused.stderr)
+        self.assertIn(str(self.repo.resolve()), refused.stderr)
+
+        armed = self.run_hook("stop", {"sessionId": "session/with unsafe characters"})
+        self.assertIn("no current", json.loads(armed.stdout)["systemMessage"])
 
     def test_garbage_or_self_validated_evidence_cannot_clear_warning(self) -> None:
         self.run_hook("post-tool-use", self.payload("Write"))

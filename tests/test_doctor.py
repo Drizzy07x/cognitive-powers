@@ -35,7 +35,7 @@ def make_installable_fixture(parent: Path) -> Path:
                 "name": "fixture",
                 "version": "1.0.0",
                 "skills": "./skills/",
-                "hooks": "./hooks/hooks.json",
+                "hooks": "./hooks/hooks.codex.json",
                 "interface": {
                     "composerIcon": "./assets/composer-icon.svg",
                     "logo": "./assets/plugin-logo-light.png",
@@ -50,7 +50,7 @@ def make_installable_fixture(parent: Path) -> Path:
         "---\nname: focused\ndescription: Use for fixture checks.\n---\n",
         encoding="utf-8",
     )
-    (root / "hooks" / "hooks.json").write_text(
+    (root / "hooks" / "hooks.codex.json").write_text(
         json.dumps({"hooks": {"Stop": []}}), encoding="utf-8"
     )
     (root / "hooks" / "selective_hooks.py").write_text("", encoding="utf-8")
@@ -299,7 +299,7 @@ class DoctorTests(unittest.TestCase):
     def test_release_installation_fails_when_package_is_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = make_installable_fixture(Path(temporary))
-            (root / "hooks" / "hooks.json").unlink()
+            (root / "hooks" / "hooks.codex.json").unlink()
             result = doctor.validate_release_installation(root)
         self.assertFalse(result["passed"])
         self.assertTrue(

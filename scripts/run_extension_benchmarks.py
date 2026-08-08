@@ -108,7 +108,7 @@ def run(cases_path: Path = DEFAULT_CASES) -> dict[str, object]:
         )
 
     hooks = json.loads(
-        (PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / "hooks" / "hooks.codex.json").read_text(encoding="utf-8")
     )
     post = hooks["hooks"]["PostToolUse"][0]
     handler = post["hooks"][0]

@@ -47,8 +47,20 @@ SUPPORTED_TOOLS = {
     "local_shell",
 }
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.MULTILINE)
-# Whether to warn at Stop, and the ledger failure behind it when there was one.
-_StopVerdict = tuple[bool, "str | None"]
+
+
+class _StopVerdict(NamedTuple):
+    """What the Stop gate concluded, and the state its warning has to describe.
+
+    ``event_cwd`` travels with the verdict rather than being re-derived by the
+    warning, because the ledger is read under its lock and the directory the
+    latest edit was recorded under is the one fact that decides whether the
+    printed remediation is followable at all on this host.
+    """
+
+    warn: bool
+    error: str | None
+    event_cwd: Path | None
 
 
 def _canonical(value: object) -> bytes:
@@ -629,10 +641,50 @@ def _durable_session_dir(evidence: Path, data_root: Path) -> Path:
     return evidence_root.parent
 
 
+def _shares_one_tree(event_cwd: Path, workspace: Path) -> bool:
+    """Whether the durable session and the recorded edit sit in one tree.
+
+    Containment used to be demanded in one direction -- the workspace had to
+    contain ``cwd`` -- which is not a stricter rule but an unsatisfiable one
+    wherever the session cwd is an ancestor of the data root: every workspace
+    containing that cwd also contains the evidence store, which ``init``
+    refuses to root a session at, and every workspace that avoids the store
+    failed this check instead.
+
+    The descendant direction concedes nothing. A receipt binds to the latest
+    event's hash and never to a file, so an enclosing workspace was never
+    evidence that the receipt was about the edit; both directions prove only
+    that the session and the edit are not unrelated trees.
+    """
+    return (
+        event_cwd == workspace
+        or _inside(event_cwd, workspace)
+        or _inside(workspace, event_cwd)
+    )
+
+
+def _durable_workspace(state: dict[str, Any], event_cwd: Path) -> Path:
+    """Place the recorded edit against the workspace the session declared."""
+    workspace_value = state.get("workspace_root")
+    if not isinstance(workspace_value, str):
+        raise ValueError("evidence session has no workspace root")
+    workspace = Path(workspace_value).resolve()
+    if not workspace.is_dir() or not _shares_one_tree(event_cwd, workspace):
+        # Naming both paths is the point. The bare refusal read as a mistyped
+        # --session-id or a stale receipt -- operator error -- rather than as a
+        # relationship between two directories the operator can go and inspect.
+        raise ValueError(
+            "evidence belongs to a different workspace: the durable session is "
+            f"rooted at {workspace}, which neither contains nor lies inside "
+            f"{event_cwd}, the working directory the edit was recorded under"
+        )
+    return workspace
+
+
 def _durable_session_state(
     session_dir: Path, event_cwd: Path
 ) -> tuple[dict[str, Any], Path]:
-    """Read the session state and place the edit inside its workspace."""
+    """Read the session state and relate the edit to its workspace."""
     state_path = session_dir / "state.json"
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -640,15 +692,7 @@ def _durable_session_state(
         raise ValueError("evidence session state is unreadable") from error
     if not isinstance(state, dict) or state.get("schema_version") != 1:
         raise ValueError("evidence session state is malformed")
-    workspace_value = state.get("workspace_root")
-    if not isinstance(workspace_value, str):
-        raise ValueError("evidence session has no workspace root")
-    workspace = Path(workspace_value).resolve()
-    if not workspace.is_dir() or not (
-        event_cwd == workspace or _inside(event_cwd, workspace)
-    ):
-        raise ValueError("evidence belongs to a different workspace")
-    return state, workspace
+    return state, _durable_workspace(state, event_cwd)
 
 
 def _durable_state_identity(
@@ -754,17 +798,40 @@ def _stop_remediation(message: str) -> str:
     )
 
 
+def _enclosing_root_note(data_root: Path, event_cwd: Path | None) -> str:
+    """Say where the durable session may be rooted when cwd encloses the store.
+
+    ``work_state.py`` refuses a workspace that contains its own evidence store,
+    so where the session cwd is an ancestor of the data root -- a drive root,
+    the home directory -- the remediation below cannot be rooted at cwd. Left
+    unsaid, an operator follows the three steps, is refused, and reads the
+    refusal as a mistake of their own rather than as a constraint.
+    """
+    if event_cwd is None or not (
+        data_root == event_cwd or _inside(data_root, event_cwd)
+    ):
+        return ""
+    return (
+        f" The data root {str(data_root)!r} sits inside this session's working "
+        f"directory {str(event_cwd)!r}, so work_state.py will refuse to root the "
+        "durable session there: root it at the subdirectory the edits landed in "
+        "-- one the host does not write to continuously, or the source "
+        "fingerprint goes stale between run and verify -- or set "
+        "COGNITIVE_POWERS_DATA to a directory outside this working directory."
+    )
+
+
 def _stop_warning(
-    session_id: str, data_root: Path, error: str | None
+    session_id: str, data_root: Path, verdict: _StopVerdict
 ) -> dict[str, Any]:
     """Shape the warning for a session whose latest edit no receipt covers."""
-    detail = f" ({error})" if error else ""
+    detail = f" ({verdict.error})" if verdict.error else ""
     message = (
         f"Cognitive Powers session {session_id!r} recorded an edit-tool call "
         f"(ledger under {str(data_root)!r}), "
         "but no current, hash-bound validation receipt covers the latest "
         f"edit{detail}."
-    )
+    ) + _enclosing_root_note(data_root, verdict.event_cwd)
     output: dict[str, Any] = {"systemMessage": message}
     if os.environ.get("CLAUDE_PLUGIN_ROOT"):
         output["hookSpecificOutput"] = {
@@ -790,26 +857,39 @@ def _ledger_state(
         return _read_ledger(ledger)
 
 
+def _latest_event_verdict(
+    roots: tuple[Path, Path], session_id: str, event: dict[str, Any]
+) -> _StopVerdict:
+    """Decide the verdict for a ledger that ends in a trustworthy event."""
+    plugin_root, data_root = roots
+    recorded_cwd = event["cwd"]
+    event_cwd = Path(recorded_cwd).resolve()
+    covered = _receipt_is_current(
+        _receipt_path(data_root, session_id),
+        session_id,
+        event["eventHash"],
+        plugin_root,
+        data_root,
+        event_cwd,
+    )
+    # An oversized payload records an empty cwd, which resolves to whatever
+    # directory this process happens to be in -- not the session's, and so not
+    # a directory the warning may reason about.
+    return _StopVerdict(not covered, None, event_cwd if recorded_cwd else None)
+
+
 def _stop_verdict(plugin_root: Path, data_root: Path, session_id: str) -> _StopVerdict:
     """Whether the latest edit needs a warning, and what broke if one did."""
     state = _ledger_state(data_root, session_id)
     if state is None:
-        return False, None
+        return _StopVerdict(False, None, None)
     events, error = state
     # An unreadable ledger warns on its own: no trustworthy latest event exists.
     if error is not None:
-        return True, error
+        return _StopVerdict(True, error, None)
     if not events:
-        return False, None
-    covered = _receipt_is_current(
-        _receipt_path(data_root, session_id),
-        session_id,
-        events[-1]["eventHash"],
-        plugin_root,
-        data_root,
-        Path(events[-1]["cwd"]).resolve(),
-    )
-    return not covered, error
+        return _StopVerdict(False, None, None)
+    return _latest_event_verdict((plugin_root, data_root), session_id, events[-1])
 
 
 def stop(payload: dict[str, Any]) -> None:
@@ -818,10 +898,12 @@ def stop(payload: dict[str, Any]) -> None:
     if roots is None or session_id is None:
         return
     plugin_root, data_root = roots
-    warn, error = _stop_verdict(plugin_root, data_root, session_id)
-    if warn:
+    verdict = _stop_verdict(plugin_root, data_root, session_id)
+    if verdict.warn:
         print(
-            json.dumps(_stop_warning(session_id, data_root, error), ensure_ascii=False)
+            json.dumps(
+                _stop_warning(session_id, data_root, verdict), ensure_ascii=False
+            )
         )
 
 

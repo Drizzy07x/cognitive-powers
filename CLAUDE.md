@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Cognitive Powers is a plugin that ships from **one source tree to two hosts**: Codex reads
-`.codex-plugin/plugin.json` + `skills-core/` + `hooks/hooks.json`; Claude Code reads
+`.codex-plugin/plugin.json` + `skills-core/` + `hooks/hooks.codex.json`; Claude Code reads
 `.claude-plugin/plugin.json` + `skills/` + `hooks/hooks.claude.json`. Both manifests declare the
 same version, and `doctor.py` reports `versionsAligned: false` when they drift.
 

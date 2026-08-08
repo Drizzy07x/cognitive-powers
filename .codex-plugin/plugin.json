@@ -1,6 +1,6 @@
 {
   "name": "cognitive-powers",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "Focused execution with durable evidence and independent verification.",
   "author": {
     "name": "DrizzyPC"
@@ -18,7 +18,7 @@
     "desktop-automation"
   ],
   "skills": "./skills-core/",
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./hooks/hooks.codex.json",
   "interface": {
     "displayName": "Cognitive Powers",
     "shortDescription": "Focused context, durable state, and verified results.",

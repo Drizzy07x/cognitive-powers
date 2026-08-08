@@ -659,7 +659,7 @@ def _codex_hook_interpreter_check(staged: Path) -> dict[str, Any]:
     """Execute the exact interpreter spelling the Codex hook manifest uses.
 
     The Codex host carries no user-config expansion the way the Claude
-    manifest does, so hooks/hooks.json names python3 (POSIX) or the py
+    manifest does, so hooks/hooks.codex.json names python3 (POSIX) or the py
     launcher (Windows) directly. Both are hard prerequisites: on Windows the
     Store alias resolves and then exits without running Python, so a
     resolution-only probe proves nothing -- the interpreter has to run, which
@@ -668,7 +668,7 @@ def _codex_hook_interpreter_check(staged: Path) -> dict[str, Any]:
     name = "codex-hook-interpreter"
     try:
         manifest = json.loads(
-            (staged / "hooks" / "hooks.json").read_text(encoding="utf-8")
+            (staged / "hooks" / "hooks.codex.json").read_text(encoding="utf-8")
         )
         commands = [
             hook

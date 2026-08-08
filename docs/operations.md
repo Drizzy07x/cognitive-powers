@@ -72,9 +72,9 @@ on every platform: on Windows `python3` resolves to a Microsoft Store alias that
 exits without running Python. Verify the configured path with
 `<path> --version` before entering it.
 
-The Codex host has no equivalent user-config expansion, so `hooks/hooks.json`
-names the interpreter directly: `python3` on POSIX and the `py` launcher on
-Windows. Both are hard prerequisites there -- if the spelling does not run,
+The Codex host has no equivalent user-config expansion, so
+`hooks/hooks.codex.json` names the interpreter directly: `python3` on POSIX and
+the `py` launcher on Windows. Both are hard prerequisites there -- if the spelling does not run,
 every Codex hook silently never fires. `doctor.py --validate-installation`
 executes that exact spelling as the `codex-hook-interpreter` check and names
 the Microsoft Store stub explicitly when it is the culprit. Both hosts now
@@ -90,7 +90,7 @@ hosts keeps a single durable state. Override it with `COGNITIVE_POWERS_DATA`.
 ## Understand the completion gate
 
 The `Stop` hook warns when no current, hash-bound validation receipt covers the
-session's latest recorded edit. Four properties of that gate are read wrongly
+session's latest recorded edit. Five properties of that gate are read wrongly
 often enough to have been filed as defects; each is stated here because the
 behaviour is intended.
 
@@ -106,7 +106,7 @@ none.
 **Shell tools do not arm it on either host.** `SUPPORTED_TOOLS` in
 `hooks/selective_hooks.py` lists `bash` and the Codex shell spellings so the hook
 still behaves on a host that ignores matchers, but no shipped manifest routes a
-shell call to it: `hooks/hooks.json` matches `apply_patch|Edit|Write` and
+shell call to it: `hooks/hooks.codex.json` matches `apply_patch|Edit|Write` and
 `hooks/hooks.claude.json` matches `Edit|Write|MultiEdit|NotebookEdit`.
 `scripts/run_extension_benchmarks.py` asserts `Bash` stays out of that matcher.
 Invoking `post_tool_use` directly with a shell tool name does append an event and
@@ -121,10 +121,29 @@ an `additionalContext` the agent can actually read. It emits no block decision,
 so an armed gate never stops a session from ending -- it states that the
 completion claim is unreceipted.
 
+**A session opened above the data root roots its durable session below.**
+`_event_cwd` keeps recording provenance where the working directory is an
+ancestor of the data root -- a drive root, the home directory -- so the gate
+arms there by design. The durable session cannot be rooted at that working
+directory: `work_state.py` refuses a workspace containing its own evidence
+store, in `session_directory` and again in `source_fingerprint`. Root it at the
+subdirectory the edits landed in; the receipt check asks only that the durable
+session and the recorded edit share one tree, in either direction. Prefer a
+subdirectory the host does not write to continuously, because the fingerprint
+covers the whole workspace and a tree the host keeps writing into goes stale
+between `run` and `verify`. Pointing `COGNITIVE_POWERS_DATA` outside the working
+directory is the other way out, and the warning names both rather than printing
+three steps whose precondition it left unstated.
+
 Clearing the gate takes two identities: `record-validation` requires the
 validator to differ from the executor. A single agent working alone therefore
 cannot honestly close its own gate, and should report the armed gate rather than
-self-certify.
+self-certify. What the check compares is two strings -- stripped in the hook,
+folded through `sanitize_identifier` in `work_state.py`, which is why one actor
+cannot present two Unicode spellings of one name. So what it enforces is that
+two names were given; what it is for is a second party that did not produce the
+result, and the registered `verifier` agent is that party. A second name chosen
+by the executor passes the check without satisfying it.
 
 ## Inspect durable state schema
 
@@ -223,11 +242,11 @@ option, default to the declared release, and are moved together by
 `scripts/bump_version.py`, so neither can be left naming an older tag:
 
 ```powershell
-& ./install.ps1 -ReleaseRef v1.9.1
+& ./install.ps1 -ReleaseRef v1.10.0
 ```
 
 ```bash
-./install.sh --release-ref v1.9.1
+./install.sh --release-ref v1.10.0
 ```
 
 `install.sh` also accepts the `-ReleaseRef` spelling, so a documented command
@@ -271,7 +290,7 @@ verifier against the immutable tag and reported installed root:
 
 ```powershell
 & $python scripts/verify_installed.py --source-root . `
-  --installed-root <installed-root> --tag v1.9.1
+  --installed-root <installed-root> --tag v1.10.0
 ```
 
 The marketplace must be pinned to the tag's resolved 40-character commit SHA.
@@ -327,15 +346,22 @@ running a pre-fix tree that reported the fixed version.
    schedule, on dispatch, and on the tag itself, so a bump left untagged
    overnight turns Validate red rather than shipping a README that lies. Close
    the window in the same session, or move the carriers back.
-4. Publish: dispatch `publish-release.yml` with the tag and the validation run
-   id, or let the auto-publish bridge do it when `AUTO_PUBLISH` is `true`.
-   `verify-release.yml` fires on publication and re-checks the assets and the
-   release body against the changelog.
-5. Post-publication: add the new tag to `docs/releases.json` (it records only
-   published releases, so it moves after the tag exists), advance the
-   `DRY_RUN_RELEASE_REF` repository variable to the new tag so the nightly dry
-   run exercises it, and update local installations -- a same-version cache is
-   never refreshed in place.
+4. Nothing. `AUTO_PUBLISH` is `true`, so the green tag run dispatches
+   `publish-release.yml` itself; `verify-release.yml` then re-checks the assets
+   and the release body against the changelog, and its `record-published-release`
+   job commits the new tag into `docs/releases.json` on `main`.
+
+   That entry used to be a manual post-publication step, and it was the only
+   step no gate could watch: it ran after every gate had finished, on a release
+   that was already out. It failed the way that shape of step always eventually
+   fails -- v1.10.0 shipped and was never recorded, so the documented rollback
+   target would have skipped past it. There is no longer a `DRY_RUN_RELEASE_REF`
+   variable either; the nightly dry run reads the newest entry of the same file,
+   which is now written by the job that proved the release real rather than by
+   whoever remembered.
+
+Local installations are the one thing still worth doing by hand, and only when
+an update is intended: a same-version cache is never refreshed in place.
 
 Updating an installed development plugin is a separate, explicitly authorized
 operation. After validation and only when an update is intended:
