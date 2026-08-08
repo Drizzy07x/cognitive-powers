@@ -78,6 +78,37 @@ class ReleaseVersionBindingTests(unittest.TestCase):
             [version],
         )
 
+    def test_every_candidate_ref_gate_accepts_a_prerelease(self) -> None:
+        """A candidate is a version like any other, in every spelling.
+
+        v1.10.0-rc.1 cleared bump, publish and both installers, then died in
+        the lifecycle harness on all twelve cells: its -ReleaseRef pattern was
+        the sixth spelling of the grammar and the only one still release-only.
+        The shells cannot import release_identity, so each spelling is held
+        here to the behavior the grammar promises.
+        """
+        powershell = r"\[ValidatePattern\('(\^v[^']*)'\)\]\s*\[string\]\$ReleaseRef"
+        bash = r"=~ (\^v\S+) \]\]"
+        gates = {
+            "install.ps1": powershell,
+            "scripts/run_real_upgrade_rollback.ps1": powershell,
+            "install.sh": bash,
+            ".github/workflows/auto-publish.yml": bash,
+        }
+        for relative, extractor in gates.items():
+            with self.subTest(gate=relative):
+                self._assert_candidate_grammar(relative, extractor)
+
+    def _assert_candidate_grammar(self, relative: str, extractor: str) -> None:
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        found = re.search(extractor, text)
+        self.assertIsNotNone(found, "no candidate-ref pattern found")
+        assert found is not None
+        pattern = re.compile(found.group(1))
+        self.assertTrue(pattern.match("v1.10.0-rc.2"))
+        self.assertTrue(pattern.match("v1.9.1"))
+        self.assertIsNone(pattern.match("v1.9.1-nightly.1"))
+
     def test_release_notes_come_from_the_changelog_section(self) -> None:
         version = changelog_version()
         notes = self.identity.release_notes(version)

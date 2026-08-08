@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidatePattern('^v\d+\.\d+\.\d+$')]
+    # Same grammar as install.ps1: a candidate is a version like any other, and
+    # this was the sixth spelling of the format -- v1.10.0-rc.1 cleared every
+    # gate the 1.10.0-rc.1 work widened and then died here, in the one
+    # candidate-ref pattern that stayed release-only.
+    [Parameter(Mandatory)][ValidatePattern('^v\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$')]
     [string]$ReleaseRef,
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
