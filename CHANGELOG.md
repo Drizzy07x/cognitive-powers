@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0-rc.5 - 2026-08-08
+
+- Re-issued the candidate from rewritten history. The six commits since `5d1d722` carried a co-author trailer this repository forbids in its history; the trailer is stripped, every tree is byte-identical to what was validated, and the `v1.10.0-rc.2` through `v1.10.0-rc.4` tags that named the old commits are deleted rather than repointed, because a pushed tag is never moved. Nothing those tags named was ever published — rc.2 and rc.3 failed their own validation and rc.4's run was cancelled with its tag — so no installed cache and no release entry ever bound to them. This section carries no code change; the candidate under validation is rc.4's tree under a name whose history is the repository's own.
+
 ## 1.10.0-rc.4 - 2026-08-08
 
 - Staged the hook-execution test's source tree so it holds only the surface it is about. `test_registered_hooks_do_not_degrade_on_the_copied_surface` handed `_copy_plugin` the repository root, and `_copy_plugin`'s large-tree guard scans its whole source before copying — correct for the fixture trees it was written against, and fatal on the CI checkout, where the workflow itself installs `ci/*/node_modules` at 304 MB before the suite runs. Every local run passes because no local checkout carries that tree, which is the same one-environment blindness the test was added to close for the A/B surface. The test now copies the declared surface into a staging tree and runs the production `_copy_plugin` from there: the files are the real files, the copy path is the shipped path, and the guard judges a source that is only what the surface claims. The `v1.10.0-rc.3` tag was cut before this fix and failed its own validation on all twelve cells; it publishes nothing and names no release.
