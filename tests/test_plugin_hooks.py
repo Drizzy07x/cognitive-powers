@@ -22,7 +22,16 @@ WORK_STATE = PLUGIN_ROOT / "skills" / "execute-durably" / "scripts" / "work_stat
 class PluginHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.base = Path(self.temporary.name)
+        # Resolved once, here, because the hook resolves every path it records
+        # and every path it prints. tempfile does not: on a Windows runner
+        # whose user is `runneradmin` it hands back the 8.3 short form
+        # `RUNNER~1`, and on macOS it hands back `/var` for `/private/var`.
+        # Both name the directory the hook names, spelled the other way, so a
+        # test comparing an unresolved path against the hook's output asserts
+        # that two spellings of one directory are the same string. That is
+        # invisible wherever the short and long forms coincide -- every Linux
+        # runner, and any Windows account whose name is already 8.3-clean.
+        self.base = Path(self.temporary.name).resolve()
         self.repo = self.base / "repo"
         self.data = self.base / "plugin-data"
         self.repo.mkdir()
